@@ -1,3 +1,32 @@
+HỆ THỐNG KHO PHÂN PHỐI CÔNG CỘNG CHO DOANH NGHIỆP THỜI TRANG
+
+1. GIỚI THIỆU HỆ THỐNG
+1.1 Mô tả bài toán
+Hệ thống được xây dựng nhằm hỗ trợ quản lý kho phân phối công cộng (Public Distribution Warehouse) dành cho nhiều doanh nghiệp thời trang cùng thuê không gian lưu trữ.
+Các doanh nghiệp có thể:
+Gửi hàng vào kho theo nhiều đợt
+Theo dõi tồn kho
+Yêu cầu xuất hàng
+Nhận báo cáo tồn kho và nhập/xuất hàng
+Hệ thống hỗ trợ:
+Multi-tenant inventory management
+FIFO inventory allocation
+Shared warehouse space optimization
+Container-based storage management
+AI-assisted slot recommendation
+
+2. MÔ HÌNH LƯU TRỮ
+2.1 Warehouse Hierarchy
+Warehouse
+ → Zone
+   → Rack
+      → Rack Level
+         → Bin
+            → LPN
+               → SKU
+
+
+
 // =====================================================
 // ENUMS
 // =====================================================
@@ -124,6 +153,14 @@ Enum reservation_status_enum {
   ACTIVE
   EXPIRED
   CANCELLED
+}
+
+Enum rental_request_status_enum {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CONVERTED
 }
 
 Enum inbound_status_enum {
@@ -417,6 +454,45 @@ Table skus {
 
 
 // =====================================================
+// TENANT ONBOARDING
+// =====================================================
+
+Table rental_requests {
+  rental_request_id uuid [pk]
+
+  request_code varchar [unique]
+
+  company_name varchar
+  company_code varchar
+  tax_code varchar
+  address text
+
+  contact_name varchar
+  contact_phone varchar
+  contact_email varchar
+
+  warehouse_id uuid [not null, ref: > warehouses.warehouse_id]
+
+  contract_type contract_type_enum
+  pricing_model pricing_model_enum
+  billing_cycle billing_cycle_enum
+
+  requested_capacity decimal
+  notes text
+
+  status rental_request_status_enum
+
+  reviewed_by uuid [ref: > users.user_id]
+  reviewed_at timestamp
+  rejection_reason text
+
+  created_by uuid [ref: > users.user_id]
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// =====================================================
 // CONTRACT
 // =====================================================
 
@@ -427,6 +503,8 @@ Table contracts {
 
   tenant_id uuid [not null, ref: > tenant_companies.tenant_id]
   warehouse_id uuid [not null, ref: > warehouses.warehouse_id]
+
+  rental_request_id uuid [unique, ref: > rental_requests.rental_request_id]
 
   contract_name varchar
 
@@ -447,6 +525,9 @@ Table contracts {
 
   created_by uuid [ref: > users.user_id]
   approved_by uuid [ref: > users.user_id]
+
+  tenant_signature text
+  warehouse_signature text
 
   created_at timestamp
 }
