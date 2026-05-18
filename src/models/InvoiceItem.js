@@ -12,23 +12,27 @@ export const invoiceItemSchema = {
   },
   itemType: {
     type: 'string',
-    required: false,
+    required: true,
   },
   description: {
     type: 'string',
     required: false,
   },
+  referenceId: {
+    type: 'string',
+    required: false,
+  },
   quantity: {
     type: 'decimal',
-    required: false,
+    required: true,
   },
   unitPrice: {
     type: 'decimal',
-    required: false,
+    required: true,
   },
   totalPrice: {
     type: 'decimal',
-    required: false,
+    required: true,
   },
 };
 

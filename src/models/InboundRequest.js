@@ -15,16 +15,21 @@ export const inboundRequestSchema = {
     required: true,
     foreignKey: 'contract_id',
   },
-  requestCode: {
+  warehouseId: {
     type: 'string',
-    required: false,
+    required: true,
+    foreignKey: 'warehouse_id',
+  },
+  inboundCode: {
+    type: 'string',
+    required: true,
     unique: true,
   },
   expectedArrivalDate: {
     type: 'datetime',
     required: false,
   },
-  actualArrivalDate: {
+  actualArrivalAt: {
     type: 'datetime',
     required: false,
   },
@@ -37,9 +42,23 @@ export const inboundRequestSchema = {
     required: false,
     foreignKey: 'user_id',
   },
+  approvedBy: {
+    type: 'string',
+    required: false,
+    foreignKey: 'user_id',
+  },
+  receivedBy: {
+    type: 'string',
+    required: false,
+    foreignKey: 'user_id',
+  },
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

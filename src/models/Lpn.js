@@ -5,23 +5,39 @@ export const lpnSchema = {
     type: 'string',
     primaryKey: true,
   },
-  batchId: {
-    type: 'string',
-    required: false,
-    foreignKey: 'batch_id',
-  },
-  lpnCode: {
-    type: 'string',
-    required: false,
-    unique: true,
-  },
   tenantId: {
     type: 'string',
     required: true,
     foreignKey: 'tenant_id',
   },
+  batchId: {
+    type: 'string',
+    required: true,
+    foreignKey: 'batch_id',
+  },
+  lpnCode: {
+    type: 'string',
+    required: true,
+    unique: true,
+  },
   boxType: {
     type: 'string',
+    required: true,
+  },
+  volumeUnits: {
+    type: 'number',
+    required: true,
+  },
+  maxCapacity: {
+    type: 'number',
+    required: false,
+  },
+  actualQuantity: {
+    type: 'number',
+    required: false,
+  },
+  fillPercentage: {
+    type: 'decimal',
     required: false,
   },
   currentBinId: {
@@ -36,6 +52,10 @@ export const lpnSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

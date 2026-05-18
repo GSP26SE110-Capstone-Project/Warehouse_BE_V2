@@ -5,28 +5,28 @@ export const invoiceSchema = {
     type: 'string',
     primaryKey: true,
   },
-  contractId: {
-    type: 'string',
-    required: true,
-    foreignKey: 'contract_id',
-  },
   tenantId: {
     type: 'string',
     required: true,
     foreignKey: 'tenant_id',
   },
+  contractId: {
+    type: 'string',
+    required: true,
+    foreignKey: 'contract_id',
+  },
   invoiceCode: {
     type: 'string',
-    required: false,
+    required: true,
     unique: true,
   },
-  billingPeriodStart: {
-    type: 'datetime',
-    required: false,
+  billingStartDate: {
+    type: 'date',
+    required: true,
   },
-  billingPeriodEnd: {
-    type: 'datetime',
-    required: false,
+  billingEndDate: {
+    type: 'date',
+    required: true,
   },
   subtotal: {
     type: 'decimal',
@@ -49,6 +49,14 @@ export const invoiceSchema = {
     required: false,
   },
   dueDate: {
+    type: 'datetime',
+    required: false,
+  },
+  createdAt: {
+    type: 'datetime',
+    default: 'NOW()',
+  },
+  updatedAt: {
     type: 'datetime',
     required: false,
   },

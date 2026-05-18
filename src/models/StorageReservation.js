@@ -17,15 +17,15 @@ export const storageReservationSchema = {
   },
   reservationType: {
     type: 'string',
-    required: false,
+    required: true,
   },
   storageLevel: {
     type: 'string',
-    required: false,
+    required: true,
   },
   warehouseId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'warehouse_id',
   },
   zoneId: {
@@ -52,13 +52,17 @@ export const storageReservationSchema = {
     type: 'decimal',
     required: false,
   },
-  startDate: {
-    type: 'datetime',
+  boxType: {
+    type: 'string',
     required: false,
   },
+  startDate: {
+    type: 'date',
+    required: true,
+  },
   endDate: {
-    type: 'datetime',
-    required: false,
+    type: 'date',
+    required: true,
   },
   status: {
     type: 'string',
@@ -67,6 +71,10 @@ export const storageReservationSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

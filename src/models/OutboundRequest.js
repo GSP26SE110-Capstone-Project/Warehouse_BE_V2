@@ -15,12 +15,21 @@ export const outboundRequestSchema = {
     required: true,
     foreignKey: 'contract_id',
   },
-  requestCode: {
+  warehouseId: {
     type: 'string',
-    required: false,
+    required: true,
+    foreignKey: 'warehouse_id',
+  },
+  outboundCode: {
+    type: 'string',
+    required: true,
     unique: true,
   },
   requestedShipDate: {
+    type: 'datetime',
+    required: false,
+  },
+  actualShippedAt: {
     type: 'datetime',
     required: false,
   },
@@ -33,9 +42,18 @@ export const outboundRequestSchema = {
     required: false,
     foreignKey: 'user_id',
   },
+  approvedBy: {
+    type: 'string',
+    required: false,
+    foreignKey: 'user_id',
+  },
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

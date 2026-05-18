@@ -17,24 +17,32 @@ export const inventorySchema = {
   },
   batchId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'batch_id',
   },
   lpnId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'lpn_id',
   },
   binId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'bin_id',
   },
   quantity: {
     type: 'number',
+    required: true,
+  },
+  reservedQuantity: {
+    type: 'number',
     required: false,
   },
-  inventoryStatus: {
+  availableQuantity: {
+    type: 'number',
+    required: false,
+  },
+  status: {
     type: 'string',
     required: false,
   },
@@ -42,9 +50,13 @@ export const inventorySchema = {
     type: 'datetime',
     required: false,
   },
-  updatedAt: {
+  createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

@@ -17,7 +17,7 @@ export const lpnDetailSchema = {
   },
   quantity: {
     type: 'number',
-    required: false,
+    required: true,
   },
 };
 

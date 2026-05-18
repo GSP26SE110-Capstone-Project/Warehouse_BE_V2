@@ -10,21 +10,29 @@ export const paymentSchema = {
     required: true,
     foreignKey: 'invoice_id',
   },
-  paymentMethod: {
-    type: 'string',
-    required: false,
-  },
   amount: {
     type: 'decimal',
+    required: true,
+  },
+  paymentMethod: {
+    type: 'string',
     required: false,
   },
   paymentStatus: {
     type: 'string',
     required: false,
   },
+  transactionCode: {
+    type: 'string',
+    required: false,
+  },
   paidAt: {
     type: 'datetime',
     required: false,
+  },
+  createdAt: {
+    type: 'datetime',
+    default: 'NOW()',
   },
 };
 

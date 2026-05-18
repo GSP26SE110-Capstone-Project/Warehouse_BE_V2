@@ -12,26 +12,34 @@ export const binSchema = {
   },
   binCode: {
     type: 'string',
+    required: true,
+  },
+  supportedBoxType: {
+    type: 'string',
     required: false,
   },
-  capacitySmall: {
-    type: 'decimal',
+  maxLpnCount: {
+    type: 'number',
+    required: true,
+  },
+  currentLpnCount: {
+    type: 'number',
     required: false,
   },
-  capacityMedium: {
-    type: 'decimal',
+  maxVolumeUnits: {
+    type: 'number',
+    required: true,
+  },
+  usedVolumeUnits: {
+    type: 'number',
     required: false,
   },
-  capacityLarge: {
-    type: 'decimal',
+  maxOwnerCount: {
+    type: 'number',
     required: false,
   },
-  capacityExtra: {
-    type: 'decimal',
-    required: false,
-  },
-  currentOccupiedCapacity: {
-    type: 'decimal',
+  reservationType: {
+    type: 'string',
     required: false,
   },
   status: {
@@ -41,6 +49,10 @@ export const binSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

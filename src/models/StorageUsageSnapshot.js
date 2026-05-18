@@ -17,7 +17,15 @@ export const storageUsageSnapshotSchema = {
   },
   snapshotDate: {
     type: 'date',
+    required: true,
+  },
+  storageLevel: {
+    type: 'string',
     required: false,
+  },
+  billingUnit: {
+    type: 'string',
+    required: true,
   },
   boxType: {
     type: 'string',
@@ -25,11 +33,11 @@ export const storageUsageSnapshotSchema = {
   },
   occupiedCount: {
     type: 'number',
-    required: false,
+    required: true,
   },
   calculatedFee: {
     type: 'decimal',
-    required: false,
+    required: true,
   },
   createdAt: {
     type: 'datetime',

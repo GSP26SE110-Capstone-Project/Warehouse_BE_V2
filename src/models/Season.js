@@ -7,7 +7,7 @@ export const seasonSchema = {
   },
   seasonName: {
     type: 'string',
-    required: false,
+    required: true,
   },
 };
 

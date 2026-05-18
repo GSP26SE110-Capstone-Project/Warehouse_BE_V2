@@ -7,16 +7,17 @@ export const batchSchema = {
   },
   inboundRequestId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'inbound_request_id',
   },
   batchCode: {
     type: 'string',
-    required: false,
+    required: true,
+    unique: true,
   },
-  receivedDate: {
+  warehouseReceivedAt: {
     type: 'datetime',
-    required: false,
+    required: true,
   },
   createdAt: {
     type: 'datetime',

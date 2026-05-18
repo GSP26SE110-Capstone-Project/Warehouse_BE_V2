@@ -17,9 +17,13 @@ export const outboundRequestItemSchema = {
   },
   requestedQuantity: {
     type: 'number',
-    required: false,
+    required: true,
   },
   allocatedQuantity: {
+    type: 'number',
+    required: false,
+  },
+  pickedQuantity: {
     type: 'number',
     required: false,
   },

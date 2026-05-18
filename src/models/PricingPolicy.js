@@ -10,17 +10,17 @@ export const pricingPolicySchema = {
     required: false,
     foreignKey: 'warehouse_id',
   },
+  contractType: {
+    type: 'string',
+    required: false,
+  },
   storageLevel: {
     type: 'string',
     required: false,
   },
-  pricingMethod: {
+  billingUnit: {
     type: 'string',
-    required: false,
-  },
-  unit: {
-    type: 'string',
-    required: false,
+    required: true,
   },
   boxType: {
     type: 'string',
@@ -28,6 +28,14 @@ export const pricingPolicySchema = {
   },
   price: {
     type: 'decimal',
+    required: true,
+  },
+  effectiveFrom: {
+    type: 'datetime',
+    required: false,
+  },
+  effectiveTo: {
+    type: 'datetime',
     required: false,
   },
   createdAt: {

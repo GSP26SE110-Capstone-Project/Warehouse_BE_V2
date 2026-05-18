@@ -7,7 +7,7 @@ export const pickingTaskSchema = {
   },
   outboundRequestId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'outbound_request_id',
   },
   assignedTo: {
@@ -22,6 +22,10 @@ export const pickingTaskSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

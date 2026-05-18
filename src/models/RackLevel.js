@@ -10,15 +10,19 @@ export const rackLevelSchema = {
     required: true,
     foreignKey: 'rack_id',
   },
+  levelCode: {
+    type: 'string',
+    required: false,
+  },
   levelNumber: {
     type: 'number',
-    required: false,
+    required: true,
   },
   maxBins: {
     type: 'number',
     required: false,
   },
-  maxWeight: {
+  maxWeightKg: {
     type: 'decimal',
     required: false,
   },
@@ -26,9 +30,17 @@ export const rackLevelSchema = {
     type: 'decimal',
     required: false,
   },
+  levelPriority: {
+    type: 'number',
+    required: false,
+  },
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

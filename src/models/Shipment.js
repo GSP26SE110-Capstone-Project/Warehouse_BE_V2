@@ -5,12 +5,30 @@ export const shipmentSchema = {
     type: 'string',
     primaryKey: true,
   },
+  tenantId: {
+    type: 'string',
+    required: true,
+    foreignKey: 'tenant_id',
+  },
   outboundRequestId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'outbound_request_id',
   },
   shipmentCode: {
+    type: 'string',
+    required: false,
+    unique: true,
+  },
+  carrierName: {
+    type: 'string',
+    required: false,
+  },
+  trackingNumber: {
+    type: 'string',
+    required: false,
+  },
+  status: {
     type: 'string',
     required: false,
   },
@@ -18,8 +36,16 @@ export const shipmentSchema = {
     type: 'datetime',
     required: false,
   },
-  status: {
-    type: 'string',
+  deliveredAt: {
+    type: 'datetime',
+    required: false,
+  },
+  createdAt: {
+    type: 'datetime',
+    default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
     required: false,
   },
 };

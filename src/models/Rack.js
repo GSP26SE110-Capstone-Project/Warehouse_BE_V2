@@ -12,10 +12,14 @@ export const rackSchema = {
   },
   rackCode: {
     type: 'string',
-    required: false,
+    required: true,
   },
   rackType: {
     type: 'string',
+    required: false,
+  },
+  maxLevels: {
+    type: 'number',
     required: false,
   },
   status: {
@@ -25,6 +29,10 @@ export const rackSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

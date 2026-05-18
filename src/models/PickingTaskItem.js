@@ -12,8 +12,27 @@ export const pickingTaskItemSchema = {
   },
   inventoryId: {
     type: 'string',
-    required: false,
+    required: true,
     foreignKey: 'inventory_id',
+  },
+  lpnId: {
+    type: 'string',
+    required: true,
+    foreignKey: 'lpn_id',
+  },
+  binId: {
+    type: 'string',
+    required: true,
+    foreignKey: 'bin_id',
+  },
+  batchId: {
+    type: 'string',
+    required: true,
+    foreignKey: 'batch_id',
+  },
+  quantityToPick: {
+    type: 'number',
+    required: true,
   },
   pickedQuantity: {
     type: 'number',

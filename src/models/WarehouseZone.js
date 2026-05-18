@@ -12,7 +12,7 @@ export const warehouseZoneSchema = {
   },
   zoneCode: {
     type: 'string',
-    required: false,
+    required: true,
   },
   zoneName: {
     type: 'string',
@@ -26,6 +26,10 @@ export const warehouseZoneSchema = {
     type: 'decimal',
     required: false,
   },
+  isDedicated: {
+    type: 'boolean',
+    required: false,
+  },
   status: {
     type: 'string',
     required: false,
@@ -33,6 +37,10 @@ export const warehouseZoneSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

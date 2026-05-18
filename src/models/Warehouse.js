@@ -7,18 +7,22 @@ export const warehouseSchema = {
   },
   warehouseCode: {
     type: 'string',
-    required: false,
+    required: true,
     unique: true,
   },
   warehouseName: {
     type: 'string',
-    required: false,
+    required: true,
   },
   address: {
     type: 'string',
     required: false,
   },
   totalAreaM2: {
+    type: 'decimal',
+    required: false,
+  },
+  usableAreaM2: {
     type: 'decimal',
     required: false,
   },
@@ -29,6 +33,10 @@ export const warehouseSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

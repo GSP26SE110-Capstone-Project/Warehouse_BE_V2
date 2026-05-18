@@ -12,23 +12,31 @@ export const contractItemSchema = {
   },
   itemType: {
     type: 'string',
-    required: false,
+    required: true,
   },
   storageLevel: {
     type: 'string',
     required: false,
   },
+  billingUnit: {
+    type: 'string',
+    required: true,
+  },
   quantity: {
     type: 'decimal',
     required: false,
   },
-  unitPrice: {
-    type: 'decimal',
+  reservedQuantity: {
+    type: 'number',
     required: false,
   },
-  billingType: {
+  boxType: {
     type: 'string',
     required: false,
+  },
+  unitPrice: {
+    type: 'decimal',
+    required: true,
   },
   createdAt: {
     type: 'datetime',

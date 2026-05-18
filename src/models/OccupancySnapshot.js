@@ -10,12 +10,21 @@ export const occupancySnapshotSchema = {
     required: false,
     foreignKey: 'warehouse_id',
   },
-  snapshotDate: {
-    type: 'date',
+  zoneId: {
+    type: 'string',
     required: false,
+    foreignKey: 'zone_id',
   },
   occupancyRate: {
     type: 'decimal',
+    required: false,
+  },
+  availableCapacity: {
+    type: 'number',
+    required: false,
+  },
+  snapshotDate: {
+    type: 'date',
     required: false,
   },
   createdAt: {

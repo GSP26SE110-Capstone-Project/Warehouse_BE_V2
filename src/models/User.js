@@ -5,9 +5,19 @@ export const userSchema = {
     type: 'string',
     primaryKey: true,
   },
-  fullName: {
+  tenantId: {
     type: 'string',
     required: false,
+    foreignKey: 'tenant_id',
+  },
+  warehouseId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'warehouse_id',
+  },
+  fullName: {
+    type: 'string',
+    required: true,
   },
   email: {
     type: 'string',
@@ -22,15 +32,9 @@ export const userSchema = {
     type: 'string',
     required: false,
   },
-  tenantId: {
+  role: {
     type: 'string',
-    required: false,
-    foreignKey: 'tenant_id',
-  },
-  warehouseId: {
-    type: 'string',
-    required: false,
-    foreignKey: 'warehouse_id',
+    required: true,
   },
   status: {
     type: 'string',
@@ -42,7 +46,7 @@ export const userSchema = {
   },
   updatedAt: {
     type: 'datetime',
-    default: 'NOW()',
+    required: false,
   },
 };
 

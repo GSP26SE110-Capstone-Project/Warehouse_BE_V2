@@ -7,7 +7,7 @@ export const categorySchema = {
   },
   categoryName: {
     type: 'string',
-    required: false,
+    required: true,
   },
 };
 

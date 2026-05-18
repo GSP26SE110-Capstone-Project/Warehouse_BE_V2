@@ -10,6 +10,10 @@ export const inventoryMovementSchema = {
     required: true,
     foreignKey: 'inventory_id',
   },
+  movementType: {
+    type: 'string',
+    required: true,
+  },
   fromBinId: {
     type: 'string',
     required: false,
@@ -20,22 +24,22 @@ export const inventoryMovementSchema = {
     required: false,
     foreignKey: 'bin_id',
   },
-  movementType: {
-    type: 'string',
-    required: false,
-  },
   quantity: {
     type: 'number',
-    required: false,
+    required: true,
   },
-  createdBy: {
+  movedBy: {
     type: 'string',
     required: false,
     foreignKey: 'user_id',
   },
-  createdAt: {
+  movedAt: {
     type: 'datetime',
-    default: 'NOW()',
+    required: false,
+  },
+  note: {
+    type: 'string',
+    required: false,
   },
 };
 

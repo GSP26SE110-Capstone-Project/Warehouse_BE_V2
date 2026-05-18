@@ -10,6 +10,21 @@ export const aiSlotRecommendationSchema = {
     required: false,
     foreignKey: 'inbound_request_id',
   },
+  lpnId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'lpn_id',
+  },
+  skuId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'sku_id',
+  },
+  recommendedZoneId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'zone_id',
+  },
   recommendedBinId: {
     type: 'string',
     required: false,
@@ -21,6 +36,10 @@ export const aiSlotRecommendationSchema = {
   },
   reason: {
     type: 'string',
+    required: false,
+  },
+  isApplied: {
+    type: 'boolean',
     required: false,
   },
   createdAt: {

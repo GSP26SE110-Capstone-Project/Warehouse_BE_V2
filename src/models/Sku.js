@@ -12,12 +12,11 @@ export const skuSchema = {
   },
   skuCode: {
     type: 'string',
-    required: false,
-    unique: true,
+    required: true,
   },
   productName: {
     type: 'string',
-    required: false,
+    required: true,
   },
   categoryId: {
     type: 'string',
@@ -46,7 +45,7 @@ export const skuSchema = {
     type: 'string',
     required: false,
   },
-  boxType: {
+  movementCategory: {
     type: 'string',
     required: false,
   },
@@ -57,6 +56,10 @@ export const skuSchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

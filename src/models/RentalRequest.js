@@ -7,12 +7,12 @@ export const rentalRequestSchema = {
   },
   requestCode: {
     type: 'string',
-    required: false,
+    required: true,
     unique: true,
   },
   companyName: {
     type: 'string',
-    required: false,
+    required: true,
   },
   companyCode: {
     type: 'string',
@@ -30,11 +30,11 @@ export const rentalRequestSchema = {
     type: 'string',
     required: false,
   },
-  contactPhone: {
+  contactEmail: {
     type: 'string',
     required: false,
   },
-  contactEmail: {
+  contactPhone: {
     type: 'string',
     required: false,
   },
@@ -55,8 +55,12 @@ export const rentalRequestSchema = {
     type: 'string',
     required: false,
   },
-  requestedCapacity: {
+  estimatedVolume: {
     type: 'decimal',
+    required: false,
+  },
+  expectedStartDate: {
+    type: 'datetime',
     required: false,
   },
   notes: {

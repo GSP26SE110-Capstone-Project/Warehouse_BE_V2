@@ -7,7 +7,7 @@ export const tenantCompanySchema = {
   },
   companyName: {
     type: 'string',
-    required: false,
+    required: true,
   },
   companyCode: {
     type: 'string',
@@ -17,16 +17,21 @@ export const tenantCompanySchema = {
   taxCode: {
     type: 'string',
     required: false,
-  },
-  address: {
-    type: 'string',
-    required: false,
+    unique: true,
   },
   contactName: {
     type: 'string',
     required: false,
   },
+  contactEmail: {
+    type: 'string',
+    required: false,
+  },
   contactPhone: {
+    type: 'string',
+    required: false,
+  },
+  address: {
     type: 'string',
     required: false,
   },
@@ -37,6 +42,10 @@ export const tenantCompanySchema = {
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 

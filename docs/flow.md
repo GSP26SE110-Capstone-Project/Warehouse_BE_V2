@@ -1,6 +1,8 @@
 MAIN FLOWS — PUBLIC FASHION WAREHOUSE SYSTEM
 
-(Không bao gồm authentication)
+Schema tham chiếu: `docs/db4.md`
+
+(Không bao gồm authentication — users dùng `role` enum trực tiếp)
 
 1. Tenant Onboarding Flow
 Mục tiêu
@@ -10,17 +12,19 @@ Tenant đăng ký thuê kho và ký hợp đồng.
 Flow
 Tenant submit rental request
     ↓
-WH_ADMIN/SYSTEM_ADMIN review
+WH_ADMIN/SYSTEM_ADMIN review (UNDER_REVIEW)
     ↓
 Negotiate pricing & storage type
     ↓
-Create tenant company
+APPROVED → Create tenant company
     ↓
-Create contract
+Create contract (gắn rental_request_id)
     ↓
-Assign storage reservation
+Ký HĐ (tenant_signature, warehouse_signature) → ACTIVE
     ↓
-Activate tenant
+Assign storage reservation (theo storage_level)
+    ↓
+Activate tenant → rental_requests.status = CONVERTED
 Tables liên quan
 rental_requests
 tenant_companies
@@ -31,7 +35,8 @@ storage_reservations
 Status rental_requests
 PENDING → UNDER_REVIEW → APPROVED → CONVERTED
                       ↘ REJECTED
-(CONVERTED: đã tạo tenant + contract; tra contract qua contracts.rental_request_id)
+(CONVERTED: đã tạo tenant + contract; tra contract qua `contracts.rental_request_id`)
+
 2. Warehouse Structure Management Flow
 Mục tiêu
 
@@ -40,370 +45,199 @@ Quản lý cấu trúc kho.
 Flow
 Create warehouse
     ↓
-Create zones
+Create zones (zone_type: SHARED, DEDICATED, FAST_MOVING, BULK, PREMIUM, QC, RETURN)
     ↓
-Create racks
+Create racks → rack levels
     ↓
-Create rack levels
-    ↓
-Create bins
+Create bins (volume_units, max_lpn_count, shared policy)
 Hierarchy
-Warehouse
-    ↓
-Zone
-    ↓
-Rack
-    ↓
-Rack Level
-    ↓
-Bin
+Warehouse → Zone → Rack → Rack Level → Bin → LPN → SKU
 Tables liên quan
 warehouses
 warehouse_zones
 racks
 rack_levels
 bins
+
 3. SKU Management Flow
 Mục tiêu
 
 Quản lý thông tin sản phẩm thời trang.
 
 Flow
-Tenant create SKU
+Tenant create SKU (per tenant, sku_code unique trong tenant)
     ↓
 Warehouse review (optional)
     ↓
-SKU active
-SKU gồm
-loại quần áo
-màu
-size
-material
-collection
-season
+SKU ACTIVE
+SKU gồm: category, collection (theo tenant), season, color, size, material, movement_category
 Tables liên quan
 skus
 categories
 collections
 seasons
+
 4. Inbound Flow (Nhập kho)
 Đây là flow core nhất
 Flow tổng
-Tenant tạo inbound request
+Tenant tạo inbound request (cần contract_id + warehouse_id)
     ↓
-Warehouse approve inbound
+Warehouse approve (APPROVED)
     ↓
-Truck arrives warehouse
+Truck arrives (ARRIVED)
     ↓
-Warehouse receiving
+Warehouse receiving (RECEIVING)
     ↓
-Create batches
+Create batches (warehouse_received_at — FIFO)
     ↓
-Create LPNs
+Create LPNs (box_type, volume_units)
     ↓
-AI slot recommendation
+AI slot recommendation (zone + bin, is_applied)
     ↓
-Putaway into bins
+Putaway (PUTAWAY movement)
     ↓
-Inventory updated
+Inventory updated (COMPLETED)
 Flow chi tiết
 4.1 Create Inbound Request
+Tenant khai báo: SKU, quantity, expected_arrival_date
+Tables: inbound_requests, inbound_request_items
 
-Tenant khai báo:
-
-SKU
-quantity
-expected arrival
-Tables
-inbound_requests
-inbound_request_items
 4.2 Receiving
+Unload, QC, kiểm đếm → discrepancy_quantity trên items
+Tables: batches
 
-Warehouse:
-
-unload hàng
-QC
-kiểm đếm
-Tables
-batches
 4.3 LPN Creation
+Tables: lpns, lpn_details
 
-Tạo:
-
-thùng/carton
-Tables
-lpns
-lpn_details
 4.4 AI Putaway Recommendation
+AI recommend zone + bin (không quyết định FIFO)
+Tables: ai_slot_recommendations
 
-AI recommend:
-
-zone
-rack
-level
-bin
-Tables
-ai_slot_recommendations
 4.5 Putaway
+Scan LPN → bin; cập nhật inventories + inventory_movements (PUTAWAY)
 
-Warehouse staff:
-
-scan LPN
-đưa vào bin
-Tables
-inventories
-inventory_movements
 5. Inventory Management Flow
 Mục tiêu
 
 Quản lý tồn kho realtime.
 
 Flow
-Inbound completed
+Inbound completed → quantity, reserved_quantity, available_quantity
     ↓
-Inventory available
+Movement tracking (INBOUND, PUTAWAY, RELOCATION, PICKING, OUTBOUND, SHIPPING, ADJUSTMENT)
     ↓
-Movement tracking
-    ↓
-Inventory allocation
-    ↓
-Inventory aging tracking
+Allocation khi outbound (status RESERVED trên inventory)
 Features
-FIFO
+FIFO (received_at, batch age)
 inventory lookup
-occupancy tracking
-stock availability
+occupancy (bins.used_volume_units, occupancy_snapshots)
 Tables
 inventories
 inventory_movements
+
 6. Storage Reservation Flow
 Mục tiêu
 
 Quản lý shared/reserved/dedicated storage.
 
 Flow
-Create reservation
+Create reservation theo contract
     ↓
-Assign storage level
+Chọn storage_level + FK tương ứng:
+  WAREHOUSE → warehouse_id
+  ZONE → zone_id
+  RACK → rack_id
+  RACK_LEVEL → rack_level_id
+  BIN → bin_id
     ↓
-Reserve capacity
-    ↓
-Track occupancy
+Reserve capacity → track occupancy
 Reservation types
-Type	Meaning
-SHARED	dùng chung
-RESERVED	reserve riêng
-DEDICATED	thuê nguyên khu
+SHARED | RESERVED | DEDICATED
 Tables
 storage_reservations
+
 7. Outbound Flow (Xuất kho)
 Flow tổng
 Tenant create outbound request
     ↓
 Warehouse approve
     ↓
-FIFO allocation
+FIFO allocation (allocated_quantity — AI không allocate)
     ↓
-Generate picking tasks
+RESERVED → Generate picking tasks
     ↓
-Picking
+PICKING (pick theo inventory + lpn + bin + batch)
     ↓
-Packing
+PACKING
     ↓
-Shipping
+SHIPPED (shipments + tenant_id)
     ↓
-Inventory deducted
+COMPLETED — inventory deducted
 7.1 Create Outbound Request
+Tables: outbound_requests, outbound_request_items
 
-Tenant yêu cầu:
-
-SKU
-quantity
-ship date
-Tables
-outbound_requests
-outbound_request_items
 7.2 FIFO Allocation
+Dựa trên: received_at, batch age (warehouse_received_at)
 
-System:
-
-tự allocate inventory
-Quan trọng:
-
-AI không quyết định FIFO.
-
-FIFO dựa trên:
-received_at
-batch age
 7.3 Picking
+Tables: picking_tasks, picking_task_items
 
-Warehouse staff:
-
-pick inventory
-scan LPN/bin
-Tables
-picking_tasks
-picking_task_items
 7.4 Shipping
+Tables: shipments (tenant_id, tracking_number, carrier_name)
 
-Tạo shipment.
-
-Tables
-shipments
 8. Billing Flow
 Flow tổng
-Track storage usage
+Daily/monthly usage snapshots (billing_unit: BOX_DAY, BIN_DAY, …)
     ↓
-Generate usage snapshots
+Generate invoice (billing_start_date / billing_end_date)
     ↓
-Calculate invoice
-    ↓
-Generate invoice items
-    ↓
-Payment tracking
+invoice_items + payments
 8.1 Usage Tracking
+Tables: storage_usage_snapshots
 
-System snapshot:
-
-occupancy
-reserved capacity
-overflow usage
-Tables
-storage_usage_snapshots
 8.2 Invoice Generation
+pricing_model: USAGE_BASED | FIXED | HYBRID
+Tables: invoices, invoice_items
 
-Tính theo:
-
-FIXED
-USAGE_BASED
-HYBRID
-Tables
-invoices
-invoice_items
 8.3 Payment
+invoice.payment_status: PENDING | PAID | OVERDUE
+payments.payment_status: PENDING | SUCCESS | FAILED
+Tables: payments
 
-Theo dõi:
-
-paid
-overdue
-Tables
-payments
 9. AI Recommendation Flow
 Mục tiêu
 
 Tối ưu putaway và occupancy.
 
 Flow
-Inbound created
+Inbound / LPN created
     ↓
-Collect warehouse data
+Recommend slot (ai_slot_recommendations)
     ↓
-Generate embeddings
-    ↓
-Vector search
-    ↓
-LLM reasoning
-    ↓
-Recommend best slot
-AI chỉ:
-recommend
-analytics
-optimization
-AI KHÔNG:
-quyết định FIFO
-tự động xuất kho
-tự động allocate inventory
+Staff apply → is_applied = true
+AI chỉ: recommend, analytics (sku_movement_analytics)
+AI KHÔNG: FIFO, auto outbound, auto allocate
 Tables
-ai_embedding_documents
 ai_slot_recommendations
 occupancy_snapshots
+sku_movement_analytics
+
 10. Occupancy Monitoring Flow
-Mục tiêu
+Track bin → aggregate zone/warehouse → occupancy_snapshots
+Tables: occupancy_snapshots, bins, inventories
 
-Theo dõi mức sử dụng kho.
-
-Flow
-Track bin occupancy
-    ↓
-Aggregate rack occupancy
-    ↓
-Aggregate zone occupancy
-    ↓
-Generate occupancy snapshot
-Metrics
-occupancy rate
-available capacity
-reserved capacity
-overflow risk
-Tables
-occupancy_snapshots
-bins
-inventories
 11. Reporting Flow
-Mục tiêu
+inventory + inbound/outbound + billing + occupancy → export
 
-Xuất báo cáo cho tenant.
-
-Flow
-Collect inventory data
-    ↓
-Collect billing data
-    ↓
-Generate report
-    ↓
-Export Excel/PDF
-    ↓
-Send to tenant
-Report gồm
-inventory summary
-SKU list
-current occupancy
-inbound/outbound history
-billing summary
 12. Inventory Relocation Flow
-Mục tiêu
+inventory_movements (RELOCATION)
 
-Di chuyển hàng trong kho.
-
-Flow
-Create relocation request
-    ↓
-Move inventory
-    ↓
-Update inventory location
-    ↓
-Track movement logs
-Tables
-inventory_movements
 13. Damage Handling Flow
-Mục tiêu
+inventory.status = DAMAGED; zone_type QC / RETURN
 
-Xử lý hàng hư hỏng.
-
-Flow
-Detect damaged inventory
-    ↓
-Mark inventory damaged
-    ↓
-Move to damage zone
-    ↓
-Notify tenant
-Inventory status
-DAMAGED
 14. Capacity Optimization Flow
-Mục tiêu
+AI suggest relocation từ sku_movement_analytics + occupancy
 
-Tối ưu occupancy.
-
-Flow
-Analyze occupancy
-    ↓
-Detect fragmented bins
-    ↓
-Suggest relocation
-    ↓
-Optimize available capacity
-Đây là nơi AI rất hợp lý.
 15. Tổng kết CORE FLOWS
 Flow	Priority
 Tenant onboarding	HIGH
@@ -418,22 +252,20 @@ AI recommendation	MEDIUM
 Reporting	HIGH
 Relocation	MEDIUM
 Damage handling	MEDIUM
+
 16. Nếu phải demo capstone
 MUST HAVE
-
 ✅ Warehouse hierarchy
 ✅ SKU management
-✅ Inbound
-✅ Putaway
-✅ Inventory
-✅ FIFO outbound
-✅ Billing
+✅ Inbound + LPN + putaway
+✅ Inventory + FIFO outbound
+✅ Billing (usage snapshots)
 ✅ AI recommendation
 ✅ Reporting
 
 OPTIONAL
 relocation
 damage handling
-advanced analytics
+sku_movement_analytics dashboards
 realtime websocket
 Kafka events

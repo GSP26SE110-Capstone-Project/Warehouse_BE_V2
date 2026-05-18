@@ -17,11 +17,19 @@ export const inboundRequestItemSchema = {
   },
   expectedQuantity: {
     type: 'number',
-    required: false,
+    required: true,
   },
   receivedQuantity: {
     type: 'number',
     required: false,
+  },
+  discrepancyQuantity: {
+    type: 'number',
+    required: false,
+  },
+  createdAt: {
+    type: 'datetime',
+    default: 'NOW()',
   },
 };
 

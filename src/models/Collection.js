@@ -5,9 +5,14 @@ export const collectionSchema = {
     type: 'string',
     primaryKey: true,
   },
+  tenantId: {
+    type: 'string',
+    required: true,
+    foreignKey: 'tenant_id',
+  },
   collectionName: {
     type: 'string',
-    required: false,
+    required: true,
   },
 };
 

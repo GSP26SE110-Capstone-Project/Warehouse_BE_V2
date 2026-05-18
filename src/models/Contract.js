@@ -5,11 +5,6 @@ export const contractSchema = {
     type: 'string',
     primaryKey: true,
   },
-  contractCode: {
-    type: 'string',
-    required: false,
-    unique: true,
-  },
   tenantId: {
     type: 'string',
     required: true,
@@ -23,8 +18,13 @@ export const contractSchema = {
   rentalRequestId: {
     type: 'string',
     required: false,
-    unique: true,
     foreignKey: 'rental_request_id',
+    unique: true,
+  },
+  contractCode: {
+    type: 'string',
+    required: true,
+    unique: true,
   },
   contractName: {
     type: 'string',
@@ -32,33 +32,53 @@ export const contractSchema = {
   },
   contractType: {
     type: 'string',
-    required: false,
+    required: true,
   },
   pricingModel: {
     type: 'string',
-    required: false,
-  },
-  startDate: {
-    type: 'datetime',
-    required: false,
-  },
-  endDate: {
-    type: 'datetime',
-    required: false,
+    required: true,
   },
   billingCycle: {
     type: 'string',
+    required: false,
+  },
+  allowDynamicRelocation: {
+    type: 'boolean',
     required: false,
   },
   autoRenew: {
     type: 'boolean',
     required: false,
   },
+  startDate: {
+    type: 'date',
+    required: true,
+  },
+  endDate: {
+    type: 'date',
+    required: true,
+  },
+  minimumBillingDays: {
+    type: 'number',
+    required: false,
+  },
   minimumReservedCapacity: {
     type: 'decimal',
     required: false,
   },
+  estimatedTotalAmount: {
+    type: 'decimal',
+    required: false,
+  },
   status: {
+    type: 'string',
+    required: false,
+  },
+  tenantSignature: {
+    type: 'string',
+    required: false,
+  },
+  warehouseSignature: {
     type: 'string',
     required: false,
   },
@@ -72,17 +92,13 @@ export const contractSchema = {
     required: false,
     foreignKey: 'user_id',
   },
-  tenantSignature: {
-    type: 'string',
-    required: false,
-  },
-  warehouseSignature: {
-    type: 'string',
-    required: false,
-  },
   createdAt: {
     type: 'datetime',
     default: 'NOW()',
+  },
+  updatedAt: {
+    type: 'datetime',
+    required: false,
   },
 };
 
