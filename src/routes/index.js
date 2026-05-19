@@ -11,6 +11,7 @@ import rackRoutes from './rack.routes.js';
 import rackLevelRoutes from './rackLevel.routes.js';
 import binRoutes from './bin.routes.js';
 import rentalRequestRoutes from './rentalRequest.routes.js';
+import tenantCompanyRoutes from './tenantCompany.routes.js';
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.use('/racks', rackRoutes);
 router.use('/rack-levels', rackLevelRoutes);
 router.use('/bins', binRoutes);
 router.use('/rental-requests', rentalRequestRoutes);
+router.use('/tenants', tenantCompanyRoutes);
 
 router.get(
   '/health',

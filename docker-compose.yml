@@ -4,8 +4,9 @@
 #   API_HOST_PORT=3005
 # rồi mở Swagger: http://localhost:3005/api-docs
 #
-# Init DB: ./init-scripts/01-db4-schema.sql chạy tự động khi volume Postgres mới (fresh install).
-# DB đã có dữ liệu: npm run db:reset (xóa toàn bộ) hoặc npm run db:migrate (CREATE IF NOT EXISTS).
+# Lưu ý init DB: ./init-scripts chạy chỉ khi volume Postgres mới. File 02-schema-improvements.sql
+# ALTER bảng legacy ("User", …) — nếu init lỗi, xem logs container postgres; thường cần bỏ qua/đổi tên 02
+# hoặc chạy tay 03-complete-schema-with-fk.sql như đã làm trước đó.
 
 services:
   postgres:

@@ -131,6 +131,7 @@ const spec = {
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
     { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
+    { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
   ],
   components: {
     securitySchemes: {
@@ -591,6 +592,53 @@ const spec = {
           },
         },
       },
+      TenantCompany: {
+        type: 'object',
+        properties: {
+          tenantId: uuid,
+          companyName: { type: 'string', example: 'ABC Fashion JSC' },
+          companyCode: { type: 'string', nullable: true },
+          taxCode: { type: 'string', nullable: true },
+          contactName: { type: 'string', nullable: true },
+          contactEmail: { type: 'string', nullable: true },
+          contactPhone: { type: 'string', nullable: true },
+          address: { type: 'string', nullable: true },
+          status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+          ...timestamps,
+        },
+      },
+      TenantCompanyCreate: {
+        type: 'object',
+        required: ['companyName'],
+        properties: {
+          companyName: { type: 'string' },
+          companyCode: { type: 'string' },
+          taxCode: { type: 'string' },
+          contactName: { type: 'string' },
+          contactEmail: { type: 'string', format: 'email' },
+          contactPhone: { type: 'string' },
+          address: { type: 'string' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'SUSPENDED'],
+            default: 'ACTIVE',
+          },
+        },
+      },
+      TenantCompanyUpdate: {
+        type: 'object',
+        properties: {
+          companyName: { type: 'string' },
+          companyCode: { type: 'string' },
+          taxCode: { type: 'string' },
+          contactName: { type: 'string' },
+          contactEmail: { type: 'string', format: 'email' },
+          contactPhone: { type: 'string' },
+          address: { type: 'string' },
+          status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+        },
+      },
+
       RentalRequestUpdate: {
         type: 'object',
         description:
@@ -1328,6 +1376,92 @@ const spec = {
         },
       },
     },
+    '/api/tenants': {
+      get: {
+        tags: ['TenantCompany'],
+        summary: 'List tenant companies',
+        parameters: [
+          {
+            in: 'query',
+            name: 'status',
+            schema: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/TenantCompany' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['TenantCompany'],
+        summary: 'Create tenant company',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/TenantCompanyCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/TenantCompany' },
+            'Tenant company created'
+          ),
+          400: stdErrors[400],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/tenants/{tenantId}': {
+      get: {
+        tags: ['TenantCompany'],
+        summary: 'Get tenant company by ID',
+        parameters: [{ in: 'path', name: 'tenantId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/TenantCompany' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['TenantCompany'],
+        summary: 'Update tenant company',
+        parameters: [{ in: 'path', name: 'tenantId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/TenantCompanyUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/TenantCompany' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['TenantCompany'],
+        summary: 'Delete tenant company',
+        parameters: [{ in: 'path', name: 'tenantId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/TenantCompany' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
     '/api/rental-requests/{rentalRequestId}': {
       get: {
         tags: ['RentalRequest'],
