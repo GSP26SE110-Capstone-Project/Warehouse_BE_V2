@@ -37,7 +37,6 @@ Enum warehouse_status_enum {
 
 Enum zone_type_enum {
   SHARED
-  DEDICATED
   FAST_MOVING
   BULK
   PREMIUM
@@ -416,14 +415,23 @@ Table rental_requests {
 
   request_code varchar [unique, not null]
 
+  // ======================================================
+  // TENANT INFORMATION
+  // ======================================================
+
   company_name varchar [not null]
   company_code varchar
   tax_code varchar
+
   address text
 
   contact_name varchar
   contact_email varchar
   contact_phone varchar
+
+  // ======================================================
+  // RENTAL TARGET
+  // ======================================================
 
   warehouse_id uuid [not null, ref: > warehouses.warehouse_id]
 
@@ -431,23 +439,75 @@ Table rental_requests {
   pricing_model pricing_model_enum
   billing_cycle billing_cycle_enum
 
+  // ======================================================
+  // STORAGE ESTIMATION
+  // ======================================================
+
+  estimated_sku_count int
+  estimated_box_count int
+
   estimated_volume decimal
-  expected_start_date timestamp
+  average_storage_days int
+
+  // ======================================================
+  // OPERATION ESTIMATION
+  // ======================================================
+
+  estimated_inbound_per_week int
+  estimated_outbound_per_week int
+
+  // ======================================================
+  // STORAGE REQUIREMENTS
+  // ======================================================
+
+  requires_fast_picking boolean [default: false]
+  requires_premium_storage boolean [default: false]
+
   notes text
+
+  // ======================================================
+  // REVIEW RESULT
+  // ======================================================
+
+  suggested_zone_type zone_type_enum
+  suggested_rack_type rack_type_enum
+
+  // ======================================================
+  // CONTRACT PERIOD
+  // ======================================================
+
+  expected_start_date timestamp
+  expected_end_date timestamp
+
+  // ======================================================
+  // WORKFLOW
+  // ======================================================
 
   status rental_request_status_enum [default: 'PENDING']
 
   reviewed_by uuid [ref: > users.user_id]
   reviewed_at timestamp
+
   rejection_reason text
+  review_note text
+
+  // ======================================================
+  // AUDIT
+  // ======================================================
 
   created_by uuid [ref: > users.user_id]
+
   created_at timestamp
   updated_at timestamp
 
   indexes {
     warehouse_id
+    contract_type
+    pricing_model
     status
+
+    suggested_zone_type
+    suggested_rack_type
   }
 }
 
