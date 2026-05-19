@@ -10,6 +10,7 @@ import zoneRoutes from './zone.routes.js';
 import rackRoutes from './rack.routes.js';
 import rackLevelRoutes from './rackLevel.routes.js';
 import binRoutes from './bin.routes.js';
+import rentalRequestRoutes from './rentalRequest.routes.js';
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.use('/zones', zoneRoutes);
 router.use('/racks', rackRoutes);
 router.use('/rack-levels', rackLevelRoutes);
 router.use('/bins', binRoutes);
+router.use('/rental-requests', rentalRequestRoutes);
 
 router.get(
   '/health',
