@@ -3,8 +3,11 @@ import pool from '../config/db.js';
 import asyncHandler from '../middleware/asyncHandler.js';
 import AppError from '../utils/AppError.js';
 import { success } from '../utils/apiResponse.js';
+import warehouseRoutes from './warehouse.routes.js';
 
 const router = Router();
+
+router.use('/warehouses', warehouseRoutes);
 
 /**
  * @swagger
