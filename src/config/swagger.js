@@ -10,9 +10,12 @@ const options = {
     },
     servers: [
       {
-        url: "http://localhost:3001",
+        url: "http://localhost:3000",
         description: "Local development server",
       },
+    ],
+    tags: [
+      { name: "System", description: "Health and system endpoints" },
     ],
     components: {
       securitySchemes: {
