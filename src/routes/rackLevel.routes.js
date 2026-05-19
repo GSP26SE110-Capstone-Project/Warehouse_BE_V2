@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
-import * as rackController from '../controllers/rack.controller.js';
-import rackLevelRoutes from './rackLevel.routes.js';
+import * as rackLevelController from '../controllers/rackLevel.controller.js';
 
 const router = Router({ mergeParams: true });
 
@@ -9,54 +8,58 @@ const router = Router({ mergeParams: true });
  * @swagger
  * components:
  *   schemas:
- *     Rack:
+ *     RackLevel:
  *       type: object
  *       properties:
+ *         rackLevelId:
+ *           type: string
+ *           format: uuid
  *         rackId:
  *           type: string
  *           format: uuid
- *         zoneId:
+ *         levelCode:
  *           type: string
- *           format: uuid
- *         rackCode:
- *           type: string
- *         rackType:
- *           type: string
- *           enum: [STANDARD, HIGH_CAPACITY]
- *         maxLevels:
+ *         levelNumber:
  *           type: integer
- *         status:
- *           type: string
- *           enum: [ACTIVE, BLOCKED]
+ *         maxBins:
+ *           type: integer
+ *         maxWeightKg:
+ *           type: number
+ *         heightCm:
+ *           type: number
+ *         levelPriority:
+ *           type: integer
  *         createdAt:
  *           type: string
  *           format: date-time
  *         updatedAt:
  *           type: string
  *           format: date-time
- *     RackInput:
+ *     RackLevelInput:
  *       type: object
  *       required:
- *         - rackCode
+ *         - levelNumber
  *       properties:
- *         rackCode:
+ *         levelCode:
  *           type: string
- *         rackType:
- *           type: string
- *           enum: [STANDARD, HIGH_CAPACITY]
- *         maxLevels:
+ *         levelNumber:
  *           type: integer
- *         status:
- *           type: string
- *           enum: [ACTIVE, BLOCKED]
+ *         maxBins:
+ *           type: integer
+ *         maxWeightKg:
+ *           type: number
+ *         heightCm:
+ *           type: number
+ *         levelPriority:
+ *           type: integer
  */
 
 /**
  * @swagger
- * /api/warehouses/{warehouseId}/zones/{zoneId}/racks:
+ * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}/levels:
  *   post:
- *     summary: Create a rack in a zone
- *     tags: [Rack]
+ *     summary: Create a rack level
+ *     tags: [RackLevel]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -66,6 +69,12 @@ const router = Router({ mergeParams: true });
  *           format: uuid
  *       - in: path
  *         name: zoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: rackId
  *         required: true
  *         schema:
  *           type: string
@@ -75,17 +84,17 @@ const router = Router({ mergeParams: true });
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/RackInput'
+ *             $ref: '#/components/schemas/RackLevelInput'
  *     responses:
  *       201:
- *         description: Rack created
+ *         description: Rack level created
  *       404:
- *         description: Zone not found
+ *         description: Rack not found
  *       409:
- *         description: Duplicate rack code in zone
+ *         description: Duplicate level number in rack
  *   get:
- *     summary: List racks in a zone
- *     tags: [Rack]
+ *     summary: List rack levels
+ *     tags: [RackLevel]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -99,16 +108,12 @@ const router = Router({ mergeParams: true });
  *         schema:
  *           type: string
  *           format: uuid
- *       - in: query
- *         name: status
+ *       - in: path
+ *         name: rackId
+ *         required: true
  *         schema:
  *           type: string
- *           enum: [ACTIVE, BLOCKED]
- *       - in: query
- *         name: rackType
- *         schema:
- *           type: string
- *           enum: [STANDARD, HIGH_CAPACITY]
+ *           format: uuid
  *       - in: query
  *         name: page
  *         schema:
@@ -121,19 +126,17 @@ const router = Router({ mergeParams: true });
  *           default: 20
  *     responses:
  *       200:
- *         description: Paginated rack list
+ *         description: Paginated rack level list
  */
-router.post('/', asyncHandler(rackController.create));
-router.get('/', asyncHandler(rackController.list));
-
-router.use('/:rackId/levels', rackLevelRoutes);
+router.post('/', asyncHandler(rackLevelController.create));
+router.get('/', asyncHandler(rackLevelController.list));
 
 /**
  * @swagger
- * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}:
+ * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}/levels/{rackLevelId}:
  *   get:
- *     summary: Get rack by ID
- *     tags: [Rack]
+ *     summary: Get rack level by ID
+ *     tags: [RackLevel]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -149,18 +152,24 @@ router.use('/:rackId/levels', rackLevelRoutes);
  *           format: uuid
  *       - in: path
  *         name: rackId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: rackLevelId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
  *     responses:
  *       200:
- *         description: Rack details
+ *         description: Rack level details
  *       404:
  *         description: Not found
  *   patch:
- *     summary: Update rack
- *     tags: [Rack]
+ *     summary: Update rack level
+ *     tags: [RackLevel]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -176,6 +185,12 @@ router.use('/:rackId/levels', rackLevelRoutes);
  *           format: uuid
  *       - in: path
  *         name: rackId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: rackLevelId
  *         required: true
  *         schema:
  *           type: string
@@ -184,15 +199,26 @@ router.use('/:rackId/levels', rackLevelRoutes);
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/RackInput'
+ *             type: object
+ *             properties:
+ *               levelCode:
+ *                 type: string
+ *               maxBins:
+ *                 type: integer
+ *               maxWeightKg:
+ *                 type: number
+ *               heightCm:
+ *                 type: number
+ *               levelPriority:
+ *                 type: integer
  *     responses:
  *       200:
- *         description: Rack updated
+ *         description: Rack level updated
  *       404:
  *         description: Not found
  *   delete:
- *     summary: Delete rack
- *     tags: [Rack]
+ *     summary: Delete rack level
+ *     tags: [RackLevel]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -212,16 +238,22 @@ router.use('/:rackId/levels', rackLevelRoutes);
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: path
+ *         name: rackLevelId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
  *     responses:
  *       200:
- *         description: Rack deleted
+ *         description: Rack level deleted
  *       404:
  *         description: Not found
  *       400:
- *         description: Cannot delete (referenced by rack levels)
+ *         description: Cannot delete (referenced by bins)
  */
-router.get('/:rackId', asyncHandler(rackController.getById));
-router.patch('/:rackId', asyncHandler(rackController.update));
-router.delete('/:rackId', asyncHandler(rackController.remove));
+router.get('/:rackLevelId', asyncHandler(rackLevelController.getById));
+router.patch('/:rackLevelId', asyncHandler(rackLevelController.update));
+router.delete('/:rackLevelId', asyncHandler(rackLevelController.remove));
 
 export default router;
