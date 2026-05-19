@@ -12,6 +12,8 @@ import rackLevelRoutes from './rackLevel.routes.js';
 import binRoutes from './bin.routes.js';
 import rentalRequestRoutes from './rentalRequest.routes.js';
 import tenantCompanyRoutes from './tenantCompany.routes.js';
+import contractRoutes from './contract.routes.js';
+import contractItemRoutes from './contractItem.routes.js';
 
 const router = Router();
 
@@ -24,6 +26,8 @@ router.use('/rack-levels', rackLevelRoutes);
 router.use('/bins', binRoutes);
 router.use('/rental-requests', rentalRequestRoutes);
 router.use('/tenants', tenantCompanyRoutes);
+router.use('/contracts', contractRoutes);
+router.use('/contract-items', contractItemRoutes);
 
 router.get(
   '/health',
