@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
-import * as rackLevelController from '../controllers/rackLevel.controller.js';
-import binRoutes from './bin.routes.js';
+import * as binController from '../controllers/bin.controller.js';
 
 const router = Router({ mergeParams: true });
 
@@ -9,58 +8,74 @@ const router = Router({ mergeParams: true });
  * @swagger
  * components:
  *   schemas:
- *     RackLevel:
+ *     Bin:
  *       type: object
  *       properties:
+ *         binId:
+ *           type: string
+ *           format: uuid
  *         rackLevelId:
  *           type: string
  *           format: uuid
- *         rackId:
+ *         binCode:
  *           type: string
- *           format: uuid
- *         levelCode:
+ *         supportedBoxType:
  *           type: string
- *         levelNumber:
+ *           enum: [SMALL, MEDIUM, LARGE, EXTRA]
+ *         maxLpnCount:
  *           type: integer
- *         maxBins:
+ *         currentLpnCount:
  *           type: integer
- *         maxWeightKg:
- *           type: number
- *         heightCm:
- *           type: number
- *         levelPriority:
+ *         maxVolumeUnits:
  *           type: integer
+ *         usedVolumeUnits:
+ *           type: integer
+ *         maxOwnerCount:
+ *           type: integer
+ *         reservationType:
+ *           type: string
+ *           enum: [SHARED, RESERVED, DEDICATED]
+ *         status:
+ *           type: string
+ *           enum: [EMPTY, PARTIAL, FULL, RESERVED, BLOCKED]
  *         createdAt:
  *           type: string
  *           format: date-time
  *         updatedAt:
  *           type: string
  *           format: date-time
- *     RackLevelInput:
+ *     BinInput:
  *       type: object
  *       required:
- *         - levelNumber
+ *         - binCode
+ *         - maxLpnCount
+ *         - maxVolumeUnits
  *       properties:
- *         levelCode:
+ *         binCode:
  *           type: string
- *         levelNumber:
+ *         supportedBoxType:
+ *           type: string
+ *           enum: [SMALL, MEDIUM, LARGE, EXTRA]
+ *         maxLpnCount:
  *           type: integer
- *         maxBins:
+ *         maxVolumeUnits:
  *           type: integer
- *         maxWeightKg:
- *           type: number
- *         heightCm:
- *           type: number
- *         levelPriority:
+ *         maxOwnerCount:
  *           type: integer
+ *         reservationType:
+ *           type: string
+ *           enum: [SHARED, RESERVED, DEDICATED]
+ *         status:
+ *           type: string
+ *           enum: [EMPTY, PARTIAL, FULL, RESERVED, BLOCKED]
  */
 
 /**
  * @swagger
- * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}/levels:
+ * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}/levels/{rackLevelId}/bins:
  *   post:
- *     summary: Create a rack level
- *     tags: [RackLevel]
+ *     summary: Create a bin on a rack level
+ *     tags: [Bin]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -76,6 +91,12 @@ const router = Router({ mergeParams: true });
  *           format: uuid
  *       - in: path
  *         name: rackId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: rackLevelId
  *         required: true
  *         schema:
  *           type: string
@@ -85,17 +106,17 @@ const router = Router({ mergeParams: true });
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/RackLevelInput'
+ *             $ref: '#/components/schemas/BinInput'
  *     responses:
  *       201:
- *         description: Rack level created
+ *         description: Bin created
  *       404:
- *         description: Rack not found
+ *         description: Rack level not found
  *       409:
- *         description: Duplicate level number in rack
+ *         description: Duplicate bin code on level
  *   get:
- *     summary: List rack levels
- *     tags: [RackLevel]
+ *     summary: List bins on a rack level
+ *     tags: [Bin]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -115,6 +136,27 @@ const router = Router({ mergeParams: true });
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: path
+ *         name: rackLevelId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [EMPTY, PARTIAL, FULL, RESERVED, BLOCKED]
+ *       - in: query
+ *         name: reservationType
+ *         schema:
+ *           type: string
+ *           enum: [SHARED, RESERVED, DEDICATED]
+ *       - in: query
+ *         name: supportedBoxType
+ *         schema:
+ *           type: string
+ *           enum: [SMALL, MEDIUM, LARGE, EXTRA]
  *       - in: query
  *         name: page
  *         schema:
@@ -127,19 +169,17 @@ const router = Router({ mergeParams: true });
  *           default: 20
  *     responses:
  *       200:
- *         description: Paginated rack level list
+ *         description: Paginated bin list
  */
-router.post('/', asyncHandler(rackLevelController.create));
-router.get('/', asyncHandler(rackLevelController.list));
-
-router.use('/:rackLevelId/bins', binRoutes);
+router.post('/', asyncHandler(binController.create));
+router.get('/', asyncHandler(binController.list));
 
 /**
  * @swagger
- * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}/levels/{rackLevelId}:
+ * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}/levels/{rackLevelId}/bins/{binId}:
  *   get:
- *     summary: Get rack level by ID
- *     tags: [RackLevel]
+ *     summary: Get bin by ID
+ *     tags: [Bin]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -161,18 +201,24 @@ router.use('/:rackLevelId/bins', binRoutes);
  *           format: uuid
  *       - in: path
  *         name: rackLevelId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: binId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
  *     responses:
  *       200:
- *         description: Rack level details
+ *         description: Bin details
  *       404:
  *         description: Not found
  *   patch:
- *     summary: Update rack level
- *     tags: [RackLevel]
+ *     summary: Update bin
+ *     tags: [Bin]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -194,6 +240,12 @@ router.use('/:rackLevelId/bins', binRoutes);
  *           format: uuid
  *       - in: path
  *         name: rackLevelId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: binId
  *         required: true
  *         schema:
  *           type: string
@@ -204,24 +256,29 @@ router.use('/:rackLevelId/bins', binRoutes);
  *           schema:
  *             type: object
  *             properties:
- *               levelCode:
+ *               supportedBoxType:
  *                 type: string
- *               maxBins:
+ *                 enum: [SMALL, MEDIUM, LARGE, EXTRA]
+ *               maxLpnCount:
  *                 type: integer
- *               maxWeightKg:
- *                 type: number
- *               heightCm:
- *                 type: number
- *               levelPriority:
+ *               maxVolumeUnits:
  *                 type: integer
+ *               maxOwnerCount:
+ *                 type: integer
+ *               reservationType:
+ *                 type: string
+ *                 enum: [SHARED, RESERVED, DEDICATED]
+ *               status:
+ *                 type: string
+ *                 enum: [EMPTY, PARTIAL, FULL, RESERVED, BLOCKED]
  *     responses:
  *       200:
- *         description: Rack level updated
+ *         description: Bin updated
  *       404:
  *         description: Not found
  *   delete:
- *     summary: Delete rack level
- *     tags: [RackLevel]
+ *     summary: Delete bin
+ *     tags: [Bin]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -247,16 +304,22 @@ router.use('/:rackLevelId/bins', binRoutes);
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: path
+ *         name: binId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
  *     responses:
  *       200:
- *         description: Rack level deleted
+ *         description: Bin deleted
  *       404:
  *         description: Not found
  *       400:
- *         description: Cannot delete (referenced by bins)
+ *         description: Cannot delete (referenced by LPNs or reservations)
  */
-router.get('/:rackLevelId', asyncHandler(rackLevelController.getById));
-router.patch('/:rackLevelId', asyncHandler(rackLevelController.update));
-router.delete('/:rackLevelId', asyncHandler(rackLevelController.remove));
+router.get('/:binId', asyncHandler(binController.getById));
+router.patch('/:binId', asyncHandler(binController.update));
+router.delete('/:binId', asyncHandler(binController.remove));
 
 export default router;

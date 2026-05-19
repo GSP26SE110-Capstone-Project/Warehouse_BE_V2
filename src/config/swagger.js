@@ -20,6 +20,7 @@ const options = {
       { name: "Zone", description: "Warehouse structure — zones" },
       { name: "Rack", description: "Warehouse structure — racks" },
       { name: "RackLevel", description: "Warehouse structure — rack levels" },
+      { name: "Bin", description: "Warehouse structure — bins" },
     ],
     components: {
       securitySchemes: {
