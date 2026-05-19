@@ -166,13 +166,24 @@ CREATE TABLE IF NOT EXISTS rental_requests (
   contract_type contract_type_enum,
   pricing_model pricing_model_enum,
   billing_cycle billing_cycle_enum,
+  estimated_sku_count INT,
+  estimated_box_count INT,
   estimated_volume NUMERIC(18, 4),
-  expected_start_date TIMESTAMPTZ,
+  average_storage_days INT,
+  estimated_inbound_per_week INT,
+  estimated_outbound_per_week INT,
+  requires_fast_picking BOOLEAN DEFAULT FALSE,
+  requires_premium_storage BOOLEAN DEFAULT FALSE,
   notes TEXT,
+  suggested_zone_type zone_type_enum,
+  suggested_rack_type rack_type_enum,
+  expected_start_date TIMESTAMPTZ,
+  expected_end_date TIMESTAMPTZ,
   status rental_request_status_enum DEFAULT 'PENDING',
   reviewed_by UUID REFERENCES users (user_id),
   reviewed_at TIMESTAMPTZ,
   rejection_reason TEXT,
+  review_note TEXT,
   created_by UUID REFERENCES users (user_id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -180,6 +191,10 @@ CREATE TABLE IF NOT EXISTS rental_requests (
 
 CREATE INDEX IF NOT EXISTS idx_rental_requests_warehouse_id ON rental_requests (warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_rental_requests_status ON rental_requests (status);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_contract_type ON rental_requests (contract_type);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_pricing_model ON rental_requests (pricing_model);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_suggested_zone_type ON rental_requests (suggested_zone_type);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_suggested_rack_type ON rental_requests (suggested_rack_type);
 
 CREATE TABLE IF NOT EXISTS contracts (
   contract_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

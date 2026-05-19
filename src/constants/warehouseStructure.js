@@ -15,3 +15,7 @@ export const ZONE_TYPE = Object.freeze([
 ]);
 
 export const ZONE_STATUS = Object.freeze(['ACTIVE', 'BLOCKED']);
+
+export const RACK_TYPE = Object.freeze(['STANDARD', 'HIGH_CAPACITY']);
+
+export const RACK_STATUS = Object.freeze(['ACTIVE', 'BLOCKED']);

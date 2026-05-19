@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
-import * as zoneController from '../controllers/warehouseZone.controller.js';
-import rackRoutes from './rack.routes.js';
+import * as rackController from '../controllers/rack.controller.js';
 
 const router = Router({ mergeParams: true });
 
@@ -9,26 +8,22 @@ const router = Router({ mergeParams: true });
  * @swagger
  * components:
  *   schemas:
- *     WarehouseZone:
+ *     Rack:
  *       type: object
  *       properties:
+ *         rackId:
+ *           type: string
+ *           format: uuid
  *         zoneId:
  *           type: string
  *           format: uuid
- *         warehouseId:
+ *         rackCode:
  *           type: string
- *           format: uuid
- *         zoneCode:
+ *         rackType:
  *           type: string
- *         zoneName:
- *           type: string
- *         zoneType:
- *           type: string
- *           enum: [SHARED, FAST_MOVING, BULK, PREMIUM, QC, RETURN]
- *         areaM2:
- *           type: number
- *         isDedicated:
- *           type: boolean
+ *           enum: [STANDARD, HIGH_CAPACITY]
+ *         maxLevels:
+ *           type: integer
  *         status:
  *           type: string
  *           enum: [ACTIVE, BLOCKED]
@@ -38,22 +33,18 @@ const router = Router({ mergeParams: true });
  *         updatedAt:
  *           type: string
  *           format: date-time
- *     WarehouseZoneInput:
+ *     RackInput:
  *       type: object
  *       required:
- *         - zoneCode
+ *         - rackCode
  *       properties:
- *         zoneCode:
+ *         rackCode:
  *           type: string
- *         zoneName:
+ *         rackType:
  *           type: string
- *         zoneType:
- *           type: string
- *           enum: [SHARED, FAST_MOVING, BULK, PREMIUM, QC, RETURN]
- *         areaM2:
- *           type: number
- *         isDedicated:
- *           type: boolean
+ *           enum: [STANDARD, HIGH_CAPACITY]
+ *         maxLevels:
+ *           type: integer
  *         status:
  *           type: string
  *           enum: [ACTIVE, BLOCKED]
@@ -61,13 +52,19 @@ const router = Router({ mergeParams: true });
 
 /**
  * @swagger
- * /api/warehouses/{warehouseId}/zones:
+ * /api/warehouses/{warehouseId}/zones/{zoneId}/racks:
  *   post:
- *     summary: Create a zone in a warehouse
- *     tags: [Zone]
+ *     summary: Create a rack in a zone
+ *     tags: [Rack]
  *     parameters:
  *       - in: path
  *         name: warehouseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: zoneId
  *         required: true
  *         schema:
  *           type: string
@@ -77,20 +74,26 @@ const router = Router({ mergeParams: true });
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/WarehouseZoneInput'
+ *             $ref: '#/components/schemas/RackInput'
  *     responses:
  *       201:
- *         description: Zone created
+ *         description: Rack created
  *       404:
- *         description: Warehouse not found
+ *         description: Zone not found
  *       409:
- *         description: Duplicate zone code in warehouse
+ *         description: Duplicate rack code in zone
  *   get:
- *     summary: List zones in a warehouse
- *     tags: [Zone]
+ *     summary: List racks in a zone
+ *     tags: [Rack]
  *     parameters:
  *       - in: path
  *         name: warehouseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: zoneId
  *         required: true
  *         schema:
  *           type: string
@@ -101,10 +104,10 @@ const router = Router({ mergeParams: true });
  *           type: string
  *           enum: [ACTIVE, BLOCKED]
  *       - in: query
- *         name: zoneType
+ *         name: rackType
  *         schema:
  *           type: string
- *           enum: [SHARED, FAST_MOVING, BULK, PREMIUM, QC, RETURN]
+ *           enum: [STANDARD, HIGH_CAPACITY]
  *       - in: query
  *         name: page
  *         schema:
@@ -117,19 +120,17 @@ const router = Router({ mergeParams: true });
  *           default: 20
  *     responses:
  *       200:
- *         description: Paginated zone list
+ *         description: Paginated rack list
  */
-router.post('/', asyncHandler(zoneController.create));
-router.get('/', asyncHandler(zoneController.list));
-
-router.use('/:zoneId/racks', rackRoutes);
+router.post('/', asyncHandler(rackController.create));
+router.get('/', asyncHandler(rackController.list));
 
 /**
  * @swagger
- * /api/warehouses/{warehouseId}/zones/{zoneId}:
+ * /api/warehouses/{warehouseId}/zones/{zoneId}/racks/{rackId}:
  *   get:
- *     summary: Get zone by ID
- *     tags: [Zone]
+ *     summary: Get rack by ID
+ *     tags: [Rack]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -139,18 +140,24 @@ router.use('/:zoneId/racks', rackRoutes);
  *           format: uuid
  *       - in: path
  *         name: zoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: rackId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
  *     responses:
  *       200:
- *         description: Zone details
+ *         description: Rack details
  *       404:
  *         description: Not found
  *   patch:
- *     summary: Update zone
- *     tags: [Zone]
+ *     summary: Update rack
+ *     tags: [Rack]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -160,6 +167,12 @@ router.use('/:zoneId/racks', rackRoutes);
  *           format: uuid
  *       - in: path
  *         name: zoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: rackId
  *         required: true
  *         schema:
  *           type: string
@@ -168,15 +181,15 @@ router.use('/:zoneId/racks', rackRoutes);
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/WarehouseZoneInput'
+ *             $ref: '#/components/schemas/RackInput'
  *     responses:
  *       200:
- *         description: Zone updated
+ *         description: Rack updated
  *       404:
  *         description: Not found
  *   delete:
- *     summary: Delete zone
- *     tags: [Zone]
+ *     summary: Delete rack
+ *     tags: [Rack]
  *     parameters:
  *       - in: path
  *         name: warehouseId
@@ -190,16 +203,22 @@ router.use('/:zoneId/racks', rackRoutes);
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: path
+ *         name: rackId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
  *     responses:
  *       200:
- *         description: Zone deleted
+ *         description: Rack deleted
  *       404:
  *         description: Not found
  *       400:
- *         description: Cannot delete (referenced by racks)
+ *         description: Cannot delete (referenced by rack levels)
  */
-router.get('/:zoneId', asyncHandler(zoneController.getById));
-router.patch('/:zoneId', asyncHandler(zoneController.update));
-router.delete('/:zoneId', asyncHandler(zoneController.remove));
+router.get('/:rackId', asyncHandler(rackController.getById));
+router.patch('/:rackId', asyncHandler(rackController.update));
+router.delete('/:rackId', asyncHandler(rackController.remove));
 
 export default router;

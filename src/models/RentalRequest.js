@@ -55,16 +55,56 @@ export const rentalRequestSchema = {
     type: 'string',
     required: false,
   },
+  estimatedSkuCount: {
+    type: 'number',
+    required: false,
+  },
+  estimatedBoxCount: {
+    type: 'number',
+    required: false,
+  },
   estimatedVolume: {
     type: 'decimal',
+    required: false,
+  },
+  averageStorageDays: {
+    type: 'number',
+    required: false,
+  },
+  estimatedInboundPerWeek: {
+    type: 'number',
+    required: false,
+  },
+  estimatedOutboundPerWeek: {
+    type: 'number',
+    required: false,
+  },
+  requiresFastPicking: {
+    type: 'boolean',
+    default: false,
+  },
+  requiresPremiumStorage: {
+    type: 'boolean',
+    default: false,
+  },
+  notes: {
+    type: 'string',
+    required: false,
+  },
+  suggestedZoneType: {
+    type: 'string',
+    required: false,
+  },
+  suggestedRackType: {
+    type: 'string',
     required: false,
   },
   expectedStartDate: {
     type: 'datetime',
     required: false,
   },
-  notes: {
-    type: 'string',
+  expectedEndDate: {
+    type: 'datetime',
     required: false,
   },
   status: {
@@ -81,6 +121,10 @@ export const rentalRequestSchema = {
     required: false,
   },
   rejectionReason: {
+    type: 'string',
+    required: false,
+  },
+  reviewNote: {
     type: 'string',
     required: false,
   },

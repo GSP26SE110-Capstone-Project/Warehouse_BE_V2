@@ -18,6 +18,7 @@ const options = {
       { name: "System", description: "Health and system endpoints" },
       { name: "Warehouse", description: "Warehouse structure — warehouses" },
       { name: "Zone", description: "Warehouse structure — zones" },
+      { name: "Rack", description: "Warehouse structure — racks" },
     ],
     components: {
       securitySchemes: {
