@@ -55,3 +55,5 @@ export const STORAGE_LEVEL = Object.freeze([
   'RACK_LEVEL',
   'BIN',
 ]);
+
+export const RESERVATION_STATUS = Object.freeze(['ACTIVE', 'EXPIRED', 'CANCELLED']);

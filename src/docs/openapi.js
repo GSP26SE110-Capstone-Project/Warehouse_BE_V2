@@ -134,6 +134,7 @@ const spec = {
     { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
     { name: 'ContractItem', description: 'Contract line items (Flow 1)' },
+    { name: 'StorageReservation', description: 'Storage reservations (Flow 1)' },
   ],
   components: {
     securitySchemes: {
@@ -859,6 +860,102 @@ const spec = {
             enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
           },
           unitPrice: { type: 'number', minimum: 0 },
+        },
+      },
+
+      StorageReservation: {
+        type: 'object',
+        properties: {
+          reservationId: uuid,
+          contractId: uuid,
+          tenantId: uuid,
+          reservationType: {
+            type: 'string',
+            enum: ['SHARED', 'RESERVED', 'DEDICATED'],
+          },
+          storageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+          warehouseId: uuid,
+          zoneId: { ...uuid, nullable: true },
+          rackId: { ...uuid, nullable: true },
+          rackLevelId: { ...uuid, nullable: true },
+          binId: { ...uuid, nullable: true },
+          reservedCapacity: { type: 'number', nullable: true },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+            nullable: true,
+          },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'],
+          },
+          ...timestamps,
+        },
+      },
+      StorageReservationCreate: {
+        type: 'object',
+        required: [
+          'contractId',
+          'reservationType',
+          'storageLevel',
+          'warehouseId',
+          'startDate',
+          'endDate',
+        ],
+        description:
+          'Tenant inherited from contract.tenantId. FK target depends on storageLevel: ZONE→zoneId, RACK→rackId, RACK_LEVEL→rackLevelId, BIN→binId.',
+        properties: {
+          contractId: uuid,
+          reservationType: {
+            type: 'string',
+            enum: ['SHARED', 'RESERVED', 'DEDICATED'],
+          },
+          storageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+          warehouseId: uuid,
+          zoneId: uuid,
+          rackId: uuid,
+          rackLevelId: uuid,
+          binId: uuid,
+          reservedCapacity: { type: 'number', minimum: 0 },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'],
+            default: 'ACTIVE',
+          },
+        },
+      },
+      StorageReservationUpdate: {
+        type: 'object',
+        properties: {
+          reservationType: {
+            type: 'string',
+            enum: ['SHARED', 'RESERVED', 'DEDICATED'],
+          },
+          reservedCapacity: { type: 'number', minimum: 0 },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'],
+          },
         },
       },
 
@@ -1976,6 +2073,113 @@ const spec = {
         responses: {
           200: successEnvelope(
             { $ref: '#/components/schemas/ContractItem' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/storage-reservations': {
+      get: {
+        tags: ['StorageReservation'],
+        summary: 'List storage reservations',
+        parameters: [
+          { in: 'query', name: 'contractId', schema: uuid },
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'warehouseId', schema: uuid },
+          { in: 'query', name: 'zoneId', schema: uuid },
+          { in: 'query', name: 'rackId', schema: uuid },
+          { in: 'query', name: 'rackLevelId', schema: uuid },
+          { in: 'query', name: 'binId', schema: uuid },
+          {
+            in: 'query',
+            name: 'storageLevel',
+            schema: {
+              type: 'string',
+              enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+            },
+          },
+          {
+            in: 'query',
+            name: 'status',
+            schema: { type: 'string', enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/StorageReservation' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['StorageReservation'],
+        summary: 'Create storage reservation',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/StorageReservationCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/StorageReservation' },
+            'Reservation created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/storage-reservations/{reservationId}': {
+      get: {
+        tags: ['StorageReservation'],
+        summary: 'Get storage reservation by ID',
+        parameters: [
+          { in: 'path', name: 'reservationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/StorageReservation' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['StorageReservation'],
+        summary: 'Update storage reservation',
+        parameters: [
+          { in: 'path', name: 'reservationId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/StorageReservationUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/StorageReservation' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['StorageReservation'],
+        summary: 'Delete storage reservation',
+        parameters: [
+          { in: 'path', name: 'reservationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/StorageReservation' },
             'Deleted successfully'
           ),
           400: stdErrors[400],
