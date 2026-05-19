@@ -6,7 +6,7 @@ import {
   RESERVATION_TYPE,
 } from '../constants/warehouseStructure.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
-import { getRackLevelById } from './rackLevel.service.js';
+import { getRackLevel } from './rackLevel.service.js';
 
 const CREATE_FIELDS = [
   'binCode',
@@ -43,19 +43,6 @@ function parsePositiveInt(value, fieldName) {
     throw new AppError(`${fieldName} must be a positive integer`, 400, 'VALIDATION_ERROR');
   }
   return n;
-}
-
-async function getBinInLevel(warehouseId, zoneId, rackId, rackLevelId, binId) {
-  const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  const bId = parseUuid(binId, 'binId');
-
-  await getRackLevelById(warehouseId, zoneId, rackId, levelId);
-
-  const bin = await Bin.findOne({ binId: bId, rackLevelId: levelId });
-  if (!bin) {
-    throw new AppError('Bin not found in this rack level', 404, 'NOT_FOUND');
-  }
-  return bin;
 }
 
 function normalizeCreatePayload(body, rackLevelId) {
@@ -118,15 +105,21 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
+export async function getBin(binId) {
+  const id = parseUuid(binId, 'binId');
+  const bin = await Bin.findById(id);
+  if (!bin) {
+    throw new AppError('Bin not found', 404, 'NOT_FOUND');
+  }
+  return bin;
+}
+
 export async function listBins(
-  warehouseId,
-  zoneId,
-  rackId,
   rackLevelId,
   { status, reservationType, supportedBoxType, page, limit, offset }
 ) {
   const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  await getRackLevelById(warehouseId, zoneId, rackId, levelId);
+  await getRackLevel(levelId);
 
   assertEnum(status, BIN_STATUS, 'status');
   assertEnum(reservationType, RESERVATION_TYPE, 'reservationType');
@@ -157,35 +150,29 @@ export async function listBins(
   };
 }
 
-export async function getBinById(warehouseId, zoneId, rackId, rackLevelId, binId) {
-  return getBinInLevel(warehouseId, zoneId, rackId, rackLevelId, binId);
-}
-
-export async function createBin(warehouseId, zoneId, rackId, rackLevelId, body) {
+export async function createBin(rackLevelId, body) {
   const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  await getRackLevelById(warehouseId, zoneId, rackId, levelId);
+  await getRackLevel(levelId);
 
   const data = normalizeCreatePayload(body, levelId);
   return Bin.create(data);
 }
 
-export async function updateBin(warehouseId, zoneId, rackId, rackLevelId, binId, body) {
-  const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  const bId = parseUuid(binId, 'binId');
-  await getBinInLevel(warehouseId, zoneId, rackId, levelId, bId);
+export async function updateBin(binId, body) {
+  const id = parseUuid(binId, 'binId');
+  await getBin(id);
 
   const data = normalizeUpdatePayload(body);
-  return Bin.updateById(bId, data);
+  return Bin.updateById(id, data);
 }
 
-export async function deleteBin(warehouseId, zoneId, rackId, rackLevelId, binId) {
-  const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  const bId = parseUuid(binId, 'binId');
-  await getBinInLevel(warehouseId, zoneId, rackId, levelId, bId);
+export async function deleteBin(binId) {
+  const id = parseUuid(binId, 'binId');
+  await getBin(id);
 
-  const deleted = await Bin.deleteById(bId);
+  const deleted = await Bin.deleteById(id);
   if (!deleted) {
-    throw new AppError('Bin not found in this rack level', 404, 'NOT_FOUND');
+    throw new AppError('Bin not found', 404, 'NOT_FOUND');
   }
   return deleted;
 }

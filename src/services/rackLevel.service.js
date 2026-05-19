@@ -1,7 +1,7 @@
 import RackLevel from '../models/RackLevel.js';
 import AppError from '../utils/AppError.js';
 import { parseUuid } from '../utils/validate.js';
-import { getRackById } from './rack.service.js';
+import { getRack } from './rack.service.js';
 
 const CREATE_FIELDS = [
   'levelCode',
@@ -90,22 +90,18 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
-async function getRackLevelInRack(warehouseId, zoneId, rackId, rackLevelId) {
-  const rId = parseUuid(rackId, 'rackId');
-  const levelId = parseUuid(rackLevelId, 'rackLevelId');
-
-  await getRackById(warehouseId, zoneId, rId);
-
-  const level = await RackLevel.findOne({ rackLevelId: levelId, rackId: rId });
+export async function getRackLevel(rackLevelId) {
+  const id = parseUuid(rackLevelId, 'rackLevelId');
+  const level = await RackLevel.findById(id);
   if (!level) {
-    throw new AppError('Rack level not found in this rack', 404, 'NOT_FOUND');
+    throw new AppError('Rack level not found', 404, 'NOT_FOUND');
   }
   return level;
 }
 
-export async function listRackLevels(warehouseId, zoneId, rackId, { page, limit, offset }) {
+export async function listRackLevels(rackId, { page, limit, offset }) {
   const rId = parseUuid(rackId, 'rackId');
-  await getRackById(warehouseId, zoneId, rId);
+  await getRack(rId);
 
   const filters = { rackId: rId };
 
@@ -129,35 +125,29 @@ export async function listRackLevels(warehouseId, zoneId, rackId, { page, limit,
   };
 }
 
-export async function getRackLevelById(warehouseId, zoneId, rackId, rackLevelId) {
-  return getRackLevelInRack(warehouseId, zoneId, rackId, rackLevelId);
-}
-
-export async function createRackLevel(warehouseId, zoneId, rackId, body) {
+export async function createRackLevel(rackId, body) {
   const rId = parseUuid(rackId, 'rackId');
-  await getRackById(warehouseId, zoneId, rId);
+  await getRack(rId);
 
   const data = normalizeCreatePayload(body, rId);
   return RackLevel.create(data);
 }
 
-export async function updateRackLevel(warehouseId, zoneId, rackId, rackLevelId, body) {
-  const rId = parseUuid(rackId, 'rackId');
-  const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  await getRackLevelInRack(warehouseId, zoneId, rId, levelId);
+export async function updateRackLevel(rackLevelId, body) {
+  const id = parseUuid(rackLevelId, 'rackLevelId');
+  await getRackLevel(id);
 
   const data = normalizeUpdatePayload(body);
-  return RackLevel.updateById(levelId, data);
+  return RackLevel.updateById(id, data);
 }
 
-export async function deleteRackLevel(warehouseId, zoneId, rackId, rackLevelId) {
-  const rId = parseUuid(rackId, 'rackId');
-  const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  await getRackLevelInRack(warehouseId, zoneId, rId, levelId);
+export async function deleteRackLevel(rackLevelId) {
+  const id = parseUuid(rackLevelId, 'rackLevelId');
+  await getRackLevel(id);
 
-  const deleted = await RackLevel.deleteById(levelId);
+  const deleted = await RackLevel.deleteById(id);
   if (!deleted) {
-    throw new AppError('Rack level not found in this rack', 404, 'NOT_FOUND');
+    throw new AppError('Rack level not found', 404, 'NOT_FOUND');
   }
   return deleted;
 }

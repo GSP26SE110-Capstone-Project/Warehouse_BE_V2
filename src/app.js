@@ -17,11 +17,29 @@ app.get('/', (req, res) => {
   res.json({
     name: 'Smart Warehouse API',
     docs: '/api-docs',
+    openApiJson: '/api-docs.json',
     api: '/api',
+    endpoints: Object.keys(swaggerSpec.paths || {}).length,
   });
 });
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Raw OpenAPI JSON (Swagger UI loads from here — avoids stale/partial inline spec)
+app.get('/api-docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
+app.use(
+  '/api-docs',
+  swaggerUi.serve,
+  swaggerUi.setup(undefined, {
+    customSiteTitle: 'Smart Warehouse API',
+    swaggerOptions: {
+      url: '/api-docs.json',
+      persistAuthorization: true,
+    },
+  })
+);
 app.use('/api', apiRoutes);
 
 app.use(notFound);

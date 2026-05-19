@@ -65,15 +65,11 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
-async function getZoneInWarehouse(warehouseId, zoneId) {
-  const whId = parseUuid(warehouseId, 'warehouseId');
-  const zId = parseUuid(zoneId, 'zoneId');
-
-  await getWarehouseById(whId);
-
-  const zone = await WarehouseZone.findOne({ zoneId: zId, warehouseId: whId });
+export async function getZone(zoneId) {
+  const id = parseUuid(zoneId, 'zoneId');
+  const zone = await WarehouseZone.findById(id);
   if (!zone) {
-    throw new AppError('Zone not found in this warehouse', 404, 'NOT_FOUND');
+    throw new AppError('Zone not found', 404, 'NOT_FOUND');
   }
   return zone;
 }
@@ -109,10 +105,6 @@ export async function listZones(warehouseId, { status, zoneType, page, limit, of
   };
 }
 
-export async function getZoneById(warehouseId, zoneId) {
-  return getZoneInWarehouse(warehouseId, zoneId);
-}
-
 export async function createZone(warehouseId, body) {
   const whId = parseUuid(warehouseId, 'warehouseId');
   await getWarehouseById(whId);
@@ -121,23 +113,21 @@ export async function createZone(warehouseId, body) {
   return WarehouseZone.create(data);
 }
 
-export async function updateZone(warehouseId, zoneId, body) {
-  const whId = parseUuid(warehouseId, 'warehouseId');
-  const zId = parseUuid(zoneId, 'zoneId');
-  await getZoneInWarehouse(whId, zId);
+export async function updateZone(zoneId, body) {
+  const id = parseUuid(zoneId, 'zoneId');
+  await getZone(id);
 
   const data = normalizeUpdatePayload(body);
-  return WarehouseZone.updateById(zId, data);
+  return WarehouseZone.updateById(id, data);
 }
 
-export async function deleteZone(warehouseId, zoneId) {
-  const whId = parseUuid(warehouseId, 'warehouseId');
-  const zId = parseUuid(zoneId, 'zoneId');
-  await getZoneInWarehouse(whId, zId);
+export async function deleteZone(zoneId) {
+  const id = parseUuid(zoneId, 'zoneId');
+  await getZone(id);
 
-  const deleted = await WarehouseZone.deleteById(zId);
+  const deleted = await WarehouseZone.deleteById(id);
   if (!deleted) {
-    throw new AppError('Zone not found in this warehouse', 404, 'NOT_FOUND');
+    throw new AppError('Zone not found', 404, 'NOT_FOUND');
   }
   return deleted;
 }

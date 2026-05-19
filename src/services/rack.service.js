@@ -1,8 +1,8 @@
 import Rack from '../models/Rack.js';
+import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import { RACK_STATUS, RACK_TYPE } from '../constants/warehouseStructure.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
-import { getZoneById } from './warehouseZone.service.js';
 
 const CREATE_FIELDS = ['rackCode', 'rackType', 'maxLevels', 'status'];
 
@@ -65,22 +65,27 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
-async function getRackInZone(warehouseId, zoneId, rackId) {
+async function assertZoneExists(zoneId) {
   const zId = parseUuid(zoneId, 'zoneId');
-  const rId = parseUuid(rackId, 'rackId');
+  const zone = await WarehouseZone.findById(zId);
+  if (!zone) {
+    throw new AppError('Zone not found', 404, 'NOT_FOUND');
+  }
+  return zone;
+}
 
-  await getZoneById(warehouseId, zId);
-
-  const rack = await Rack.findOne({ rackId: rId, zoneId: zId });
+export async function getRack(rackId) {
+  const id = parseUuid(rackId, 'rackId');
+  const rack = await Rack.findById(id);
   if (!rack) {
-    throw new AppError('Rack not found in this zone', 404, 'NOT_FOUND');
+    throw new AppError('Rack not found', 404, 'NOT_FOUND');
   }
   return rack;
 }
 
-export async function listRacks(warehouseId, zoneId, { status, rackType, page, limit, offset }) {
+export async function listRacks(zoneId, { status, rackType, page, limit, offset }) {
   const zId = parseUuid(zoneId, 'zoneId');
-  await getZoneById(warehouseId, zId);
+  await assertZoneExists(zId);
 
   assertEnum(status, RACK_STATUS, 'status');
   assertEnum(rackType, RACK_TYPE, 'rackType');
@@ -109,35 +114,29 @@ export async function listRacks(warehouseId, zoneId, { status, rackType, page, l
   };
 }
 
-export async function getRackById(warehouseId, zoneId, rackId) {
-  return getRackInZone(warehouseId, zoneId, rackId);
-}
-
-export async function createRack(warehouseId, zoneId, body) {
+export async function createRack(zoneId, body) {
   const zId = parseUuid(zoneId, 'zoneId');
-  await getZoneById(warehouseId, zId);
+  await assertZoneExists(zId);
 
   const data = normalizeCreatePayload(body, zId);
   return Rack.create(data);
 }
 
-export async function updateRack(warehouseId, zoneId, rackId, body) {
-  const zId = parseUuid(zoneId, 'zoneId');
-  const rId = parseUuid(rackId, 'rackId');
-  await getRackInZone(warehouseId, zId, rId);
+export async function updateRack(rackId, body) {
+  const id = parseUuid(rackId, 'rackId');
+  await getRack(id);
 
   const data = normalizeUpdatePayload(body);
-  return Rack.updateById(rId, data);
+  return Rack.updateById(id, data);
 }
 
-export async function deleteRack(warehouseId, zoneId, rackId) {
-  const zId = parseUuid(zoneId, 'zoneId');
-  const rId = parseUuid(rackId, 'rackId');
-  await getRackInZone(warehouseId, zId, rId);
+export async function deleteRack(rackId) {
+  const id = parseUuid(rackId, 'rackId');
+  await getRack(id);
 
-  const deleted = await Rack.deleteById(rId);
+  const deleted = await Rack.deleteById(id);
   if (!deleted) {
-    throw new AppError('Rack not found in this zone', 404, 'NOT_FOUND');
+    throw new AppError('Rack not found', 404, 'NOT_FOUND');
   }
   return deleted;
 }
