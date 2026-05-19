@@ -37,7 +37,6 @@ Enum warehouse_status_enum {
 
 Enum zone_type_enum {
   SHARED
-  DEDICATED
   FAST_MOVING
   BULK
   PREMIUM

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
 import * as warehouseController from '../controllers/warehouse.controller.js';
+import warehouseZoneRoutes from './warehouseZone.routes.js';
 
 const router = Router();
 
@@ -96,6 +97,8 @@ const router = Router();
  */
 router.post('/', asyncHandler(warehouseController.create));
 router.get('/', asyncHandler(warehouseController.list));
+
+router.use('/:warehouseId/zones', warehouseZoneRoutes);
 
 /**
  * @swagger

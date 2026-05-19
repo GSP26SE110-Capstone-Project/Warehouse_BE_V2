@@ -45,7 +45,7 @@ Quản lý cấu trúc kho.
 Flow
 Create warehouse
     ↓
-Create zones (zone_type: SHARED, DEDICATED, FAST_MOVING, BULK, PREMIUM, QC, RETURN)
+Create zones (zone_type: SHARED, FAST_MOVING, BULK, PREMIUM, QC, RETURN; dedicated via is_dedicated)
     ↓
 Create racks → rack levels
     ↓

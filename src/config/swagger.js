@@ -17,6 +17,7 @@ const options = {
     tags: [
       { name: "System", description: "Health and system endpoints" },
       { name: "Warehouse", description: "Warehouse structure — warehouses" },
+      { name: "Zone", description: "Warehouse structure — zones" },
     ],
     components: {
       securitySchemes: {
