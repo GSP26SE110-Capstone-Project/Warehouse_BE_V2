@@ -329,3 +329,396 @@ GET /api/racks/{rackId}
 GET /api/rack-levels/{rackLevelId}
 GET /api/bins/{binId}
 ```
+
+---
+
+# Tenant Onboarding (Flow 1)
+
+Base URL: `http://localhost:3000/api`
+
+Áp dụng cùng convention với Flow 2:
+
+- **POST / PATCH**: `Content-Type: application/json`, body camelCase
+- **GET list**: query `page` (mặc định `1`), `limit` (mặc định `20`, tối đa `100`)
+- Cập nhật dùng **PATCH** (không có PUT)
+- Quan hệ cha–con: POST gửi ID cha trong **body**; GET list truyền ID cha/lọc trong **query**
+
+## Tất cả endpoint (flat)
+
+| Resource | POST | GET list | GET one | PATCH | DELETE |
+|----------|------|----------|---------|-------|--------|
+| Rental request | `/rental-requests` | `/rental-requests?warehouseId=&status=` | `/rental-requests/:rentalRequestId` | `/rental-requests/:rentalRequestId` | `/rental-requests/:rentalRequestId` |
+| Tenant company | `/tenants` | `/tenants?status=` | `/tenants/:tenantId` | `/tenants/:tenantId` | `/tenants/:tenantId` |
+| Contract | `/contracts` | `/contracts?tenantId=&warehouseId=&rentalRequestId=&status=&contractType=` | `/contracts/:contractId` | `/contracts/:contractId` | `/contracts/:contractId` |
+| Contract item | `/contract-items` | `/contract-items?contractId=` | `/contract-items/:contractItemId` | `/contract-items/:contractItemId` | `/contract-items/:contractItemId` |
+| Storage reservation | `/storage-reservations` | `/storage-reservations?contractId=&tenantId=&warehouseId=&storageLevel=&status=` | `/storage-reservations/:reservationId` | `/storage-reservations/:reservationId` | `/storage-reservations/:reservationId` |
+
+## Enum tham chiếu
+
+| Enum | Giá trị |
+|------|---------|
+| `rentalRequest.status` | `PENDING`, `UNDER_REVIEW`, `APPROVED`, `REJECTED`, `CONVERTED` |
+| `contract.status` | `DRAFT`, `PENDING_APPROVAL`, `ACTIVE`, `EXPIRED`, `TERMINATED`, `CANCELLED` |
+| `tenant.status` | `ACTIVE`, `SUSPENDED` |
+| `contractType` | `SHARED_STORAGE`, `RESERVED_STORAGE`, `DEDICATED_ZONE`, `DEDICATED_WAREHOUSE` |
+| `pricingModel` | `USAGE_BASED`, `FIXED`, `HYBRID` |
+| `billingCycle` | `DAILY`, `MONTHLY`, `QUARTERLY` |
+| `billingUnit` | `BOX_DAY`, `BIN_DAY`, `RACK_DAY`, `ZONE_DAY`, `WAREHOUSE_DAY`, `INBOUND_LPN`, `OUTBOUND_LPN`, `HANDLING_UNIT` |
+| `contractItem.itemType` | `STORAGE`, `INBOUND`, `OUTBOUND`, `HANDLING`, `REPACKING`, `SLA` |
+| `storageLevel` | `WAREHOUSE`, `ZONE`, `RACK`, `RACK_LEVEL`, `BIN` |
+| `reservation.type` | `SHARED`, `RESERVED`, `DEDICATED` |
+| `reservation.status` | `ACTIVE`, `EXPIRED`, `CANCELLED` |
+| `boxType` | `SMALL`, `MEDIUM`, `LARGE`, `EXTRA` |
+
+---
+
+## 6. Rental Request
+
+### `POST /rental-requests`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `warehouseId` | ✅ | — | UUID kho |
+| `companyName` | ✅ | — | |
+| `requestCode` | | auto `RR-…` | Unique; tự sinh nếu bỏ trống |
+| `companyCode` | | — | |
+| `taxCode` | | — | |
+| `address` | | — | |
+| `contactName` | | — | |
+| `contactEmail` | | — | |
+| `contactPhone` | | — | |
+| `contractType` | | — | enum `contractType` |
+| `pricingModel` | | — | enum `pricingModel` |
+| `billingCycle` | | — | enum `billingCycle` |
+| `estimatedSkuCount` | | — | ≥ 0 |
+| `estimatedBoxCount` | | — | ≥ 0 |
+| `estimatedVolume` | | — | ≥ 0 |
+| `averageStorageDays` | | — | ≥ 0 |
+| `estimatedInboundPerWeek` | | — | ≥ 0 |
+| `estimatedOutboundPerWeek` | | — | ≥ 0 |
+| `requiresFastPicking` | | `false` | |
+| `requiresPremiumStorage` | | `false` | |
+| `suggestedZoneType` | | — | enum zone type |
+| `suggestedRackType` | | — | enum rack type |
+| `expectedStartDate` | | — | ISO datetime |
+| `expectedEndDate` | | — | ISO datetime |
+| `notes` | | — | |
+| `status` | | `PENDING` | enum `rentalRequest.status` |
+
+```json
+{
+  "warehouseId": "uuid-warehouse",
+  "companyName": "ABC Fashion JSC",
+  "companyCode": "ABC-FS",
+  "taxCode": "0312345678",
+  "address": "Quận 1, TP.HCM",
+  "contactName": "Nguyễn Văn A",
+  "contactEmail": "ceo@abc-fashion.vn",
+  "contactPhone": "0901234567",
+  "contractType": "SHARED_STORAGE",
+  "pricingModel": "USAGE_BASED",
+  "billingCycle": "MONTHLY",
+  "estimatedSkuCount": 1200,
+  "estimatedBoxCount": 4500,
+  "estimatedVolume": 350.5,
+  "averageStorageDays": 30,
+  "estimatedInboundPerWeek": 4,
+  "estimatedOutboundPerWeek": 10,
+  "requiresFastPicking": true,
+  "requiresPremiumStorage": false,
+  "suggestedZoneType": "FAST_MOVING",
+  "suggestedRackType": "STANDARD",
+  "expectedStartDate": "2026-06-01T00:00:00Z",
+  "expectedEndDate": "2027-06-01T00:00:00Z",
+  "notes": "Có thể cần thêm khu PREMIUM cho dòng cao cấp"
+}
+```
+
+### `GET /rental-requests`
+
+Query tuỳ chọn: `warehouseId`, `status`, `contractType`, `pricingModel`, `page`, `limit`
+
+### `PATCH /rental-requests/:rentalRequestId`
+
+Dùng để cập nhật hồ sơ + xử lý workflow review:
+
+| Status flow | Body gợi ý |
+|-------------|------------|
+| Bắt đầu review | `{ "status": "UNDER_REVIEW", "reviewedBy": "uuid-user" }` |
+| Approve | `{ "status": "APPROVED", "reviewedBy": "uuid-user", "reviewedAt": "2026-05-19T08:00:00Z", "reviewNote": "OK" }` |
+| Reject | `{ "status": "REJECTED", "reviewedBy": "uuid-user", "rejectionReason": "Hồ sơ thiếu tax code" }` |
+| Đã tạo tenant + contract | `{ "status": "CONVERTED" }` |
+
+Các field thông tin (`companyName`, `contactEmail`, `estimated*`, `suggested*`, …) cũng có thể PATCH cùng.
+
+---
+
+## 7. Tenant Company
+
+### `POST /tenants`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `companyName` | ✅ | — | |
+| `companyCode` | | — | Unique |
+| `taxCode` | | — | Unique |
+| `contactName` | | — | |
+| `contactEmail` | | — | |
+| `contactPhone` | | — | |
+| `address` | | — | |
+| `status` | | `ACTIVE` | `ACTIVE`, `SUSPENDED` |
+
+```json
+{
+  "companyName": "ABC Fashion JSC",
+  "companyCode": "ABC-FS",
+  "taxCode": "0312345678",
+  "contactName": "Nguyễn Văn A",
+  "contactEmail": "ceo@abc-fashion.vn",
+  "contactPhone": "0901234567",
+  "address": "Quận 1, TP.HCM",
+  "status": "ACTIVE"
+}
+```
+
+### `GET /tenants`
+
+Query tuỳ chọn: `status`, `page`, `limit`
+
+### `PATCH /tenants/:tenantId`
+
+```json
+{
+  "contactPhone": "0907777777",
+  "status": "SUSPENDED"
+}
+```
+
+---
+
+## 8. Contract
+
+### `POST /contracts`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `tenantId` | ✅ | — | UUID tenant |
+| `warehouseId` | ✅ | — | UUID kho |
+| `contractType` | ✅ | — | enum `contractType` |
+| `pricingModel` | ✅ | — | enum `pricingModel` |
+| `startDate` | ✅ | — | `YYYY-MM-DD` |
+| `endDate` | ✅ | — | `YYYY-MM-DD`, phải sau `startDate` |
+| `contractCode` | | auto `CTR-…` | Unique; tự sinh nếu bỏ trống |
+| `contractName` | | — | |
+| `rentalRequestId` | | — | UUID rental request; **1-1 unique**, đã link → 409 |
+| `billingCycle` | | `MONTHLY` | |
+| `allowDynamicRelocation` | | `true` | |
+| `autoRenew` | | `false` | |
+| `minimumBillingDays` | | `1` | ≥ 0 |
+| `minimumReservedCapacity` | | — | ≥ 0 |
+| `estimatedTotalAmount` | | — | ≥ 0 |
+| `status` | | `DRAFT` | enum `contract.status` |
+| `tenantSignature` | | — | |
+| `warehouseSignature` | | — | |
+| `createdBy` | | — | UUID user |
+| `approvedBy` | | — | UUID user |
+
+```json
+{
+  "tenantId": "uuid-tenant",
+  "warehouseId": "uuid-warehouse",
+  "rentalRequestId": "uuid-rental-request",
+  "contractName": "HĐ thuê kho HCM - ABC Fashion",
+  "contractType": "SHARED_STORAGE",
+  "pricingModel": "USAGE_BASED",
+  "billingCycle": "MONTHLY",
+  "allowDynamicRelocation": true,
+  "autoRenew": false,
+  "startDate": "2026-06-01",
+  "endDate": "2027-06-01",
+  "minimumBillingDays": 30,
+  "minimumReservedCapacity": 100,
+  "estimatedTotalAmount": 240000000,
+  "status": "DRAFT"
+}
+```
+
+### `GET /contracts`
+
+Query tuỳ chọn: `tenantId`, `warehouseId`, `rentalRequestId`, `status`, `contractType`, `page`, `limit`
+
+### `PATCH /contracts/:contractId`
+
+Dùng cho cả workflow ký HĐ:
+
+| Bước | Body gợi ý |
+|------|------------|
+| Submit để duyệt | `{ "status": "PENDING_APPROVAL" }` |
+| Tenant ký | `{ "tenantSignature": "<chữ ký số>" }` |
+| Warehouse ký + approve | `{ "warehouseSignature": "<chữ ký số>", "approvedBy": "uuid-user", "status": "ACTIVE" }` |
+| Huỷ / kết thúc | `{ "status": "TERMINATED" }` hoặc `{ "status": "CANCELLED" }` |
+
+---
+
+## 9. Contract Item
+
+### `POST /contract-items`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `contractId` | ✅ | — | UUID contract |
+| `itemType` | ✅ | — | enum `contractItem.itemType` |
+| `billingUnit` | ✅ | — | enum `billingUnit` |
+| `unitPrice` | ✅ | — | ≥ 0 |
+| `storageLevel` | | — | enum `storageLevel` |
+| `quantity` | | — | ≥ 0 |
+| `reservedQuantity` | | — | ≥ 0 |
+| `boxType` | | — | enum `boxType` |
+
+```json
+{
+  "contractId": "uuid-contract",
+  "itemType": "STORAGE",
+  "storageLevel": "BIN",
+  "billingUnit": "BIN_DAY",
+  "quantity": 50,
+  "reservedQuantity": 50,
+  "boxType": "MEDIUM",
+  "unitPrice": 12000
+}
+```
+
+### `GET /contract-items?contractId={uuid}`
+
+Query bắt buộc: `contractId`. Tuỳ chọn: `page`, `limit`
+
+### `PATCH /contract-items/:contractItemId`
+
+```json
+{
+  "quantity": 60,
+  "unitPrice": 11000
+}
+```
+
+---
+
+## 10. Storage Reservation
+
+`tenantId` được kế thừa tự động từ `contract.tenantId` — không truyền trong body.
+
+FK theo `storageLevel`:
+
+| `storageLevel` | Bắt buộc kèm |
+|----------------|--------------|
+| `WAREHOUSE` | `warehouseId` |
+| `ZONE` | `warehouseId`, `zoneId` |
+| `RACK` | `warehouseId`, `rackId` |
+| `RACK_LEVEL` | `warehouseId`, `rackLevelId` |
+| `BIN` | `warehouseId`, `binId` |
+
+### `POST /storage-reservations`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `contractId` | ✅ | — | UUID contract |
+| `reservationType` | ✅ | — | enum `reservation.type` |
+| `storageLevel` | ✅ | — | enum `storageLevel` |
+| `warehouseId` | ✅ | — | UUID kho |
+| `startDate` | ✅ | — | `YYYY-MM-DD` |
+| `endDate` | ✅ | — | `YYYY-MM-DD`, phải sau `startDate` |
+| `zoneId` / `rackId` / `rackLevelId` / `binId` | (tuỳ level) | — | Bắt buộc theo bảng FK ở trên |
+| `reservedCapacity` | | — | ≥ 0 |
+| `boxType` | | — | enum `boxType` |
+| `status` | | `ACTIVE` | `ACTIVE`, `EXPIRED`, `CANCELLED` |
+
+**Ví dụ — reserve nguyên 1 zone (DEDICATED_ZONE):**
+
+```json
+{
+  "contractId": "uuid-contract",
+  "reservationType": "DEDICATED",
+  "storageLevel": "ZONE",
+  "warehouseId": "uuid-warehouse",
+  "zoneId": "uuid-zone",
+  "reservedCapacity": 500,
+  "startDate": "2026-06-01",
+  "endDate": "2027-06-01"
+}
+```
+
+**Ví dụ — reserve theo bin (RESERVED_STORAGE):**
+
+```json
+{
+  "contractId": "uuid-contract",
+  "reservationType": "RESERVED",
+  "storageLevel": "BIN",
+  "warehouseId": "uuid-warehouse",
+  "binId": "uuid-bin",
+  "boxType": "MEDIUM",
+  "reservedCapacity": 8,
+  "startDate": "2026-06-01",
+  "endDate": "2027-06-01"
+}
+```
+
+### `GET /storage-reservations`
+
+Query tuỳ chọn: `contractId`, `tenantId`, `warehouseId`, `zoneId`, `rackId`, `rackLevelId`, `binId`, `storageLevel`, `status`, `page`, `limit`
+
+### `PATCH /storage-reservations/:reservationId`
+
+Chỉ cho cập nhật: `reservationType`, `reservedCapacity`, `boxType`, `startDate`, `endDate`, `status` (đổi `storageLevel`/FK đích → tạo reservation mới).
+
+```json
+{
+  "reservedCapacity": 600,
+  "endDate": "2027-12-31"
+}
+```
+
+---
+
+## Ví dụ flow Tenant Onboarding (Flow 1)
+
+```http
+# 1. Tenant submit rental request
+POST /api/rental-requests
+    { "warehouseId": "...", "companyName": "ABC Fashion", ... }
+
+# 2. WH_ADMIN review → APPROVED
+PATCH /api/rental-requests/{rentalRequestId}
+    { "status": "UNDER_REVIEW", "reviewedBy": "..." }
+PATCH /api/rental-requests/{rentalRequestId}
+    { "status": "APPROVED", "reviewedAt": "...", "reviewNote": "OK" }
+
+# 3. Tạo tenant company
+POST /api/tenants
+    { "companyName": "ABC Fashion JSC", ... }
+
+# 4. Tạo contract gắn rental_request_id
+POST /api/contracts
+    { "tenantId": "...", "warehouseId": "...",
+      "rentalRequestId": "...", "contractType": "SHARED_STORAGE", ... }
+
+# 5. Thêm các dòng giá / item
+POST /api/contract-items
+    { "contractId": "...", "itemType": "STORAGE",
+      "billingUnit": "BIN_DAY", "unitPrice": 12000, ... }
+
+# 6. Ký HĐ → ACTIVE
+PATCH /api/contracts/{contractId}
+    { "tenantSignature": "...", "warehouseSignature": "...",
+      "approvedBy": "...", "status": "ACTIVE" }
+
+# 7. Assign storage reservation theo storage_level
+POST /api/storage-reservations
+    { "contractId": "...", "reservationType": "RESERVED",
+      "storageLevel": "BIN", "warehouseId": "...", "binId": "...",
+      "startDate": "...", "endDate": "..." }
+
+# 8. Activate tenant + đóng rental request
+PATCH /api/tenants/{tenantId}            { "status": "ACTIVE" }
+PATCH /api/rental-requests/{rentalRequestId}   { "status": "CONVERTED" }
+```

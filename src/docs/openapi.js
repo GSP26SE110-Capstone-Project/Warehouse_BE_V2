@@ -130,6 +130,11 @@ const spec = {
     { name: 'Rack', description: 'Racks' },
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
+    { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
+    { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
+    { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
+    { name: 'ContractItem', description: 'Contract line items (Flow 1)' },
+    { name: 'StorageReservation', description: 'Storage reservations (Flow 1)' },
   ],
   components: {
     securitySchemes: {
@@ -462,6 +467,601 @@ const spec = {
         properties: {
           accessToken: { type: 'string' },
           user: { $ref: '#/components/schemas/User' },
+        },
+      },
+
+      RentalRequest: {
+        type: 'object',
+        properties: {
+          rentalRequestId: uuid,
+          requestCode: { type: 'string', example: 'RR-LX1A2B-0C' },
+          companyName: { type: 'string', example: 'ABC Fashion JSC' },
+          companyCode: { type: 'string', nullable: true },
+          taxCode: { type: 'string', nullable: true },
+          address: { type: 'string', nullable: true },
+          contactName: { type: 'string', nullable: true },
+          contactEmail: { type: 'string', nullable: true },
+          contactPhone: { type: 'string', nullable: true },
+          warehouseId: uuid,
+          contractType: {
+            type: 'string',
+            enum: [
+              'SHARED_STORAGE',
+              'RESERVED_STORAGE',
+              'DEDICATED_ZONE',
+              'DEDICATED_WAREHOUSE',
+            ],
+            nullable: true,
+          },
+          pricingModel: {
+            type: 'string',
+            enum: ['USAGE_BASED', 'FIXED', 'HYBRID'],
+            nullable: true,
+          },
+          billingCycle: {
+            type: 'string',
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            nullable: true,
+          },
+          estimatedSkuCount: { type: 'integer', nullable: true },
+          estimatedBoxCount: { type: 'integer', nullable: true },
+          estimatedVolume: { type: 'number', nullable: true },
+          averageStorageDays: { type: 'integer', nullable: true },
+          estimatedInboundPerWeek: { type: 'integer', nullable: true },
+          estimatedOutboundPerWeek: { type: 'integer', nullable: true },
+          requiresFastPicking: { type: 'boolean' },
+          requiresPremiumStorage: { type: 'boolean' },
+          notes: { type: 'string', nullable: true },
+          suggestedZoneType: {
+            type: 'string',
+            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            nullable: true,
+          },
+          suggestedRackType: {
+            type: 'string',
+            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            nullable: true,
+          },
+          expectedStartDate: { type: 'string', format: 'date-time', nullable: true },
+          expectedEndDate: { type: 'string', format: 'date-time', nullable: true },
+          status: {
+            type: 'string',
+            enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+          },
+          reviewedBy: { ...uuid, nullable: true },
+          reviewedAt: { type: 'string', format: 'date-time', nullable: true },
+          rejectionReason: { type: 'string', nullable: true },
+          reviewNote: { type: 'string', nullable: true },
+          createdBy: { ...uuid, nullable: true },
+          ...timestamps,
+        },
+      },
+      RentalRequestCreate: {
+        type: 'object',
+        required: ['warehouseId', 'companyName'],
+        properties: {
+          warehouseId: uuid,
+          requestCode: {
+            type: 'string',
+            description: 'Auto-generated if omitted',
+          },
+          companyName: { type: 'string' },
+          companyCode: { type: 'string' },
+          taxCode: { type: 'string' },
+          address: { type: 'string' },
+          contactName: { type: 'string' },
+          contactEmail: { type: 'string', format: 'email' },
+          contactPhone: { type: 'string' },
+          contractType: {
+            type: 'string',
+            enum: [
+              'SHARED_STORAGE',
+              'RESERVED_STORAGE',
+              'DEDICATED_ZONE',
+              'DEDICATED_WAREHOUSE',
+            ],
+          },
+          pricingModel: {
+            type: 'string',
+            enum: ['USAGE_BASED', 'FIXED', 'HYBRID'],
+          },
+          billingCycle: {
+            type: 'string',
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+          },
+          estimatedSkuCount: { type: 'integer', minimum: 0 },
+          estimatedBoxCount: { type: 'integer', minimum: 0 },
+          estimatedVolume: { type: 'number', minimum: 0 },
+          averageStorageDays: { type: 'integer', minimum: 0 },
+          estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
+          estimatedOutboundPerWeek: { type: 'integer', minimum: 0 },
+          requiresFastPicking: { type: 'boolean', default: false },
+          requiresPremiumStorage: { type: 'boolean', default: false },
+          notes: { type: 'string' },
+          suggestedZoneType: {
+            type: 'string',
+            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+          },
+          suggestedRackType: {
+            type: 'string',
+            enum: ['STANDARD', 'HIGH_CAPACITY'],
+          },
+          expectedStartDate: { type: 'string', format: 'date-time' },
+          expectedEndDate: { type: 'string', format: 'date-time' },
+          status: {
+            type: 'string',
+            enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+            default: 'PENDING',
+          },
+        },
+      },
+      Contract: {
+        type: 'object',
+        properties: {
+          contractId: uuid,
+          tenantId: uuid,
+          warehouseId: uuid,
+          rentalRequestId: { ...uuid, nullable: true },
+          contractCode: { type: 'string', example: 'CTR-LX1A2B-0C' },
+          contractName: { type: 'string', nullable: true },
+          contractType: {
+            type: 'string',
+            enum: [
+              'SHARED_STORAGE',
+              'RESERVED_STORAGE',
+              'DEDICATED_ZONE',
+              'DEDICATED_WAREHOUSE',
+            ],
+          },
+          pricingModel: {
+            type: 'string',
+            enum: ['USAGE_BASED', 'FIXED', 'HYBRID'],
+          },
+          billingCycle: {
+            type: 'string',
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            nullable: true,
+          },
+          allowDynamicRelocation: { type: 'boolean' },
+          autoRenew: { type: 'boolean' },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          minimumBillingDays: { type: 'integer', nullable: true },
+          minimumReservedCapacity: { type: 'number', nullable: true },
+          estimatedTotalAmount: { type: 'number', nullable: true },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING_APPROVAL',
+              'ACTIVE',
+              'EXPIRED',
+              'TERMINATED',
+              'CANCELLED',
+            ],
+          },
+          tenantSignature: { type: 'string', nullable: true },
+          warehouseSignature: { type: 'string', nullable: true },
+          createdBy: { ...uuid, nullable: true },
+          approvedBy: { ...uuid, nullable: true },
+          ...timestamps,
+        },
+      },
+      ContractCreate: {
+        type: 'object',
+        required: [
+          'tenantId',
+          'warehouseId',
+          'contractType',
+          'pricingModel',
+          'startDate',
+          'endDate',
+        ],
+        properties: {
+          tenantId: uuid,
+          warehouseId: uuid,
+          rentalRequestId: uuid,
+          contractCode: {
+            type: 'string',
+            description: 'Auto-generated if omitted',
+          },
+          contractName: { type: 'string' },
+          contractType: {
+            type: 'string',
+            enum: [
+              'SHARED_STORAGE',
+              'RESERVED_STORAGE',
+              'DEDICATED_ZONE',
+              'DEDICATED_WAREHOUSE',
+            ],
+          },
+          pricingModel: {
+            type: 'string',
+            enum: ['USAGE_BASED', 'FIXED', 'HYBRID'],
+          },
+          billingCycle: {
+            type: 'string',
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            default: 'MONTHLY',
+          },
+          allowDynamicRelocation: { type: 'boolean', default: true },
+          autoRenew: { type: 'boolean', default: false },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          minimumBillingDays: { type: 'integer', minimum: 0, default: 1 },
+          minimumReservedCapacity: { type: 'number', minimum: 0 },
+          estimatedTotalAmount: { type: 'number', minimum: 0 },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING_APPROVAL',
+              'ACTIVE',
+              'EXPIRED',
+              'TERMINATED',
+              'CANCELLED',
+            ],
+            default: 'DRAFT',
+          },
+          tenantSignature: { type: 'string' },
+          warehouseSignature: { type: 'string' },
+          createdBy: uuid,
+          approvedBy: uuid,
+        },
+      },
+      ContractUpdate: {
+        type: 'object',
+        description:
+          'Status workflow: DRAFT → PENDING_APPROVAL → ACTIVE (sau khi đủ 2 chữ ký).',
+        properties: {
+          contractName: { type: 'string' },
+          contractType: {
+            type: 'string',
+            enum: [
+              'SHARED_STORAGE',
+              'RESERVED_STORAGE',
+              'DEDICATED_ZONE',
+              'DEDICATED_WAREHOUSE',
+            ],
+          },
+          pricingModel: {
+            type: 'string',
+            enum: ['USAGE_BASED', 'FIXED', 'HYBRID'],
+          },
+          billingCycle: {
+            type: 'string',
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+          },
+          allowDynamicRelocation: { type: 'boolean' },
+          autoRenew: { type: 'boolean' },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          minimumBillingDays: { type: 'integer', minimum: 0 },
+          minimumReservedCapacity: { type: 'number', minimum: 0 },
+          estimatedTotalAmount: { type: 'number', minimum: 0 },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING_APPROVAL',
+              'ACTIVE',
+              'EXPIRED',
+              'TERMINATED',
+              'CANCELLED',
+            ],
+          },
+          tenantSignature: { type: 'string' },
+          warehouseSignature: { type: 'string' },
+          approvedBy: uuid,
+        },
+      },
+
+      ContractItem: {
+        type: 'object',
+        properties: {
+          contractItemId: uuid,
+          contractId: uuid,
+          itemType: {
+            type: 'string',
+            enum: ['STORAGE', 'INBOUND', 'OUTBOUND', 'HANDLING', 'REPACKING', 'SLA'],
+          },
+          storageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+            nullable: true,
+          },
+          billingUnit: {
+            type: 'string',
+            enum: [
+              'BOX_DAY',
+              'BIN_DAY',
+              'RACK_DAY',
+              'ZONE_DAY',
+              'WAREHOUSE_DAY',
+              'INBOUND_LPN',
+              'OUTBOUND_LPN',
+              'HANDLING_UNIT',
+            ],
+          },
+          quantity: { type: 'number', nullable: true },
+          reservedQuantity: { type: 'integer', nullable: true },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+            nullable: true,
+          },
+          unitPrice: { type: 'number' },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      ContractItemCreate: {
+        type: 'object',
+        required: ['contractId', 'itemType', 'billingUnit', 'unitPrice'],
+        properties: {
+          contractId: uuid,
+          itemType: {
+            type: 'string',
+            enum: ['STORAGE', 'INBOUND', 'OUTBOUND', 'HANDLING', 'REPACKING', 'SLA'],
+          },
+          storageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+          billingUnit: {
+            type: 'string',
+            enum: [
+              'BOX_DAY',
+              'BIN_DAY',
+              'RACK_DAY',
+              'ZONE_DAY',
+              'WAREHOUSE_DAY',
+              'INBOUND_LPN',
+              'OUTBOUND_LPN',
+              'HANDLING_UNIT',
+            ],
+          },
+          quantity: { type: 'number', minimum: 0 },
+          reservedQuantity: { type: 'integer', minimum: 0 },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          unitPrice: { type: 'number', minimum: 0 },
+        },
+      },
+      ContractItemUpdate: {
+        type: 'object',
+        properties: {
+          itemType: {
+            type: 'string',
+            enum: ['STORAGE', 'INBOUND', 'OUTBOUND', 'HANDLING', 'REPACKING', 'SLA'],
+          },
+          storageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+          billingUnit: {
+            type: 'string',
+            enum: [
+              'BOX_DAY',
+              'BIN_DAY',
+              'RACK_DAY',
+              'ZONE_DAY',
+              'WAREHOUSE_DAY',
+              'INBOUND_LPN',
+              'OUTBOUND_LPN',
+              'HANDLING_UNIT',
+            ],
+          },
+          quantity: { type: 'number', minimum: 0 },
+          reservedQuantity: { type: 'integer', minimum: 0 },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          unitPrice: { type: 'number', minimum: 0 },
+        },
+      },
+
+      StorageReservation: {
+        type: 'object',
+        properties: {
+          reservationId: uuid,
+          contractId: uuid,
+          tenantId: uuid,
+          reservationType: {
+            type: 'string',
+            enum: ['SHARED', 'RESERVED', 'DEDICATED'],
+          },
+          storageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+          warehouseId: uuid,
+          zoneId: { ...uuid, nullable: true },
+          rackId: { ...uuid, nullable: true },
+          rackLevelId: { ...uuid, nullable: true },
+          binId: { ...uuid, nullable: true },
+          reservedCapacity: { type: 'number', nullable: true },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+            nullable: true,
+          },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'],
+          },
+          ...timestamps,
+        },
+      },
+      StorageReservationCreate: {
+        type: 'object',
+        required: [
+          'contractId',
+          'reservationType',
+          'storageLevel',
+          'warehouseId',
+          'startDate',
+          'endDate',
+        ],
+        description:
+          'Tenant inherited from contract.tenantId. FK target depends on storageLevel: ZONE→zoneId, RACK→rackId, RACK_LEVEL→rackLevelId, BIN→binId.',
+        properties: {
+          contractId: uuid,
+          reservationType: {
+            type: 'string',
+            enum: ['SHARED', 'RESERVED', 'DEDICATED'],
+          },
+          storageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+          warehouseId: uuid,
+          zoneId: uuid,
+          rackId: uuid,
+          rackLevelId: uuid,
+          binId: uuid,
+          reservedCapacity: { type: 'number', minimum: 0 },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'],
+            default: 'ACTIVE',
+          },
+        },
+      },
+      StorageReservationUpdate: {
+        type: 'object',
+        properties: {
+          reservationType: {
+            type: 'string',
+            enum: ['SHARED', 'RESERVED', 'DEDICATED'],
+          },
+          reservedCapacity: { type: 'number', minimum: 0 },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          startDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'],
+          },
+        },
+      },
+
+      TenantCompany: {
+        type: 'object',
+        properties: {
+          tenantId: uuid,
+          companyName: { type: 'string', example: 'ABC Fashion JSC' },
+          companyCode: { type: 'string', nullable: true },
+          taxCode: { type: 'string', nullable: true },
+          contactName: { type: 'string', nullable: true },
+          contactEmail: { type: 'string', nullable: true },
+          contactPhone: { type: 'string', nullable: true },
+          address: { type: 'string', nullable: true },
+          status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+          ...timestamps,
+        },
+      },
+      TenantCompanyCreate: {
+        type: 'object',
+        required: ['companyName'],
+        properties: {
+          companyName: { type: 'string' },
+          companyCode: { type: 'string' },
+          taxCode: { type: 'string' },
+          contactName: { type: 'string' },
+          contactEmail: { type: 'string', format: 'email' },
+          contactPhone: { type: 'string' },
+          address: { type: 'string' },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'SUSPENDED'],
+            default: 'ACTIVE',
+          },
+        },
+      },
+      TenantCompanyUpdate: {
+        type: 'object',
+        properties: {
+          companyName: { type: 'string' },
+          companyCode: { type: 'string' },
+          taxCode: { type: 'string' },
+          contactName: { type: 'string' },
+          contactEmail: { type: 'string', format: 'email' },
+          contactPhone: { type: 'string' },
+          address: { type: 'string' },
+          status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+        },
+      },
+
+      RentalRequestUpdate: {
+        type: 'object',
+        description:
+          'Status workflow: PENDING → UNDER_REVIEW → APPROVED → CONVERTED (or REJECTED).',
+        properties: {
+          companyName: { type: 'string' },
+          companyCode: { type: 'string' },
+          taxCode: { type: 'string' },
+          address: { type: 'string' },
+          contactName: { type: 'string' },
+          contactEmail: { type: 'string', format: 'email' },
+          contactPhone: { type: 'string' },
+          contractType: {
+            type: 'string',
+            enum: [
+              'SHARED_STORAGE',
+              'RESERVED_STORAGE',
+              'DEDICATED_ZONE',
+              'DEDICATED_WAREHOUSE',
+            ],
+          },
+          pricingModel: {
+            type: 'string',
+            enum: ['USAGE_BASED', 'FIXED', 'HYBRID'],
+          },
+          billingCycle: {
+            type: 'string',
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+          },
+          estimatedSkuCount: { type: 'integer', minimum: 0 },
+          estimatedBoxCount: { type: 'integer', minimum: 0 },
+          estimatedVolume: { type: 'number', minimum: 0 },
+          averageStorageDays: { type: 'integer', minimum: 0 },
+          estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
+          estimatedOutboundPerWeek: { type: 'integer', minimum: 0 },
+          requiresFastPicking: { type: 'boolean' },
+          requiresPremiumStorage: { type: 'boolean' },
+          notes: { type: 'string' },
+          suggestedZoneType: {
+            type: 'string',
+            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+          },
+          suggestedRackType: {
+            type: 'string',
+            enum: ['STANDARD', 'HIGH_CAPACITY'],
+          },
+          expectedStartDate: { type: 'string', format: 'date-time' },
+          expectedEndDate: { type: 'string', format: 'date-time' },
+          status: {
+            type: 'string',
+            enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+          },
+          reviewedBy: uuid,
+          reviewedAt: { type: 'string', format: 'date-time' },
+          rejectionReason: { type: 'string' },
+          reviewNote: { type: 'string' },
         },
       },
     },
@@ -1075,6 +1675,513 @@ const spec = {
         parameters: [{ in: 'path', name: 'binId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Bin' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/rental-requests': {
+      get: {
+        tags: ['RentalRequest'],
+        summary: 'List rental requests',
+        parameters: [
+          { in: 'query', name: 'warehouseId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+            },
+          },
+          {
+            in: 'query',
+            name: 'contractType',
+            schema: {
+              type: 'string',
+              enum: [
+                'SHARED_STORAGE',
+                'RESERVED_STORAGE',
+                'DEDICATED_ZONE',
+                'DEDICATED_WAREHOUSE',
+              ],
+            },
+          },
+          {
+            in: 'query',
+            name: 'pricingModel',
+            schema: { type: 'string', enum: ['USAGE_BASED', 'FIXED', 'HYBRID'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/RentalRequest' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['RentalRequest'],
+        summary: 'Create rental request',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/RentalRequestCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/RentalRequest' },
+            'Rental request created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/tenants': {
+      get: {
+        tags: ['TenantCompany'],
+        summary: 'List tenant companies',
+        parameters: [
+          {
+            in: 'query',
+            name: 'status',
+            schema: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/TenantCompany' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['TenantCompany'],
+        summary: 'Create tenant company',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/TenantCompanyCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/TenantCompany' },
+            'Tenant company created'
+          ),
+          400: stdErrors[400],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/tenants/{tenantId}': {
+      get: {
+        tags: ['TenantCompany'],
+        summary: 'Get tenant company by ID',
+        parameters: [{ in: 'path', name: 'tenantId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/TenantCompany' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['TenantCompany'],
+        summary: 'Update tenant company',
+        parameters: [{ in: 'path', name: 'tenantId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/TenantCompanyUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/TenantCompany' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['TenantCompany'],
+        summary: 'Delete tenant company',
+        parameters: [{ in: 'path', name: 'tenantId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/TenantCompany' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/rental-requests/{rentalRequestId}': {
+      get: {
+        tags: ['RentalRequest'],
+        summary: 'Get rental request by ID',
+        parameters: [
+          { in: 'path', name: 'rentalRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/RentalRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['RentalRequest'],
+        summary: 'Update rental request (incl. status review/approval)',
+        parameters: [
+          { in: 'path', name: 'rentalRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/RentalRequestUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/RentalRequest' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['RentalRequest'],
+        summary: 'Delete rental request',
+        parameters: [
+          { in: 'path', name: 'rentalRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/RentalRequest' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/contracts': {
+      get: {
+        tags: ['Contract'],
+        summary: 'List contracts',
+        parameters: [
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'warehouseId', schema: uuid },
+          { in: 'query', name: 'rentalRequestId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: [
+                'DRAFT',
+                'PENDING_APPROVAL',
+                'ACTIVE',
+                'EXPIRED',
+                'TERMINATED',
+                'CANCELLED',
+              ],
+            },
+          },
+          {
+            in: 'query',
+            name: 'contractType',
+            schema: {
+              type: 'string',
+              enum: [
+                'SHARED_STORAGE',
+                'RESERVED_STORAGE',
+                'DEDICATED_ZONE',
+                'DEDICATED_WAREHOUSE',
+              ],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Contract' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['Contract'],
+        summary: 'Create contract',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Contract' }, 'Contract created'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/contracts/{contractId}': {
+      get: {
+        tags: ['Contract'],
+        summary: 'Get contract by ID',
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Contract' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Contract'],
+        summary: 'Update contract (incl. status, signatures)',
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/Contract' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['Contract'],
+        summary: 'Delete contract',
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/Contract' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/contract-items': {
+      get: {
+        tags: ['ContractItem'],
+        summary: 'List contract items',
+        parameters: [
+          { in: 'query', name: 'contractId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/ContractItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['ContractItem'],
+        summary: 'Create contract item',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractItemCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/ContractItem' },
+            'Contract item created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contract-items/{contractItemId}': {
+      get: {
+        tags: ['ContractItem'],
+        summary: 'Get contract item by ID',
+        parameters: [
+          { in: 'path', name: 'contractItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['ContractItem'],
+        summary: 'Update contract item',
+        parameters: [
+          { in: 'path', name: 'contractItemId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractItemUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractItem' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['ContractItem'],
+        summary: 'Delete contract item',
+        parameters: [
+          { in: 'path', name: 'contractItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractItem' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/storage-reservations': {
+      get: {
+        tags: ['StorageReservation'],
+        summary: 'List storage reservations',
+        parameters: [
+          { in: 'query', name: 'contractId', schema: uuid },
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'warehouseId', schema: uuid },
+          { in: 'query', name: 'zoneId', schema: uuid },
+          { in: 'query', name: 'rackId', schema: uuid },
+          { in: 'query', name: 'rackLevelId', schema: uuid },
+          { in: 'query', name: 'binId', schema: uuid },
+          {
+            in: 'query',
+            name: 'storageLevel',
+            schema: {
+              type: 'string',
+              enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+            },
+          },
+          {
+            in: 'query',
+            name: 'status',
+            schema: { type: 'string', enum: ['ACTIVE', 'EXPIRED', 'CANCELLED'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/StorageReservation' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['StorageReservation'],
+        summary: 'Create storage reservation',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/StorageReservationCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/StorageReservation' },
+            'Reservation created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/storage-reservations/{reservationId}': {
+      get: {
+        tags: ['StorageReservation'],
+        summary: 'Get storage reservation by ID',
+        parameters: [
+          { in: 'path', name: 'reservationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/StorageReservation' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['StorageReservation'],
+        summary: 'Update storage reservation',
+        parameters: [
+          { in: 'path', name: 'reservationId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/StorageReservationUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/StorageReservation' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['StorageReservation'],
+        summary: 'Delete storage reservation',
+        parameters: [
+          { in: 'path', name: 'reservationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/StorageReservation' },
+            'Deleted successfully'
+          ),
           400: stdErrors[400],
           404: stdErrors[404],
         },
