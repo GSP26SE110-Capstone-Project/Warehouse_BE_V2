@@ -331,14 +331,14 @@ Base URL: `http://localhost:3000/api`
 
 Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 
-> **Lưu ý:** `/batches`, `/lpns` đã có API + Swagger. `/skus`, `/lpn-details` chưa implement.
+> **Lưu ý:** `/skus`, `/batches`, `/lpns` đã có API + Swagger. `/lpn-details` chưa implement.
 
 ## Tất cả endpoint (flat)
 
 | Resource | POST | GET list | GET one | PATCH | DELETE |
 |----------|------|----------|---------|-------|--------|
 | Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
-| SKU | `/skus` | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
+| SKU | `/skus` ✅ | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
 | LPN detail | `/lpn-details` | `/lpn-details?lpnId=` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` |
 

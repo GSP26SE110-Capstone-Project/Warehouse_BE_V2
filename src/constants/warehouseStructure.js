@@ -38,6 +38,10 @@ export const LPN_STATUS = Object.freeze([
   'DAMAGED',
 ]);
 
+export const MOVEMENT_CATEGORY = Object.freeze(['FAST', 'NORMAL', 'SLOW']);
+
+export const SKU_STATUS = Object.freeze(['ACTIVE', 'INACTIVE']);
+
 export const BIN_STATUS = Object.freeze([
   'EMPTY',
   'PARTIAL',

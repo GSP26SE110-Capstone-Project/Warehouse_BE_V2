@@ -17,6 +17,7 @@ import contractItemRoutes from './contractItem.routes.js';
 import storageReservationRoutes from './storageReservation.routes.js';
 import lpnRoutes from './lpn.routes.js';
 import batchRoutes from './batch.routes.js';
+import skuRoutes from './sku.routes.js';
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.use('/contracts', contractRoutes);
 router.use('/contract-items', contractItemRoutes);
 router.use('/storage-reservations', storageReservationRoutes);
 router.use('/batches', batchRoutes);
+router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
 
 router.get(

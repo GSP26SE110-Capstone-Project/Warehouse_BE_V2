@@ -130,6 +130,7 @@ const spec = {
     { name: 'Rack', description: 'Racks' },
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
+    { name: 'SKU', description: 'Tenant product SKUs' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
@@ -384,6 +385,71 @@ const spec = {
             type: 'string',
             enum: ['EMPTY', 'PARTIAL', 'FULL', 'RESERVED', 'BLOCKED'],
           },
+        },
+      },
+
+      Sku: {
+        type: 'object',
+        properties: {
+          skuId: uuid,
+          tenantId: uuid,
+          skuCode: { type: 'string', example: 'SKU-TSHIRT-BLK-M' },
+          productName: { type: 'string' },
+          categoryId: { ...uuid, nullable: true },
+          collectionId: { ...uuid, nullable: true },
+          seasonId: { ...uuid, nullable: true },
+          color: { type: 'string', nullable: true },
+          size: { type: 'string', nullable: true },
+          material: { type: 'string', nullable: true },
+          movementCategory: {
+            type: 'string',
+            enum: ['FAST', 'NORMAL', 'SLOW'],
+          },
+          status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
+          ...timestamps,
+        },
+      },
+      SkuCreate: {
+        type: 'object',
+        required: ['tenantId', 'skuCode', 'productName'],
+        properties: {
+          tenantId: uuid,
+          skuCode: { type: 'string' },
+          productName: { type: 'string' },
+          categoryId: uuid,
+          collectionId: uuid,
+          seasonId: uuid,
+          color: { type: 'string' },
+          size: { type: 'string' },
+          material: { type: 'string' },
+          movementCategory: {
+            type: 'string',
+            enum: ['FAST', 'NORMAL', 'SLOW'],
+            default: 'NORMAL',
+          },
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'INACTIVE'],
+            default: 'ACTIVE',
+          },
+        },
+      },
+      SkuUpdate: {
+        type: 'object',
+        properties: {
+          skuCode: { type: 'string' },
+          productName: { type: 'string' },
+          categoryId: { ...uuid, nullable: true },
+          collectionId: { ...uuid, nullable: true },
+          seasonId: { ...uuid, nullable: true },
+          color: { type: 'string', nullable: true },
+          size: { type: 'string', nullable: true },
+          material: { type: 'string', nullable: true },
+          movementCategory: {
+            type: 'string',
+            enum: ['FAST', 'NORMAL', 'SLOW'],
+          },
+          status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
         },
       },
 
@@ -1780,6 +1846,88 @@ const spec = {
         parameters: [{ in: 'path', name: 'binId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Bin' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/skus': {
+      get: {
+        tags: ['SKU'],
+        summary: 'List SKUs',
+        parameters: [
+          { in: 'query', name: 'tenantId', required: true, schema: uuid },
+          { in: 'query', name: 'status', schema: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] } },
+          {
+            in: 'query',
+            name: 'movementCategory',
+            schema: { type: 'string', enum: ['FAST', 'NORMAL', 'SLOW'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Sku' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['SKU'],
+        summary: 'Create SKU',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SkuCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Sku' }, 'SKU created'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/skus/{skuId}': {
+      get: {
+        tags: ['SKU'],
+        summary: 'Get SKU by ID',
+        parameters: [{ in: 'path', name: 'skuId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Sku' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['SKU'],
+        summary: 'Update SKU',
+        parameters: [{ in: 'path', name: 'skuId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SkuUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Sku' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      delete: {
+        tags: ['SKU'],
+        summary: 'Delete SKU',
+        parameters: [{ in: 'path', name: 'skuId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Sku' }, 'Deleted successfully'),
           400: stdErrors[400],
           404: stdErrors[404],
         },
