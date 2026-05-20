@@ -9,7 +9,7 @@ import bcrypt from 'bcrypt';
 import pool from '../src/config/db.js';
 
 const email = (process.env.SEED_ADMIN_EMAIL || 'admin@warehouse.local').toLowerCase();
-const password = process.env.SEED_ADMIN_PASSWORD || 'Admin@12345';
+const password = process.env.SEED_ADMIN_PASSWORD || 'admin12345';
 const fullName = process.env.SEED_ADMIN_NAME || 'System Administrator';
 
 const existing = await pool.query('SELECT user_id FROM users WHERE email = $1', [email]);

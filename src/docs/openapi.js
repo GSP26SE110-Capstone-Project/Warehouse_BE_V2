@@ -130,6 +130,7 @@ const spec = {
     { name: 'Rack', description: 'Racks' },
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
+    { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
     { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
@@ -381,6 +382,78 @@ const spec = {
           status: {
             type: 'string',
             enum: ['EMPTY', 'PARTIAL', 'FULL', 'RESERVED', 'BLOCKED'],
+          },
+        },
+      },
+
+      Lpn: {
+        type: 'object',
+        properties: {
+          lpnId: uuid,
+          tenantId: uuid,
+          batchId: uuid,
+          lpnCode: { type: 'string', example: 'LPN-2026-00001' },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          volumeUnits: {
+            type: 'integer',
+            description: 'SMALL=1, MEDIUM=2, LARGE=4, EXTRA=8',
+          },
+          maxCapacity: { type: 'integer', nullable: true },
+          actualQuantity: { type: 'integer', default: 0 },
+          fillPercentage: { type: 'number', nullable: true },
+          currentBinId: { ...uuid, nullable: true },
+          status: {
+            type: 'string',
+            enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
+          },
+          ...timestamps,
+        },
+      },
+      LpnCreate: {
+        type: 'object',
+        required: ['tenantId', 'batchId', 'lpnCode', 'boxType'],
+        properties: {
+          tenantId: uuid,
+          batchId: uuid,
+          lpnCode: { type: 'string' },
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          volumeUnits: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Optional; auto from boxType if omitted',
+          },
+          maxCapacity: { type: 'integer', minimum: 1 },
+          actualQuantity: { type: 'integer', minimum: 0, default: 0 },
+          fillPercentage: { type: 'number', minimum: 0, maximum: 100 },
+          currentBinId: uuid,
+          status: {
+            type: 'string',
+            enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
+            default: 'RECEIVING',
+          },
+        },
+      },
+      LpnUpdate: {
+        type: 'object',
+        properties: {
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          volumeUnits: { type: 'integer', minimum: 1 },
+          maxCapacity: { type: 'integer', minimum: 1 },
+          actualQuantity: { type: 'integer', minimum: 0 },
+          fillPercentage: { type: 'number', minimum: 0, maximum: 100 },
+          currentBinId: { ...uuid, nullable: true },
+          status: {
+            type: 'string',
+            enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
           },
         },
       },
@@ -1675,6 +1748,95 @@ const spec = {
         parameters: [{ in: 'path', name: 'binId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Bin' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/lpns': {
+      get: {
+        tags: ['LPN'],
+        summary: 'List LPNs',
+        parameters: [
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'batchId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
+            },
+          },
+          {
+            in: 'query',
+            name: 'boxType',
+            schema: { type: 'string', enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'] },
+          },
+          { in: 'query', name: 'currentBinId', schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Lpn' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['LPN'],
+        summary: 'Create LPN',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LpnCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Lpn' }, 'LPN created'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/lpns/{lpnId}': {
+      get: {
+        tags: ['LPN'],
+        summary: 'Get LPN by ID',
+        parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Lpn' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['LPN'],
+        summary: 'Update LPN',
+        parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LpnUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Lpn' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['LPN'],
+        summary: 'Delete LPN',
+        parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Lpn' }, 'Deleted successfully'),
           400: stdErrors[400],
           404: stdErrors[404],
         },
