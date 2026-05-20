@@ -130,6 +130,7 @@ const spec = {
     { name: 'Rack', description: 'Racks' },
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
+    { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
     { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
@@ -383,6 +384,37 @@ const spec = {
             type: 'string',
             enum: ['EMPTY', 'PARTIAL', 'FULL', 'RESERVED', 'BLOCKED'],
           },
+        },
+      },
+
+      Batch: {
+        type: 'object',
+        properties: {
+          batchId: uuid,
+          inboundRequestId: uuid,
+          batchCode: { type: 'string', example: 'BATCH-2026-0001' },
+          warehouseReceivedAt: { type: 'string', format: 'date-time' },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      BatchCreate: {
+        type: 'object',
+        required: ['inboundRequestId', 'batchCode'],
+        properties: {
+          inboundRequestId: uuid,
+          batchCode: { type: 'string' },
+          warehouseReceivedAt: {
+            type: 'string',
+            format: 'date-time',
+            description: 'Defaults to server time if omitted',
+          },
+        },
+      },
+      BatchUpdate: {
+        type: 'object',
+        properties: {
+          batchCode: { type: 'string' },
+          warehouseReceivedAt: { type: 'string', format: 'date-time' },
         },
       },
 
@@ -1748,6 +1780,80 @@ const spec = {
         parameters: [{ in: 'path', name: 'binId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Bin' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/batches': {
+      get: {
+        tags: ['Batch'],
+        summary: 'List batches',
+        parameters: [
+          { in: 'query', name: 'inboundRequestId', schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Batch' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['Batch'],
+        summary: 'Create batch',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/BatchCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Batch' }, 'Batch created'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/batches/{batchId}': {
+      get: {
+        tags: ['Batch'],
+        summary: 'Get batch by ID',
+        parameters: [{ in: 'path', name: 'batchId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Batch' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Batch'],
+        summary: 'Update batch',
+        parameters: [{ in: 'path', name: 'batchId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/BatchUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Batch' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['Batch'],
+        summary: 'Delete batch',
+        parameters: [{ in: 'path', name: 'batchId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Batch' }, 'Deleted successfully'),
           400: stdErrors[400],
           404: stdErrors[404],
         },

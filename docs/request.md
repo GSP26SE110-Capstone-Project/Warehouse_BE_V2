@@ -331,12 +331,13 @@ Base URL: `http://localhost:3000/api`
 
 Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 
-> **Lưu ý:** `/lpns` đã có API + Swagger. `/skus`, `/lpn-details` chưa implement.
+> **Lưu ý:** `/batches`, `/lpns` đã có API + Swagger. `/skus`, `/lpn-details` chưa implement.
 
 ## Tất cả endpoint (flat)
 
 | Resource | POST | GET list | GET one | PATCH | DELETE |
 |----------|------|----------|---------|-------|--------|
+| Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
 | SKU | `/skus` | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
 | LPN detail | `/lpn-details` | `/lpn-details?lpnId=` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` |
@@ -365,7 +366,44 @@ Khi tạo LPN, `volumeUnits` nên khớp `boxType` theo bảng trên.
 
 ---
 
-## 6. SKU
+## 6. Batch
+
+Batch gắn một inbound request sau receiving.
+
+### `POST /batches`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `inboundRequestId` | ✅ | — | UUID inbound request |
+| `batchCode` | ✅ | — | Unique toàn hệ thống |
+| `warehouseReceivedAt` | | thời điểm server | ISO 8601 date-time |
+
+```json
+{
+  "inboundRequestId": "uuid-inbound-request",
+  "batchCode": "BATCH-2026-0001",
+  "warehouseReceivedAt": "2026-05-20T10:30:00.000Z"
+}
+```
+
+### `GET /batches?inboundRequestId={uuid}`
+
+Query tùy chọn: `inboundRequestId`, `page`, `limit`
+
+### `PATCH /batches/:batchId`
+
+Chỉ cập nhật: `batchCode`, `warehouseReceivedAt` (không đổi `inboundRequestId`).
+
+```json
+{
+  "batchCode": "BATCH-2026-0001-R1",
+  "warehouseReceivedAt": "2026-05-20T11:00:00.000Z"
+}
+```
+
+---
+
+## 7. SKU
 
 Mỗi SKU thuộc một tenant (`tenantId` + `skuCode` unique).
 
@@ -417,7 +455,7 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
 
 ---
 
-## 7. LPN
+## 8. LPN
 
 1 LPN = 1 thùng/kiện (license plate number), gắn `batchId` sau receiving. Có thể chứa nhiều SKU qua bảng `lpn_details`.
 
@@ -482,7 +520,7 @@ Query tùy chọn: `tenantId`, `batchId`, `status`, `boxType`, `currentBinId`, `
 
 ---
 
-## 8. LPN Detail
+## 9. LPN Detail
 
 Dòng hàng trong một LPN: SKU + số lượng.
 
@@ -541,7 +579,10 @@ Query bắt buộc: `lpnId`. Tùy chọn: `page`, `limit`
 POST /api/skus
     { "tenantId": "...", "skuCode": "SKU-001", "productName": "..." }
 
-# 2. Sau receiving — tạo batch (API batch riêng), rồi tạo LPN
+# 2. Sau receiving — tạo batch, rồi tạo LPN
+POST /api/batches
+    { "inboundRequestId": "...", "batchCode": "BATCH-001" }
+
 POST /api/lpns
     { "tenantId": "...", "batchId": "...", "lpnCode": "LPN-001",
       "boxType": "MEDIUM", "volumeUnits": 2 }
