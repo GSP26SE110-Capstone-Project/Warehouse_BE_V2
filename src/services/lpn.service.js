@@ -19,6 +19,7 @@ const CREATE_FIELDS = [
   'maxCapacity',
   'actualQuantity',
   'fillPercentage',
+  'weightKg',
   'currentBinId',
   'status',
 ];
@@ -29,6 +30,7 @@ const UPDATE_FIELDS = [
   'maxCapacity',
   'actualQuantity',
   'fillPercentage',
+  'weightKg',
   'currentBinId',
   'status',
 ];
@@ -63,6 +65,15 @@ function parseFillPercentage(value) {
   const n = Number(value);
   if (Number.isNaN(n) || n < 0 || n > 100) {
     throw new AppError('fillPercentage must be between 0 and 100', 400, 'VALIDATION_ERROR');
+  }
+  return n;
+}
+
+function parseOptionalWeightKg(value) {
+  if (value == null || value === '') return undefined;
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 0) {
+    throw new AppError('weightKg must be a non-negative number', 400, 'VALIDATION_ERROR');
   }
   return n;
 }
@@ -130,6 +141,10 @@ async function normalizeCreatePayload(body) {
     data.fillPercentage = parseFillPercentage(data.fillPercentage);
   }
 
+  if (data.weightKg != null) {
+    data.weightKg = parseOptionalWeightKg(data.weightKg);
+  }
+
   if (data.currentBinId != null) {
     data.currentBinId = parseUuid(data.currentBinId, 'currentBinId');
     await getBin(data.currentBinId);
@@ -170,6 +185,14 @@ async function normalizeUpdatePayload(body, existing) {
   }
   if (data.fillPercentage != null) {
     data.fillPercentage = parseFillPercentage(data.fillPercentage);
+  }
+
+  if (data.weightKg !== undefined) {
+    if (data.weightKg === null || data.weightKg === '') {
+      data.weightKg = null;
+    } else {
+      data.weightKg = parseOptionalWeightKg(data.weightKg);
+    }
   }
 
   if (data.currentBinId !== undefined) {

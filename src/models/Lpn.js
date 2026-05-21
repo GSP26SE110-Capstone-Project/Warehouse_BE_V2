@@ -40,6 +40,10 @@ export const lpnSchema = {
     type: 'decimal',
     required: false,
   },
+  weightKg: {
+    type: 'decimal',
+    required: false,
+  },
   currentBinId: {
     type: 'string',
     required: false,

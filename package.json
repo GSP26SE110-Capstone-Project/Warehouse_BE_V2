@@ -15,6 +15,7 @@
     "db:migrate": "node scripts/run-migration.mjs scripts/sql/db4_schema.sql",
     "db:migrate:zone-type": "node scripts/run-migration.mjs scripts/sql/zone_type_remove_dedicated.sql",
     "db:migrate:rental-requests": "node scripts/run-migration.mjs scripts/sql/rental_requests_add_estimation_fields.sql",
+    "db:migrate:lpn-weight": "node scripts/run-migration.mjs scripts/sql/lpns_add_weight_kg.sql",
     "db:reset": "node scripts/run-migration.mjs scripts/sql/db4_drop_legacy.sql && node scripts/run-migration.mjs scripts/sql/db4_schema.sql",
     "db:tables": "node scripts/list-db-tables.mjs",
     "models:generate": "node scripts/generate-schema-models.mjs"

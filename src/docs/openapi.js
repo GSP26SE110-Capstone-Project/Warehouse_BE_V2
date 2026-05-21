@@ -571,12 +571,47 @@ const spec = {
           maxCapacity: { type: 'integer', nullable: true },
           actualQuantity: { type: 'integer', default: 0 },
           fillPercentage: { type: 'number', nullable: true },
+          weightKg: {
+            type: 'number',
+            nullable: true,
+            description: 'Carton weight in kg (receiving / putaway)',
+          },
           currentBinId: { ...uuid, nullable: true },
           status: {
             type: 'string',
             enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
           },
           ...timestamps,
+        },
+      },
+      LpnRackSuggestion: {
+        type: 'object',
+        properties: {
+          lpnId: uuid,
+          lpnCode: { type: 'string' },
+          weightKg: { type: 'number', nullable: true },
+          suggestedRackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          thresholdKg: { type: 'number' },
+          reason: { type: 'string' },
+          warehouseId: uuid,
+          note: { type: 'string', nullable: true },
+          suitableRackLevels: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                rackLevelId: uuid,
+                levelCode: { type: 'string', nullable: true },
+                levelNumber: { type: 'integer' },
+                maxWeightKg: { type: 'number', nullable: true },
+                rackId: uuid,
+                rackCode: { type: 'string' },
+                rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+                zoneId: uuid,
+                zoneCode: { type: 'string' },
+              },
+            },
+          },
         },
       },
       LpnCreate: {
@@ -598,6 +633,7 @@ const spec = {
           maxCapacity: { type: 'integer', minimum: 1 },
           actualQuantity: { type: 'integer', minimum: 0, default: 0 },
           fillPercentage: { type: 'number', minimum: 0, maximum: 100 },
+          weightKg: { type: 'number', minimum: 0, description: 'Carton weight in kg' },
           currentBinId: uuid,
           status: {
             type: 'string',
@@ -617,6 +653,7 @@ const spec = {
           maxCapacity: { type: 'integer', minimum: 1 },
           actualQuantity: { type: 'integer', minimum: 0 },
           fillPercentage: { type: 'number', minimum: 0, maximum: 100 },
+          weightKg: { type: 'number', minimum: 0, nullable: true },
           currentBinId: { ...uuid, nullable: true },
           status: {
             type: 'string',
@@ -2403,6 +2440,24 @@ const spec = {
           400: stdErrors[400],
           404: stdErrors[404],
           409: stdErrors[409],
+        },
+      },
+    },
+    '/api/lpns/{lpnId}/rack-suggestion': {
+      get: {
+        tags: ['LPN'],
+        summary: 'Suggest rack type and suitable levels from LPN weight',
+        description:
+          'Uses weightKg vs threshold (default 25 kg, env LPN_HIGH_CAPACITY_WEIGHT_KG). ' +
+          'With warehouseId, returns rack levels where rack_type matches and max_weight_kg >= weight.',
+        parameters: [
+          { in: 'path', name: 'lpnId', required: true, schema: uuid },
+          { in: 'query', name: 'warehouseId', schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnRackSuggestion' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
         },
       },
     },

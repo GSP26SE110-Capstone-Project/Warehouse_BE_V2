@@ -349,6 +349,7 @@ Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
 | LPN detail | `/lpn-details` ✅ | `/lpn-details?lpnId=` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` |
 | LPN + SKUs | — | — | `/lpns/:lpnId/details` ✅ | — | — |
+| LPN rack gợi ý | — | — | `/lpns/:lpnId/rack-suggestion?warehouseId=` ✅ | — | — |
 
 ## Enum tham chiếu
 
@@ -574,7 +575,8 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
 | `volumeUnits` | ✅ | — | ≥ 1; theo bảng quy đổi `boxType` |
 | `maxCapacity` | | — | Sức chứa tối đa (đơn vị SKU) trong thùng |
 | `actualQuantity` | | `0` | Tổng số lượng SKU đã đóng vào thùng |
-| `fillPercentage` | | — | 0–100 (tùy chọn) | = actual_quantity / max_capacity
+| `fillPercentage` | | — | 0–100 (tùy chọn) | = actual_quantity / max_capacity |
+| `weightKg` | | — | Khối lượng thùng (kg), ≥ 0 — gợi ý rack |
 | `currentBinId` | | — | UUID bin (sau putaway) |
 | `status` | | `RECEIVING` | enum `lpn.status` |
 
@@ -587,6 +589,7 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
   "volumeUnits": 2,
   "maxCapacity": 50,
   "actualQuantity": 0,
+  "weightKg": 18.5,
   "status": "RECEIVING"
 }
 ```
@@ -613,6 +616,39 @@ Query tùy chọn: `tenantId`, `batchId`, `status`, `boxType`, `currentBinId`, `
 
 Trả LPN kèm mảng `details` — mỗi phần tử có `quantity` và `sku` (`skuCode`, `productName`, `color`, `size`).
 
+### `GET /lpns/:lpnId/rack-suggestion?warehouseId={uuid}`
+
+Gợi ý `rackType` từ `weightKg`:
+
+- Mặc định: `weightKg` ≤ **25 kg** → `STANDARD`; &gt; 25 kg → `HIGH_CAPACITY`
+- Đổi ngưỡng: env `LPN_HIGH_CAPACITY_WEIGHT_KG` trên server
+
+Query tùy chọn `warehouseId`: trả thêm `suitableRackLevels` — các tầng kệ `ACTIVE`, đúng `rackType`, `maxWeightKg` ≥ `weightKg`.
+
+```json
+{
+  "lpnId": "uuid-lpn",
+  "lpnCode": "LPN-001",
+  "weightKg": 28,
+  "suggestedRackType": "HIGH_CAPACITY",
+  "thresholdKg": 25,
+  "reason": "Weight 28 kg exceeds 25 kg standard limit",
+  "warehouseId": "uuid-warehouse",
+  "suitableRackLevels": [
+    {
+      "rackLevelId": "uuid-level",
+      "levelNumber": 1,
+      "maxWeightKg": 500,
+      "rackCode": "R-A01",
+      "rackType": "HIGH_CAPACITY",
+      "zoneCode": "Z-01"
+    }
+  ]
+}
+```
+
+Migration cột: `npm run db:migrate:lpn-weight`
+
 ### `PATCH /lpns/:lpnId`
 
 ```json
@@ -621,6 +657,7 @@ Trả LPN kèm mảng `details` — mỗi phần tử có `quantity` và `sku` (
   "volumeUnits": 4,
   "actualQuantity": 48,
   "fillPercentage": 96,
+  "weightKg": 22.4,
   "currentBinId": "uuid-bin",
   "status": "STORED"
 }
