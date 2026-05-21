@@ -10,6 +10,8 @@
     "dev": "nodemon server.js",
     "seed": "node scripts/seed.js",
     "seed:admin": "node scripts/seed-system-admin.mjs",
+    "seed:accounts": "node scripts/seed-accounts.mjs",
+    "seed:warehouse": "node scripts/seed-warehouse.mjs",
     "seed:product-master": "node scripts/seed-product-master.mjs",
     "seed:collections": "node scripts/seed-collections.mjs",
     "db:migrate": "node scripts/run-migration.mjs scripts/sql/db4_schema.sql",
