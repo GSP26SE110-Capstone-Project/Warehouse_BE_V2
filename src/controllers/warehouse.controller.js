@@ -1,5 +1,6 @@
 import * as warehouseService from '../services/warehouse.service.js';
 import * as rentalRequestService from '../services/rentalRequest.service.js';
+import * as inboundRequestService from '../services/inboundRequest.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -31,6 +32,23 @@ export async function listRentalRequests(req, res) {
     status,
     contractType,
     pricingModel,
+    page,
+    limit,
+    offset,
+  });
+
+  paginated(res, result.items, result.meta);
+}
+
+export async function listInboundRequests(req, res) {
+  const { page, limit, offset } = parsePagination(req.query);
+  const { tenantId, contractId, status } = req.query;
+
+  const result = await inboundRequestService.listInboundRequests({
+    warehouseId: req.params.warehouseId,
+    tenantId,
+    contractId,
+    status,
     page,
     limit,
     offset,

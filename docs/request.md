@@ -332,7 +332,7 @@ Base URL: `http://localhost:3000/api`
 
 Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 
-> **Lưu ý:** `/categories`, `/seasons`, `/collections`, `/skus`, `/batches`, `/lpns`, `/lpn-details` đã có API + Swagger.
+> **Lưu ý:** `/inbound-requests`, `/categories`, `/seasons`, `/collections`, `/skus`, `/batches`, `/lpns`, `/lpn-details` đã có API + Swagger.
 
 **Seed master data:**
 - `npm run seed:product-master` — Áo, Quần + 4 mùa 2026
@@ -345,6 +345,7 @@ Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 | Category | `/categories` ✅ | `/categories` | `/categories/:categoryId` | `/categories/:categoryId` | `/categories/:categoryId` |
 | Season | `/seasons` ✅ | `/seasons` | `/seasons/:seasonId` | `/seasons/:seasonId` | `/seasons/:seasonId` |
 | Collection | `/collections` ✅ | `/collections?tenantId=` | `/collections/:collectionId` | `/collections/:collectionId` | `/collections/:collectionId` |
+| Inbound request | `/inbound-requests` ✅ | `/inbound-requests?tenantId=&warehouseId=&contractId=&status=` hoặc `/warehouses/:warehouseId/inbound-requests` | `/inbound-requests/:inboundRequestId` | `/inbound-requests/:inboundRequestId` | `/inbound-requests/:inboundRequestId` |
 | Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
 | SKU | `/skus` ✅ | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
@@ -360,6 +361,7 @@ Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 | `movementCategory` | `FAST`, `NORMAL`, `SLOW` |
 | `sku.status` | `ACTIVE`, `INACTIVE` |
 | `lpn.status` | `RECEIVING`, `STORED`, `PICKED`, `SHIPPED`, `DAMAGED` |
+| `inboundRequest.status` | `DRAFT`, `PENDING`, `APPROVED`, `ARRIVED`, `RECEIVING`, `COMPLETED`, `CANCELLED` |
 
 ### Quy đổi `volumeUnits` theo `boxType`
 
@@ -472,7 +474,63 @@ Chỉ cập nhật `collectionName` (không đổi `tenantId`).
 
 ---
 
-## 9. Batch
+## 9. Inbound Request
+
+Tenant tạo yêu cầu nhập hàng khi đã có **hợp đồng ACTIVE** (`contractId`) trùng `tenantId` và `warehouseId`.
+
+### `POST /inbound-requests`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `tenantId` | ✅ | — | UUID tenant |
+| `contractId` | ✅ | — | Phải `ACTIVE`, cùng tenant & warehouse |
+| `warehouseId` | ✅ | — | UUID kho |
+| `inboundCode` | | auto `INB-...` | Unique toàn hệ thống |
+| `expectedArrivalDate` | | — | ISO 8601 |
+| `actualArrivalAt` | | — | ISO 8601 |
+| `status` | | `PENDING` | Xem enum bảng trên |
+| `createdBy` | | — | UUID user |
+| `approvedBy` | | — | UUID user |
+| `receivedBy` | | — | UUID user |
+
+```json
+{
+  "tenantId": "uuid-tenant",
+  "contractId": "uuid-contract-active",
+  "warehouseId": "uuid-warehouse",
+  "expectedArrivalDate": "2026-05-25T08:00:00.000Z",
+  "status": "PENDING",
+  "createdBy": "uuid-user"
+}
+```
+
+### `GET /inbound-requests`
+
+Query tùy chọn: `tenantId`, `warehouseId`, `contractId`, `status`, `page`, `limit`.
+
+Hoặc: `GET /warehouses/:warehouseId/inbound-requests?tenantId=&contractId=&status=`
+
+### `PATCH /inbound-requests/:inboundRequestId`
+
+Chỉ cập nhật: `expectedArrivalDate`, `actualArrivalAt`, `status`, `approvedBy`, `receivedBy` (không đổi tenant/contract/warehouse).
+
+```json
+{
+  "status": "APPROVED",
+  "approvedBy": "uuid-wh-admin"
+}
+```
+
+```json
+{
+  "status": "ARRIVED",
+  "actualArrivalAt": "2026-05-25T09:15:00.000Z"
+}
+```
+
+---
+
+## 10. Batch
 
 Batch gắn một inbound request sau receiving.
 
@@ -509,7 +567,7 @@ Chỉ cập nhật: `batchCode`, `warehouseReceivedAt` (không đổi `inboundRe
 
 ---
 
-## 10. SKU
+## 11. SKU
 
 Mỗi SKU thuộc một tenant (`tenantId` + `skuCode` unique).
 
@@ -561,7 +619,7 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
 
 ---
 
-## 11. LPN
+## 12. LPN
 
 1 LPN = 1 thùng/kiện (license plate number), gắn `batchId` sau receiving. Có thể chứa nhiều SKU qua bảng `lpn_details`.
 
@@ -666,7 +724,7 @@ Migration cột: `npm run db:migrate:lpn-weight`
 
 ---
 
-## 12. LPN Detail
+## 13. LPN Detail
 
 Dòng hàng trong một LPN: SKU + số lượng. Mỗi LPN **một dòng / SKU** (trùng `skuId` → 409, dùng PATCH đổi `quantity`).
 
@@ -731,6 +789,13 @@ GET /api/categories
 GET /api/seasons
 npm run seed:collections
 GET /api/collections?tenantId=...
+
+# 0b. Tenant tạo inbound (contract ACTIVE)
+POST /api/inbound-requests
+    { "tenantId": "...", "contractId": "...", "warehouseId": "...",
+      "expectedArrivalDate": "2026-05-25T08:00:00.000Z" }
+PATCH /api/inbound-requests/{id}
+    { "status": "APPROVED", "approvedBy": "..." }
 
 # 1. Tenant khai báo SKU master
 POST /api/skus

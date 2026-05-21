@@ -134,6 +134,7 @@ const spec = {
     { name: 'Season', description: 'Fashion seasons' },
     { name: 'Collection', description: 'Tenant product collections' },
     { name: 'SKU', description: 'Tenant product SKUs' },
+    { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 3)' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
@@ -550,6 +551,95 @@ const spec = {
         properties: {
           batchCode: { type: 'string' },
           warehouseReceivedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+
+      InboundRequest: {
+        type: 'object',
+        properties: {
+          inboundRequestId: uuid,
+          tenantId: uuid,
+          contractId: uuid,
+          warehouseId: uuid,
+          inboundCode: { type: 'string', example: 'INB-LX1A2B-0C' },
+          expectedArrivalDate: { type: 'string', format: 'date-time', nullable: true },
+          actualArrivalAt: { type: 'string', format: 'date-time', nullable: true },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'ARRIVED',
+              'RECEIVING',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+          },
+          createdBy: { ...uuid, nullable: true },
+          approvedBy: { ...uuid, nullable: true },
+          receivedBy: { ...uuid, nullable: true },
+          ...timestamps,
+        },
+      },
+      InboundRequestCreate: {
+        type: 'object',
+        required: ['tenantId', 'contractId', 'warehouseId'],
+        properties: {
+          tenantId: uuid,
+          contractId: uuid,
+          warehouseId: uuid,
+          inboundCode: {
+            type: 'string',
+            description: 'Auto-generated if omitted (INB-...)',
+          },
+          expectedArrivalDate: { type: 'string', format: 'date-time' },
+          actualArrivalAt: { type: 'string', format: 'date-time' },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'ARRIVED',
+              'RECEIVING',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+            default: 'PENDING',
+          },
+          createdBy: uuid,
+          approvedBy: uuid,
+          receivedBy: uuid,
+        },
+      },
+      InboundRequestUpdate: {
+        type: 'object',
+        properties: {
+          expectedArrivalDate: {
+            type: 'string',
+            format: 'date-time',
+            nullable: true,
+          },
+          actualArrivalAt: {
+            type: 'string',
+            format: 'date-time',
+            nullable: true,
+          },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'ARRIVED',
+              'RECEIVING',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+          },
+          approvedBy: { ...uuid, nullable: true },
+          receivedBy: { ...uuid, nullable: true },
         },
       },
 
@@ -1590,6 +1680,40 @@ const spec = {
         },
       },
     },
+    '/api/warehouses/{warehouseId}/inbound-requests': {
+      get: {
+        tags: ['Warehouse', 'InboundRequest'],
+        summary: 'List inbound requests for a warehouse',
+        parameters: [
+          { in: 'path', name: 'warehouseId', required: true, schema: uuid },
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'contractId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: [
+                'DRAFT',
+                'PENDING',
+                'APPROVED',
+                'ARRIVED',
+                'RECEIVING',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/InboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/warehouses/{warehouseId}/rental-requests': {
       get: {
         tags: ['Warehouse', 'RentalRequest'],
@@ -2357,6 +2481,120 @@ const spec = {
         parameters: [{ in: 'path', name: 'skuId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Sku' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/inbound-requests': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'List inbound requests (filter by tenant, warehouse, contract, status)',
+        parameters: [
+          { in: 'query', name: 'tenantId', schema: uuid },
+          {
+            in: 'query',
+            name: 'warehouseId',
+            schema: uuid,
+            description:
+              'Filter by warehouse; or use GET /api/warehouses/{warehouseId}/inbound-requests',
+          },
+          { in: 'query', name: 'contractId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: [
+                'DRAFT',
+                'PENDING',
+                'APPROVED',
+                'ARRIVED',
+                'RECEIVING',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/InboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Create inbound request (contract must be ACTIVE)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundRequestCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Inbound request created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'Get inbound request by ID',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/InboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['InboundRequest'],
+        summary: 'Update inbound request (status, arrival dates, approvers)',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundRequestUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['InboundRequest'],
+        summary: 'Delete inbound request',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Deleted successfully'
+          ),
           400: stdErrors[400],
           404: stdErrors[404],
         },
