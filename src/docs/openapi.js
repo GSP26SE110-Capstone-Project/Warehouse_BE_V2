@@ -1590,6 +1590,48 @@ const spec = {
         },
       },
     },
+    '/api/warehouses/{warehouseId}/rental-requests': {
+      get: {
+        tags: ['Warehouse', 'RentalRequest'],
+        summary: 'List rental requests for a warehouse',
+        parameters: [
+          { in: 'path', name: 'warehouseId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+            },
+          },
+          {
+            in: 'query',
+            name: 'contractType',
+            schema: {
+              type: 'string',
+              enum: [
+                'SHARED_STORAGE',
+                'RESERVED_STORAGE',
+                'DEDICATED_ZONE',
+                'DEDICATED_WAREHOUSE',
+              ],
+            },
+          },
+          {
+            in: 'query',
+            name: 'pricingModel',
+            schema: { type: 'string', enum: ['USAGE_BASED', 'FIXED', 'HYBRID'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/RentalRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/warehouses/{warehouseId}': {
       get: {
         tags: ['Warehouse'],
@@ -2595,9 +2637,14 @@ const spec = {
     '/api/rental-requests': {
       get: {
         tags: ['RentalRequest'],
-        summary: 'List rental requests',
+        summary: 'List rental requests (all warehouses or filter by warehouseId)',
         parameters: [
-          { in: 'query', name: 'warehouseId', schema: uuid },
+          {
+            in: 'query',
+            name: 'warehouseId',
+            schema: uuid,
+            description: 'Filter by warehouse; or use GET /api/warehouses/{warehouseId}/rental-requests',
+          },
           {
             in: 'query',
             name: 'status',

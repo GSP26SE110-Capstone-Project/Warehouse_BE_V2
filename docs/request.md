@@ -114,6 +114,7 @@ Base URL: `http://localhost:3000/api`
 | Resource | POST | GET list | GET one | PATCH | DELETE |
 |----------|------|----------|---------|-------|--------|
 | Warehouse | `/warehouses` | `/warehouses` | `/warehouses/:warehouseId` | `/warehouses/:warehouseId` | `/warehouses/:warehouseId` |
+| Rental request (theo kho) | — | `/warehouses/:warehouseId/rental-requests` ✅ | — | — | — |
 | Zone | `/zones` | `/zones?warehouseId=` | `/zones/:zoneId` | `/zones/:zoneId` | `/zones/:zoneId` |
 | Rack | `/racks` | `/racks?zoneId=` | `/racks/:rackId` | `/racks/:rackId` | `/racks/:rackId` |
 | Rack level | `/rack-levels` | `/rack-levels?rackId=` | `/rack-levels/:rackLevelId` | `/rack-levels/:rackLevelId` | `/rack-levels/:rackLevelId` |
@@ -794,7 +795,7 @@ Base URL: `http://localhost:3000/api`
 
 | Resource | POST | GET list | GET one | PATCH | DELETE |
 |----------|------|----------|---------|-------|--------|
-| Rental request | `/rental-requests` | `/rental-requests?warehouseId=&status=` | `/rental-requests/:rentalRequestId` | `/rental-requests/:rentalRequestId` | `/rental-requests/:rentalRequestId` |
+| Rental request | `/rental-requests` | `/rental-requests?warehouseId=&status=` hoặc `/warehouses/:warehouseId/rental-requests` | `/rental-requests/:rentalRequestId` | `/rental-requests/:rentalRequestId` | `/rental-requests/:rentalRequestId` |
 | Tenant company | `/tenants` | `/tenants?status=` | `/tenants/:tenantId` | `/tenants/:tenantId` | `/tenants/:tenantId` |
 | Contract | `/contracts` | `/contracts?tenantId=&warehouseId=&rentalRequestId=&status=&contractType=` | `/contracts/:contractId` | `/contracts/:contractId` | `/contracts/:contractId` |
 | Contract item | `/contract-items` | `/contract-items?contractId=` | `/contract-items/:contractItemId` | `/contract-items/:contractItemId` | `/contract-items/:contractItemId` |
@@ -884,6 +885,28 @@ Base URL: `http://localhost:3000/api`
 ### `GET /rental-requests`
 
 Query tuỳ chọn: `warehouseId`, `status`, `contractType`, `pricingModel`, `page`, `limit`
+
+### `GET /warehouses/:warehouseId/rental-requests` (theo từng kho)
+
+Lấy danh sách rental request **của một warehouse** (`warehouseId` trong path).
+
+Query tuỳ chọn: `status`, `contractType`, `pricingModel`, `page`, `limit`
+
+```http
+GET /api/warehouses/{warehouseId}/rental-requests?status=PENDING&page=1&limit=20
+```
+
+Ví dụ lọc đang chờ duyệt:
+
+```http
+GET /api/warehouses/2084bdca-8320-439c-8e37-e0d37fa3d7c9/rental-requests?status=PENDING
+```
+
+Cách tương đương (query thay vì path):
+
+```http
+GET /api/rental-requests?warehouseId=2084bdca-8320-439c-8e37-e0d37fa3d7c9&status=PENDING
+```
 
 ### `PATCH /rental-requests/:rentalRequestId`
 

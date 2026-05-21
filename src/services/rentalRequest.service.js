@@ -240,7 +240,11 @@ export async function listRentalRequests({
   assertEnum(pricingModel, PRICING_MODEL, 'pricingModel');
 
   const filters = {};
-  if (warehouseId) filters.warehouseId = parseUuid(warehouseId, 'warehouseId');
+  if (warehouseId) {
+    const whId = parseUuid(warehouseId, 'warehouseId');
+    await getWarehouseById(whId);
+    filters.warehouseId = whId;
+  }
   if (status) filters.status = status;
   if (contractType) filters.contractType = contractType;
   if (pricingModel) filters.pricingModel = pricingModel;
