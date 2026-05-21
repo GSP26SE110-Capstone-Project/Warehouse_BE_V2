@@ -84,8 +84,14 @@ export default class SchemaModel extends BaseModel {
   }
 
   async findOne(filters = {}, client) {
-    const row = await super.findOne(toDbFilters(this.schema, filters), client);
-    return this._mapRow(row);
+    // Use super.findAll (raw rows), not super.findOne — BaseModel.findOne calls
+    // this.findAll, which would map twice and drop snake_case fields like password_hash.
+    const rows = await super.findAll(
+      toDbFilters(this.schema, filters),
+      { limit: 1 },
+      client
+    );
+    return this._mapRow(rows[0] ?? null);
   }
 
   async findAll(filters = {}, options = {}, client) {

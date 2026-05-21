@@ -6,6 +6,19 @@ Base: `/api/auth`, `/api/users` — các route `/users/*` (trừ login) cần he
 
 `Authorization: Bearer <accessToken>`
 
+Account List: 
+- Tenant Admin: 
+tenant1admin@brand.local
+Tenant1@12345
+
+- Warehouse Admin:
+whadmin@warehouse.local
+WhAdmin@12345
+
+- System Admin:
+admin@warehouse.local
+admin12345
+
 ### Phân quyền tạo user
 
 | Người tạo | Được tạo role |
@@ -35,7 +48,8 @@ Response `data`: `{ "accessToken": "...", "user": { ... } }`
   "email": "whadmin@warehouse.local",
   "password": "WhAdmin@12345",
   "role": "WH_ADMIN",
-  "warehouseId": "uuid-warehouse"
+  "warehouseId": "2084bdca-8320-439c-8e37-e0d37fa3d7c9",
+  "tenantId": "1fb376e8-b68a-4ffc-bdb5-de570ff2917d"
 }
 ```
 
@@ -45,9 +59,9 @@ Response `data`: `{ "accessToken": "...", "user": { ... } }`
 {
   "fullName": "Tenant Admin A",
   "email": "tenantadmin@brand.local",
-  "password": "Tenant@12345",
+  "password": "Tenant1@12345",
   "role": "TENANT_ADMIN",
-  "tenantId": "uuid-tenant"
+  "tenantId": "1fb376e8-b68a-4ffc-bdb5-de570ff2917d"
 }
 ```
 
@@ -164,7 +178,7 @@ Query: `status`, `page`, `limit`
 
 ```json
 {
-  "warehouseId": "uuid-warehouse",
+  "warehouseId": "2084bdca-8320-439c-8e37-e0d37fa3d7c9",
   "zoneCode": "Z-A01",
   "zoneName": "Khu shared A",
   "zoneType": "SHARED",
@@ -203,7 +217,7 @@ Query bắt buộc: `warehouseId`. Tùy chọn: `status`, `zoneType`, `page`, `l
 
 ```json
 {
-  "zoneId": "uuid-zone",
+  "zoneId": "cd8d0bbe-34c0-4fab-9047-e64472020e2b",
   "rackCode": "R-A01-01",
   "rackType": "STANDARD",
   "maxLevels": 4,
@@ -242,7 +256,7 @@ Query bắt buộc: `zoneId`. Tùy chọn: `status`, `rackType`, `page`, `limit`
 
 ```json
 {
-  "rackId": "uuid-rack",
+  "rackId": "ccebf41a-6f26-4f75-bcda-3bb412fbeb1f",
   "levelCode": "L-01",
   "levelNumber": 1,
   "maxBins": 10,
@@ -307,6 +321,279 @@ Query bắt buộc: `rackLevelId`. Tùy chọn: `status`, `reservationType`, `su
   "status": "EMPTY",
   "reservationType": "RESERVED"
 }
+```
+
+---
+
+# Product & LPN (Flow 3 — Inbound)
+
+Base URL: `http://localhost:3000/api`
+
+Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
+
+> **Lưu ý:** `/skus`, `/batches`, `/lpns` đã có API + Swagger. `/lpn-details` chưa implement.
+
+## Tất cả endpoint (flat)
+
+| Resource | POST | GET list | GET one | PATCH | DELETE |
+|----------|------|----------|---------|-------|--------|
+| Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
+| SKU | `/skus` ✅ | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
+| LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
+| LPN detail | `/lpn-details` | `/lpn-details?lpnId=` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` |
+
+## Enum tham chiếu
+
+| Enum | Giá trị |
+|------|---------|
+| `boxType` | `SMALL`, `MEDIUM`, `LARGE`, `EXTRA` |
+| `movementCategory` | `FAST`, `NORMAL`, `SLOW` |
+| `sku.status` | `ACTIVE`, `INACTIVE` |
+| `lpn.status` | `RECEIVING`, `STORED`, `PICKED`, `SHIPPED`, `DAMAGED` |
+
+### Quy đổi `volumeUnits` theo `boxType`
+
+Đơn vị gốc = **SMALL** (dùng với `bins.maxVolumeUnits`):
+
+| `boxType` | `volumeUnits` |
+|-----------|---------------|
+| `SMALL` | 1 |
+| `MEDIUM` | 2 |
+| `LARGE` | 4 |
+| `EXTRA` | 8 |
+
+Khi tạo LPN, `volumeUnits` nên khớp `boxType` theo bảng trên.
+
+---
+
+## 6. Batch
+
+Batch gắn một inbound request sau receiving.
+
+### `POST /batches`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `inboundRequestId` | ✅ | — | UUID inbound request |
+| `batchCode` | ✅ | — | Unique toàn hệ thống |
+| `warehouseReceivedAt` | | thời điểm server | ISO 8601 date-time |
+
+```json
+{
+  "inboundRequestId": "uuid-inbound-request",
+  "batchCode": "BATCH-2026-0001",
+  "warehouseReceivedAt": "2026-05-20T10:30:00.000Z"
+}
+```
+
+### `GET /batches?inboundRequestId={uuid}`
+
+Query tùy chọn: `inboundRequestId`, `page`, `limit`
+
+### `PATCH /batches/:batchId`
+
+Chỉ cập nhật: `batchCode`, `warehouseReceivedAt` (không đổi `inboundRequestId`).
+
+```json
+{
+  "batchCode": "BATCH-2026-0001-R1",
+  "warehouseReceivedAt": "2026-05-20T11:00:00.000Z"
+}
+```
+
+---
+
+## 7. SKU
+
+Mỗi SKU thuộc một tenant (`tenantId` + `skuCode` unique).
+
+### `POST /skus`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `tenantId` | ✅ | — | UUID tenant |
+| `skuCode` | ✅ | — | Unique trong tenant |
+| `productName` | ✅ | — | |
+| `categoryId` | | — | UUID category |
+| `collectionId` | | — | UUID collection |
+| `seasonId` | | — | UUID season |
+| `color` | | — | |
+| `size` | | — | |
+| `material` | | — | |
+| `movementCategory` | | `NORMAL` | `FAST`, `NORMAL`, `SLOW` |
+| `status` | | `ACTIVE` | `ACTIVE`, `INACTIVE` |
+
+```json
+{
+  "tenantId": "uuid-tenant",
+  "skuCode": "SKU-TSHIRT-BLK-M",
+  "productName": "Áo thun đen size M",
+  "categoryId": "uuid-category",
+  "collectionId": "uuid-collection",
+  "seasonId": "uuid-season",
+  "color": "Black",
+  "size": "M",
+  "material": "Cotton",
+  "movementCategory": "FAST",
+  "status": "ACTIVE"
+}
+```
+
+### `GET /skus?tenantId={uuid}`
+
+Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page`, `limit`
+
+### `PATCH /skus/:skuId`
+
+```json
+{
+  "productName": "Áo thun đen size M (2026)",
+  "movementCategory": "NORMAL",
+  "status": "INACTIVE"
+}
+```
+
+---
+
+## 8. LPN
+
+1 LPN = 1 thùng/kiện (license plate number), gắn `batchId` sau receiving. Có thể chứa nhiều SKU qua bảng `lpn_details`.
+
+### `POST /lpns`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `tenantId` | ✅ | — | UUID tenant (owner) |
+| `batchId` | ✅ | — | UUID batch (sau inbound receiving) |
+| `lpnCode` | ✅ | — | Unique toàn hệ thống |
+| `boxType` | ✅ | — | `SMALL`, `MEDIUM`, `LARGE`, `EXTRA` |
+| `volumeUnits` | ✅ | — | ≥ 1; theo bảng quy đổi `boxType` |
+| `maxCapacity` | | — | Sức chứa tối đa (đơn vị SKU) trong thùng |
+| `actualQuantity` | | `0` | Tổng số lượng SKU đã đóng vào thùng |
+| `fillPercentage` | | — | 0–100 (tùy chọn) |
+| `currentBinId` | | — | UUID bin (sau putaway) |
+| `status` | | `RECEIVING` | enum `lpn.status` |
+
+```json
+{
+  "tenantId": "uuid-tenant",
+  "batchId": "uuid-batch",
+  "lpnCode": "LPN-2026-00001",
+  "boxType": "MEDIUM",
+  "volumeUnits": 2,
+  "maxCapacity": 50,
+  "actualQuantity": 0,
+  "status": "RECEIVING"
+}
+```
+
+**Ví dụ theo từng cỡ thùng:**
+
+```json
+{ "tenantId": "uuid-tenant", "batchId": "uuid-batch", "lpnCode": "LPN-S-001", "boxType": "SMALL", "volumeUnits": 1 }
+```
+
+```json
+{ "tenantId": "uuid-tenant", "batchId": "uuid-batch", "lpnCode": "LPN-L-001", "boxType": "LARGE", "volumeUnits": 4 }
+```
+
+```json
+{ "tenantId": "uuid-tenant", "batchId": "uuid-batch", "lpnCode": "LPN-X-001", "boxType": "EXTRA", "volumeUnits": 8 }
+```
+
+### `GET /lpns`
+
+Query tùy chọn: `tenantId`, `batchId`, `status`, `boxType`, `currentBinId`, `page`, `limit`
+
+### `PATCH /lpns/:lpnId`
+
+```json
+{
+  "boxType": "LARGE",
+  "volumeUnits": 4,
+  "actualQuantity": 48,
+  "fillPercentage": 96,
+  "currentBinId": "uuid-bin",
+  "status": "STORED"
+}
+```
+
+---
+
+## 9. LPN Detail
+
+Dòng hàng trong một LPN: SKU + số lượng.
+
+### `POST /lpn-details`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `lpnId` | ✅ | — | UUID LPN |
+| `skuId` | ✅ | — | UUID SKU (cùng tenant với LPN) |
+| `quantity` | ✅ | — | ≥ 1 |
+
+```json
+{
+  "lpnId": "uuid-lpn",
+  "skuId": "uuid-sku",
+  "quantity": 24
+}
+```
+
+**Ví dụ nhiều SKU trong cùng một LPN** — gọi `POST /lpn-details` nhiều lần:
+
+```json
+{
+  "lpnId": "uuid-lpn",
+  "skuId": "uuid-sku-shirt",
+  "quantity": 20
+}
+```
+
+```json
+{
+  "lpnId": "uuid-lpn",
+  "skuId": "uuid-sku-pants",
+  "quantity": 10
+}
+```
+
+### `GET /lpn-details?lpnId={uuid}`
+
+Query bắt buộc: `lpnId`. Tùy chọn: `page`, `limit`
+
+### `PATCH /lpn-details/:lpnDetailId`
+
+```json
+{
+  "quantity": 30
+}
+```
+
+---
+
+## Ví dụ flow Inbound (SKU → LPN)
+
+```http
+# 1. Tenant khai báo SKU master
+POST /api/skus
+    { "tenantId": "...", "skuCode": "SKU-001", "productName": "..." }
+
+# 2. Sau receiving — tạo batch, rồi tạo LPN
+POST /api/batches
+    { "inboundRequestId": "...", "batchCode": "BATCH-001" }
+
+POST /api/lpns
+    { "tenantId": "...", "batchId": "...", "lpnCode": "LPN-001",
+      "boxType": "MEDIUM", "volumeUnits": 2 }
+
+# 3. Đóng hàng vào LPN
+POST /api/lpn-details
+    { "lpnId": "...", "skuId": "...", "quantity": 24 }
+
+# 4. Putaway — gán bin
+PATCH /api/lpns/{lpnId}
+    { "currentBinId": "...", "status": "STORED" }
 ```
 
 ---
