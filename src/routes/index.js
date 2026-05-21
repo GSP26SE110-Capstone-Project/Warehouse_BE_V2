@@ -20,6 +20,7 @@ import batchRoutes from './batch.routes.js';
 import skuRoutes from './sku.routes.js';
 import categoryRoutes from './category.routes.js';
 import seasonRoutes from './season.routes.js';
+import collectionRoutes from './collection.routes.js';
 
 const router = Router();
 
@@ -38,6 +39,7 @@ router.use('/storage-reservations', storageReservationRoutes);
 router.use('/batches', batchRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/seasons', seasonRoutes);
+router.use('/collections', collectionRoutes);
 router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
 

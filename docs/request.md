@@ -331,9 +331,11 @@ Base URL: `http://localhost:3000/api`
 
 Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 
-> **Lưu ý:** `/categories`, `/seasons`, `/skus`, `/batches`, `/lpns` đã có API + Swagger. `/lpn-details` chưa implement.
+> **Lưu ý:** `/categories`, `/seasons`, `/collections`, `/skus`, `/batches`, `/lpns` đã có API + Swagger. `/lpn-details` chưa implement.
 
-**Seed master data:** `npm run seed:product-master` (Áo, Quần + 4 mùa 2026).
+**Seed master data:**
+- `npm run seed:product-master` — Áo, Quần + 4 mùa 2026
+- `npm run seed:collections` — 4 collection cho tenant (cần có tenant; hoặc `SEED_TENANT_ID=uuid`)
 
 ## Tất cả endpoint (flat)
 
@@ -341,6 +343,7 @@ Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 |----------|------|----------|---------|-------|--------|
 | Category | `/categories` ✅ | `/categories` | `/categories/:categoryId` | `/categories/:categoryId` | `/categories/:categoryId` |
 | Season | `/seasons` ✅ | `/seasons` | `/seasons/:seasonId` | `/seasons/:seasonId` | `/seasons/:seasonId` |
+| Collection | `/collections` ✅ | `/collections?tenantId=` | `/collections/:collectionId` | `/collections/:collectionId` | `/collections/:collectionId` |
 | Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
 | SKU | `/skus` ✅ | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
@@ -430,7 +433,43 @@ Query tùy chọn: `page`, `limit`
 
 ---
 
-## 8. Batch
+## 8. Collection
+
+Bộ sưu tập / dòng hàng **theo tenant** (`tenantId` + `collectionName` unique trong tenant).
+
+Seed: `npm run seed:collections` (hoặc `SEED_TENANT_ID=uuid`).
+
+### `POST /collections`
+
+| Field | Bắt buộc | Ghi chú |
+|-------|----------|---------|
+| `tenantId` | ✅ | UUID tenant |
+| `collectionName` | ✅ | Unique trong tenant (không phân biệt hoa thường) |
+
+```json
+{
+  "tenantId": "uuid-tenant",
+  "collectionName": "Dòng cơ bản"
+}
+```
+
+### `GET /collections?tenantId={uuid}`
+
+Query bắt buộc: `tenantId`. Tùy chọn: `page`, `limit`
+
+### `PATCH /collections/:collectionId`
+
+Chỉ cập nhật `collectionName` (không đổi `tenantId`).
+
+```json
+{
+  "collectionName": "Premium Line"
+}
+```
+
+---
+
+## 9. Batch
 
 Batch gắn một inbound request sau receiving.
 
@@ -467,7 +506,7 @@ Chỉ cập nhật: `batchCode`, `warehouseReceivedAt` (không đổi `inboundRe
 
 ---
 
-## 9. SKU
+## 10. SKU
 
 Mỗi SKU thuộc một tenant (`tenantId` + `skuCode` unique).
 
@@ -519,7 +558,7 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
 
 ---
 
-## 10. LPN
+## 11. LPN
 
 1 LPN = 1 thùng/kiện (license plate number), gắn `batchId` sau receiving. Có thể chứa nhiều SKU qua bảng `lpn_details`.
 
@@ -584,7 +623,7 @@ Query tùy chọn: `tenantId`, `batchId`, `status`, `boxType`, `currentBinId`, `
 
 ---
 
-## 11. LPN Detail
+## 12. LPN Detail
 
 Dòng hàng trong một LPN: SKU + số lượng.
 
@@ -643,6 +682,8 @@ Query bắt buộc: `lpnId`. Tùy chọn: `page`, `limit`
 npm run seed:product-master
 GET /api/categories
 GET /api/seasons
+npm run seed:collections
+GET /api/collections?tenantId=...
 
 # 1. Tenant khai báo SKU master
 POST /api/skus

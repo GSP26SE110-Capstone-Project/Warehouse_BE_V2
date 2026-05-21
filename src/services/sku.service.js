@@ -1,5 +1,4 @@
 import Sku from '../models/Sku.js';
-import Collection from '../models/Collection.js';
 import AppError from '../utils/AppError.js';
 import {
   MOVEMENT_CATEGORY,
@@ -7,6 +6,7 @@ import {
 } from '../constants/warehouseStructure.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { getCategory } from './category.service.js';
+import { getCollection } from './collection.service.js';
 import { getSeason } from './season.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 
@@ -63,17 +63,7 @@ function trimStrings(data, fields) {
   }
 }
 
-async function assertOptionalCollectionId(id) {
-  if (id == null || id === '') return null;
-  const uuid = parseUuid(id, 'collectionId');
-  const row = await Collection.findById(uuid);
-  if (!row) {
-    throw new AppError('collectionId not found', 404, 'NOT_FOUND');
-  }
-  return uuid;
-}
-
-async function resolveOptionalFks(data) {
+async function resolveOptionalFks(data, tenantId) {
   if (data.categoryId !== undefined) {
     if (data.categoryId === null || data.categoryId === '') {
       data.categoryId = null;
@@ -83,7 +73,19 @@ async function resolveOptionalFks(data) {
     }
   }
   if (data.collectionId !== undefined) {
-    data.collectionId = await assertOptionalCollectionId(data.collectionId);
+    if (data.collectionId === null || data.collectionId === '') {
+      data.collectionId = null;
+    } else {
+      const collection = await getCollection(data.collectionId);
+      if (tenantId && collection.tenantId !== tenantId) {
+        throw new AppError(
+          'collectionId does not belong to this tenant',
+          400,
+          'VALIDATION_ERROR'
+        );
+      }
+      data.collectionId = parseUuid(data.collectionId, 'collectionId');
+    }
   }
   if (data.seasonId !== undefined) {
     if (data.seasonId === null || data.seasonId === '') {
@@ -120,12 +122,12 @@ async function normalizeCreatePayload(body) {
   assertEnum(data.movementCategory, MOVEMENT_CATEGORY, 'movementCategory');
   assertEnum(data.status, SKU_STATUS, 'status');
 
-  await resolveOptionalFks(data);
+  await resolveOptionalFks(data, data.tenantId);
 
   return data;
 }
 
-async function normalizeUpdatePayload(body) {
+async function normalizeUpdatePayload(body, existing) {
   const data = pickFields(body, UPDATE_FIELDS);
 
   if (data.skuCode != null) {
@@ -150,7 +152,7 @@ async function normalizeUpdatePayload(body) {
     throw new AppError('No valid fields to update', 400, 'VALIDATION_ERROR');
   }
 
-  await resolveOptionalFks(data);
+  await resolveOptionalFks(data, existing.tenantId);
 
   return data;
 }
@@ -202,9 +204,9 @@ export async function createSku(body) {
 
 export async function updateSku(skuId, body) {
   const id = parseUuid(skuId, 'skuId');
-  await getSku(id);
+  const existing = await getSku(id);
 
-  const data = await normalizeUpdatePayload(body);
+  const data = await normalizeUpdatePayload(body, existing);
   return Sku.updateById(id, data);
 }
 

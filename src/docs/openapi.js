@@ -132,6 +132,7 @@ const spec = {
     { name: 'Bin', description: 'Storage bins' },
     { name: 'Category', description: 'Product categories (Áo, Quần, …)' },
     { name: 'Season', description: 'Fashion seasons' },
+    { name: 'Collection', description: 'Tenant product collections' },
     { name: 'SKU', description: 'Tenant product SKUs' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
@@ -429,6 +430,29 @@ const spec = {
         type: 'object',
         properties: {
           seasonName: { type: 'string' },
+        },
+      },
+
+      Collection: {
+        type: 'object',
+        properties: {
+          collectionId: uuid,
+          tenantId: uuid,
+          collectionName: { type: 'string', example: 'Dòng cơ bản' },
+        },
+      },
+      CollectionCreate: {
+        type: 'object',
+        required: ['tenantId', 'collectionName'],
+        properties: {
+          tenantId: uuid,
+          collectionName: { type: 'string', example: 'Công sở' },
+        },
+      },
+      CollectionUpdate: {
+        type: 'object',
+        properties: {
+          collectionName: { type: 'string' },
         },
       },
 
@@ -2036,6 +2060,91 @@ const spec = {
         parameters: [{ in: 'path', name: 'seasonId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Season' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/collections': {
+      get: {
+        tags: ['Collection'],
+        summary: 'List collections',
+        parameters: [
+          { in: 'query', name: 'tenantId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Collection' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['Collection'],
+        summary: 'Create collection',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CollectionCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/Collection' },
+            'Collection created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/collections/{collectionId}': {
+      get: {
+        tags: ['Collection'],
+        summary: 'Get collection by ID',
+        parameters: [{ in: 'path', name: 'collectionId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Collection' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Collection'],
+        summary: 'Update collection',
+        parameters: [{ in: 'path', name: 'collectionId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CollectionUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/Collection' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      delete: {
+        tags: ['Collection'],
+        summary: 'Delete collection',
+        parameters: [{ in: 'path', name: 'collectionId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/Collection' },
+            'Deleted successfully'
+          ),
           400: stdErrors[400],
           404: stdErrors[404],
         },
