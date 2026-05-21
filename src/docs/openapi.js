@@ -130,9 +130,14 @@ const spec = {
     { name: 'Rack', description: 'Racks' },
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
+    { name: 'Category', description: 'Product categories (Áo, Quần, …)' },
+    { name: 'Season', description: 'Fashion seasons' },
+    { name: 'Collection', description: 'Tenant product collections' },
     { name: 'SKU', description: 'Tenant product SKUs' },
+    { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 3)' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
+    { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
     { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
     { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
@@ -388,6 +393,71 @@ const spec = {
         },
       },
 
+      Category: {
+        type: 'object',
+        properties: {
+          categoryId: uuid,
+          categoryName: { type: 'string', example: 'Áo' },
+        },
+      },
+      CategoryCreate: {
+        type: 'object',
+        required: ['categoryName'],
+        properties: {
+          categoryName: { type: 'string', example: 'Quần' },
+        },
+      },
+      CategoryUpdate: {
+        type: 'object',
+        properties: {
+          categoryName: { type: 'string' },
+        },
+      },
+
+      Season: {
+        type: 'object',
+        properties: {
+          seasonId: uuid,
+          seasonName: { type: 'string', example: 'Xuân 2026' },
+        },
+      },
+      SeasonCreate: {
+        type: 'object',
+        required: ['seasonName'],
+        properties: {
+          seasonName: { type: 'string', example: 'Hè 2026' },
+        },
+      },
+      SeasonUpdate: {
+        type: 'object',
+        properties: {
+          seasonName: { type: 'string' },
+        },
+      },
+
+      Collection: {
+        type: 'object',
+        properties: {
+          collectionId: uuid,
+          tenantId: uuid,
+          collectionName: { type: 'string', example: 'Dòng cơ bản' },
+        },
+      },
+      CollectionCreate: {
+        type: 'object',
+        required: ['tenantId', 'collectionName'],
+        properties: {
+          tenantId: uuid,
+          collectionName: { type: 'string', example: 'Công sở' },
+        },
+      },
+      CollectionUpdate: {
+        type: 'object',
+        properties: {
+          collectionName: { type: 'string' },
+        },
+      },
+
       Sku: {
         type: 'object',
         properties: {
@@ -484,6 +554,95 @@ const spec = {
         },
       },
 
+      InboundRequest: {
+        type: 'object',
+        properties: {
+          inboundRequestId: uuid,
+          tenantId: uuid,
+          contractId: uuid,
+          warehouseId: uuid,
+          inboundCode: { type: 'string', example: 'INB-LX1A2B-0C' },
+          expectedArrivalDate: { type: 'string', format: 'date-time', nullable: true },
+          actualArrivalAt: { type: 'string', format: 'date-time', nullable: true },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'ARRIVED',
+              'RECEIVING',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+          },
+          createdBy: { ...uuid, nullable: true },
+          approvedBy: { ...uuid, nullable: true },
+          receivedBy: { ...uuid, nullable: true },
+          ...timestamps,
+        },
+      },
+      InboundRequestCreate: {
+        type: 'object',
+        required: ['tenantId', 'contractId', 'warehouseId'],
+        properties: {
+          tenantId: uuid,
+          contractId: uuid,
+          warehouseId: uuid,
+          inboundCode: {
+            type: 'string',
+            description: 'Auto-generated if omitted (INB-...)',
+          },
+          expectedArrivalDate: { type: 'string', format: 'date-time' },
+          actualArrivalAt: { type: 'string', format: 'date-time' },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'ARRIVED',
+              'RECEIVING',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+            default: 'PENDING',
+          },
+          createdBy: uuid,
+          approvedBy: uuid,
+          receivedBy: uuid,
+        },
+      },
+      InboundRequestUpdate: {
+        type: 'object',
+        properties: {
+          expectedArrivalDate: {
+            type: 'string',
+            format: 'date-time',
+            nullable: true,
+          },
+          actualArrivalAt: {
+            type: 'string',
+            format: 'date-time',
+            nullable: true,
+          },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'ARRIVED',
+              'RECEIVING',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+          },
+          approvedBy: { ...uuid, nullable: true },
+          receivedBy: { ...uuid, nullable: true },
+        },
+      },
+
       Lpn: {
         type: 'object',
         properties: {
@@ -502,12 +661,47 @@ const spec = {
           maxCapacity: { type: 'integer', nullable: true },
           actualQuantity: { type: 'integer', default: 0 },
           fillPercentage: { type: 'number', nullable: true },
+          weightKg: {
+            type: 'number',
+            nullable: true,
+            description: 'Carton weight in kg (receiving / putaway)',
+          },
           currentBinId: { ...uuid, nullable: true },
           status: {
             type: 'string',
             enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
           },
           ...timestamps,
+        },
+      },
+      LpnRackSuggestion: {
+        type: 'object',
+        properties: {
+          lpnId: uuid,
+          lpnCode: { type: 'string' },
+          weightKg: { type: 'number', nullable: true },
+          suggestedRackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          thresholdKg: { type: 'number' },
+          reason: { type: 'string' },
+          warehouseId: uuid,
+          note: { type: 'string', nullable: true },
+          suitableRackLevels: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                rackLevelId: uuid,
+                levelCode: { type: 'string', nullable: true },
+                levelNumber: { type: 'integer' },
+                maxWeightKg: { type: 'number', nullable: true },
+                rackId: uuid,
+                rackCode: { type: 'string' },
+                rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+                zoneId: uuid,
+                zoneCode: { type: 'string' },
+              },
+            },
+          },
         },
       },
       LpnCreate: {
@@ -529,6 +723,7 @@ const spec = {
           maxCapacity: { type: 'integer', minimum: 1 },
           actualQuantity: { type: 'integer', minimum: 0, default: 0 },
           fillPercentage: { type: 'number', minimum: 0, maximum: 100 },
+          weightKg: { type: 'number', minimum: 0, description: 'Carton weight in kg' },
           currentBinId: uuid,
           status: {
             type: 'string',
@@ -548,12 +743,63 @@ const spec = {
           maxCapacity: { type: 'integer', minimum: 1 },
           actualQuantity: { type: 'integer', minimum: 0 },
           fillPercentage: { type: 'number', minimum: 0, maximum: 100 },
+          weightKg: { type: 'number', minimum: 0, nullable: true },
           currentBinId: { ...uuid, nullable: true },
           status: {
             type: 'string',
             enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
           },
         },
+      },
+
+      LpnDetailSku: {
+        type: 'object',
+        properties: {
+          skuId: uuid,
+          skuCode: { type: 'string' },
+          productName: { type: 'string' },
+          color: { type: 'string', nullable: true },
+          size: { type: 'string', nullable: true },
+        },
+      },
+      LpnDetail: {
+        type: 'object',
+        properties: {
+          lpnDetailId: uuid,
+          lpnId: uuid,
+          skuId: uuid,
+          quantity: { type: 'integer', minimum: 1 },
+          sku: { $ref: '#/components/schemas/LpnDetailSku' },
+        },
+      },
+      LpnDetailCreate: {
+        type: 'object',
+        required: ['lpnId', 'skuId', 'quantity'],
+        properties: {
+          lpnId: uuid,
+          skuId: uuid,
+          quantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      LpnDetailUpdate: {
+        type: 'object',
+        properties: {
+          quantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      LpnWithDetails: {
+        allOf: [
+          { $ref: '#/components/schemas/Lpn' },
+          {
+            type: 'object',
+            properties: {
+              details: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/LpnDetail' },
+              },
+            },
+          },
+        ],
       },
 
       HealthData: {
@@ -1434,6 +1680,82 @@ const spec = {
         },
       },
     },
+    '/api/warehouses/{warehouseId}/inbound-requests': {
+      get: {
+        tags: ['Warehouse', 'InboundRequest'],
+        summary: 'List inbound requests for a warehouse',
+        parameters: [
+          { in: 'path', name: 'warehouseId', required: true, schema: uuid },
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'contractId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: [
+                'DRAFT',
+                'PENDING',
+                'APPROVED',
+                'ARRIVED',
+                'RECEIVING',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/InboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/warehouses/{warehouseId}/rental-requests': {
+      get: {
+        tags: ['Warehouse', 'RentalRequest'],
+        summary: 'List rental requests for a warehouse',
+        parameters: [
+          { in: 'path', name: 'warehouseId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+            },
+          },
+          {
+            in: 'query',
+            name: 'contractType',
+            schema: {
+              type: 'string',
+              enum: [
+                'SHARED_STORAGE',
+                'RESERVED_STORAGE',
+                'DEDICATED_ZONE',
+                'DEDICATED_WAREHOUSE',
+              ],
+            },
+          },
+          {
+            in: 'query',
+            name: 'pricingModel',
+            schema: { type: 'string', enum: ['USAGE_BASED', 'FIXED', 'HYBRID'] },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/RentalRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/warehouses/{warehouseId}': {
       get: {
         tags: ['Warehouse'],
@@ -1852,6 +2174,237 @@ const spec = {
       },
     },
 
+    '/api/categories': {
+      get: {
+        tags: ['Category'],
+        summary: 'List categories',
+        parameters: [
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Category' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['Category'],
+        summary: 'Create category',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CategoryCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Category' }, 'Category created'),
+          400: stdErrors[400],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/categories/{categoryId}': {
+      get: {
+        tags: ['Category'],
+        summary: 'Get category by ID',
+        parameters: [{ in: 'path', name: 'categoryId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Category' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Category'],
+        summary: 'Update category',
+        parameters: [{ in: 'path', name: 'categoryId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CategoryUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Category' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      delete: {
+        tags: ['Category'],
+        summary: 'Delete category',
+        parameters: [{ in: 'path', name: 'categoryId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Category' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/seasons': {
+      get: {
+        tags: ['Season'],
+        summary: 'List seasons',
+        parameters: [
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Season' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['Season'],
+        summary: 'Create season',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SeasonCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Season' }, 'Season created'),
+          400: stdErrors[400],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/seasons/{seasonId}': {
+      get: {
+        tags: ['Season'],
+        summary: 'Get season by ID',
+        parameters: [{ in: 'path', name: 'seasonId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Season' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Season'],
+        summary: 'Update season',
+        parameters: [{ in: 'path', name: 'seasonId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SeasonUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Season' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      delete: {
+        tags: ['Season'],
+        summary: 'Delete season',
+        parameters: [{ in: 'path', name: 'seasonId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Season' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/collections': {
+      get: {
+        tags: ['Collection'],
+        summary: 'List collections',
+        parameters: [
+          { in: 'query', name: 'tenantId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Collection' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['Collection'],
+        summary: 'Create collection',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CollectionCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/Collection' },
+            'Collection created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/collections/{collectionId}': {
+      get: {
+        tags: ['Collection'],
+        summary: 'Get collection by ID',
+        parameters: [{ in: 'path', name: 'collectionId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Collection' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Collection'],
+        summary: 'Update collection',
+        parameters: [{ in: 'path', name: 'collectionId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CollectionUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/Collection' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      delete: {
+        tags: ['Collection'],
+        summary: 'Delete collection',
+        parameters: [{ in: 'path', name: 'collectionId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/Collection' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
     '/api/skus': {
       get: {
         tags: ['SKU'],
@@ -1928,6 +2481,120 @@ const spec = {
         parameters: [{ in: 'path', name: 'skuId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Sku' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/inbound-requests': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'List inbound requests (filter by tenant, warehouse, contract, status)',
+        parameters: [
+          { in: 'query', name: 'tenantId', schema: uuid },
+          {
+            in: 'query',
+            name: 'warehouseId',
+            schema: uuid,
+            description:
+              'Filter by warehouse; or use GET /api/warehouses/{warehouseId}/inbound-requests',
+          },
+          { in: 'query', name: 'contractId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: [
+                'DRAFT',
+                'PENDING',
+                'APPROVED',
+                'ARRIVED',
+                'RECEIVING',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/InboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Create inbound request (contract must be ACTIVE)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundRequestCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Inbound request created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'Get inbound request by ID',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/InboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['InboundRequest'],
+        summary: 'Update inbound request (status, arrival dates, approvers)',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundRequestUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['InboundRequest'],
+        summary: 'Delete inbound request',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Deleted successfully'
+          ),
           400: stdErrors[400],
           404: stdErrors[404],
         },
@@ -2056,6 +2723,114 @@ const spec = {
         },
       },
     },
+    '/api/lpns/{lpnId}/rack-suggestion': {
+      get: {
+        tags: ['LPN'],
+        summary: 'Suggest rack type and suitable levels from LPN weight',
+        description:
+          'Uses weightKg vs threshold (default 25 kg, env LPN_HIGH_CAPACITY_WEIGHT_KG). ' +
+          'With warehouseId, returns rack levels where rack_type matches and max_weight_kg >= weight.',
+        parameters: [
+          { in: 'path', name: 'lpnId', required: true, schema: uuid },
+          { in: 'query', name: 'warehouseId', schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnRackSuggestion' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/lpns/{lpnId}/details': {
+      get: {
+        tags: ['LPN'],
+        summary: 'Get LPN with SKU details',
+        description:
+          'Returns the LPN and all lpn_details lines (skuCode, productName, quantity).',
+        parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnWithDetails' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/lpn-details': {
+      get: {
+        tags: ['LPNDetail'],
+        summary: 'List SKU lines in an LPN',
+        parameters: [
+          { in: 'query', name: 'lpnId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/LpnDetail' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['LPNDetail'],
+        summary: 'Add SKU to LPN',
+        description:
+          'One SKU per LPN (duplicate skuId → 409). Updates LPN actualQuantity and fillPercentage.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LpnDetailCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }, 'LPN detail created'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/lpn-details/{lpnDetailId}': {
+      get: {
+        tags: ['LPNDetail'],
+        summary: 'Get LPN detail by ID',
+        parameters: [{ in: 'path', name: 'lpnDetailId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['LPNDetail'],
+        summary: 'Update quantity in LPN',
+        parameters: [{ in: 'path', name: 'lpnDetailId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LpnDetailUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['LPNDetail'],
+        summary: 'Remove SKU from LPN',
+        parameters: [{ in: 'path', name: 'lpnDetailId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/lpns/{lpnId}': {
       get: {
         tags: ['LPN'],
@@ -2100,9 +2875,14 @@ const spec = {
     '/api/rental-requests': {
       get: {
         tags: ['RentalRequest'],
-        summary: 'List rental requests',
+        summary: 'List rental requests (all warehouses or filter by warehouseId)',
         parameters: [
-          { in: 'query', name: 'warehouseId', schema: uuid },
+          {
+            in: 'query',
+            name: 'warehouseId',
+            schema: uuid,
+            description: 'Filter by warehouse; or use GET /api/warehouses/{warehouseId}/rental-requests',
+          },
           {
             in: 'query',
             name: 'status',

@@ -1,4 +1,6 @@
 import * as lpnService from '../services/lpn.service.js';
+import * as lpnDetailService from '../services/lpnDetail.service.js';
+import * as lpnRackSuggestionService from '../services/lpnRackSuggestion.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -23,6 +25,19 @@ export async function list(req, res) {
 export async function getById(req, res) {
   const lpn = await lpnService.getLpn(req.params.lpnId);
   success(res, lpn);
+}
+
+export async function getWithDetails(req, res) {
+  const lpn = await lpnDetailService.getLpnWithDetails(req.params.lpnId);
+  success(res, lpn);
+}
+
+export async function getRackSuggestion(req, res) {
+  const suggestion = await lpnRackSuggestionService.suggestRackPlacementForLpn(
+    req.params.lpnId,
+    { warehouseId: req.query.warehouseId }
+  );
+  success(res, suggestion);
 }
 
 export async function create(req, res) {

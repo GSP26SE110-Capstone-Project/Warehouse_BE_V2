@@ -16,8 +16,13 @@ import contractRoutes from './contract.routes.js';
 import contractItemRoutes from './contractItem.routes.js';
 import storageReservationRoutes from './storageReservation.routes.js';
 import lpnRoutes from './lpn.routes.js';
+import lpnDetailRoutes from './lpnDetail.routes.js';
+import inboundRequestRoutes from './inboundRequest.routes.js';
 import batchRoutes from './batch.routes.js';
 import skuRoutes from './sku.routes.js';
+import categoryRoutes from './category.routes.js';
+import seasonRoutes from './season.routes.js';
+import collectionRoutes from './collection.routes.js';
 
 const router = Router();
 
@@ -34,8 +39,13 @@ router.use('/contracts', contractRoutes);
 router.use('/contract-items', contractItemRoutes);
 router.use('/storage-reservations', storageReservationRoutes);
 router.use('/batches', batchRoutes);
+router.use('/categories', categoryRoutes);
+router.use('/seasons', seasonRoutes);
+router.use('/collections', collectionRoutes);
 router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
+router.use('/lpn-details', lpnDetailRoutes);
+router.use('/inbound-requests', inboundRequestRoutes);
 
 router.get(
   '/health',

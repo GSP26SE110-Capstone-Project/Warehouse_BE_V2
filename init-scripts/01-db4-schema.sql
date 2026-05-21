@@ -366,6 +366,7 @@ CREATE TABLE IF NOT EXISTS lpns (
   max_capacity INT,
   actual_quantity INT DEFAULT 0,
   fill_percentage NUMERIC(8, 4),
+  weight_kg NUMERIC(18, 4),
   current_bin_id UUID REFERENCES bins (bin_id),
   status lpn_status_enum DEFAULT 'RECEIVING',
   created_at TIMESTAMPTZ DEFAULT NOW(),

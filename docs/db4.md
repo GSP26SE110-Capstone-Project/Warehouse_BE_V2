@@ -754,6 +754,7 @@ Table lpns {
   max_capacity int
   actual_quantity int [default: 0]
   fill_percentage decimal
+  weight_kg decimal [note: 'Carton weight kg; rack type suggestion']
 
   current_bin_id uuid [ref: > bins.bin_id]
 

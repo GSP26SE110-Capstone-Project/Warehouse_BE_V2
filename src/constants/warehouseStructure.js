@@ -18,6 +18,9 @@ export const ZONE_STATUS = Object.freeze(['ACTIVE', 'BLOCKED']);
 
 export const RACK_TYPE = Object.freeze(['STANDARD', 'HIGH_CAPACITY']);
 
+/** LPN weight above this (kg) suggests HIGH_CAPACITY racks. Override via env LPN_HIGH_CAPACITY_WEIGHT_KG. */
+export const DEFAULT_HIGH_CAPACITY_WEIGHT_KG = 25;
+
 export const RACK_STATUS = Object.freeze(['ACTIVE', 'BLOCKED']);
 
 export const BOX_TYPE = Object.freeze(['SMALL', 'MEDIUM', 'LARGE', 'EXTRA']);
