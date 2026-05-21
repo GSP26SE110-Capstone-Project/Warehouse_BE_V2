@@ -130,6 +130,8 @@ const spec = {
     { name: 'Rack', description: 'Racks' },
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
+    { name: 'Category', description: 'Product categories (Áo, Quần, …)' },
+    { name: 'Season', description: 'Fashion seasons' },
     { name: 'SKU', description: 'Tenant product SKUs' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
@@ -385,6 +387,48 @@ const spec = {
             type: 'string',
             enum: ['EMPTY', 'PARTIAL', 'FULL', 'RESERVED', 'BLOCKED'],
           },
+        },
+      },
+
+      Category: {
+        type: 'object',
+        properties: {
+          categoryId: uuid,
+          categoryName: { type: 'string', example: 'Áo' },
+        },
+      },
+      CategoryCreate: {
+        type: 'object',
+        required: ['categoryName'],
+        properties: {
+          categoryName: { type: 'string', example: 'Quần' },
+        },
+      },
+      CategoryUpdate: {
+        type: 'object',
+        properties: {
+          categoryName: { type: 'string' },
+        },
+      },
+
+      Season: {
+        type: 'object',
+        properties: {
+          seasonId: uuid,
+          seasonName: { type: 'string', example: 'Xuân 2026' },
+        },
+      },
+      SeasonCreate: {
+        type: 'object',
+        required: ['seasonName'],
+        properties: {
+          seasonName: { type: 'string', example: 'Hè 2026' },
+        },
+      },
+      SeasonUpdate: {
+        type: 'object',
+        properties: {
+          seasonName: { type: 'string' },
         },
       },
 
@@ -1846,6 +1890,152 @@ const spec = {
         parameters: [{ in: 'path', name: 'binId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Bin' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/categories': {
+      get: {
+        tags: ['Category'],
+        summary: 'List categories',
+        parameters: [
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Category' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['Category'],
+        summary: 'Create category',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CategoryCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Category' }, 'Category created'),
+          400: stdErrors[400],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/categories/{categoryId}': {
+      get: {
+        tags: ['Category'],
+        summary: 'Get category by ID',
+        parameters: [{ in: 'path', name: 'categoryId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Category' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Category'],
+        summary: 'Update category',
+        parameters: [{ in: 'path', name: 'categoryId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CategoryUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Category' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      delete: {
+        tags: ['Category'],
+        summary: 'Delete category',
+        parameters: [{ in: 'path', name: 'categoryId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Category' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/seasons': {
+      get: {
+        tags: ['Season'],
+        summary: 'List seasons',
+        parameters: [
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Season' }),
+          400: stdErrors[400],
+        },
+      },
+      post: {
+        tags: ['Season'],
+        summary: 'Create season',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SeasonCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/Season' }, 'Season created'),
+          400: stdErrors[400],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/seasons/{seasonId}': {
+      get: {
+        tags: ['Season'],
+        summary: 'Get season by ID',
+        parameters: [{ in: 'path', name: 'seasonId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Season' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['Season'],
+        summary: 'Update season',
+        parameters: [{ in: 'path', name: 'seasonId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SeasonUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Season' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      delete: {
+        tags: ['Season'],
+        summary: 'Delete season',
+        parameters: [{ in: 'path', name: 'seasonId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Season' }, 'Deleted successfully'),
           400: stdErrors[400],
           404: stdErrors[404],
         },

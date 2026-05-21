@@ -331,12 +331,16 @@ Base URL: `http://localhost:3000/api`
 
 Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 
-> **Lưu ý:** `/skus`, `/batches`, `/lpns` đã có API + Swagger. `/lpn-details` chưa implement.
+> **Lưu ý:** `/categories`, `/seasons`, `/skus`, `/batches`, `/lpns` đã có API + Swagger. `/lpn-details` chưa implement.
+
+**Seed master data:** `npm run seed:product-master` (Áo, Quần + 4 mùa 2026).
 
 ## Tất cả endpoint (flat)
 
 | Resource | POST | GET list | GET one | PATCH | DELETE |
 |----------|------|----------|---------|-------|--------|
+| Category | `/categories` ✅ | `/categories` | `/categories/:categoryId` | `/categories/:categoryId` | `/categories/:categoryId` |
+| Season | `/seasons` ✅ | `/seasons` | `/seasons/:seasonId` | `/seasons/:seasonId` | `/seasons/:seasonId` |
 | Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
 | SKU | `/skus` ✅ | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
@@ -366,7 +370,67 @@ Khi tạo LPN, `volumeUnits` nên khớp `boxType` theo bảng trên.
 
 ---
 
-## 6. Batch
+## 6. Category
+
+Master data global (Áo / Quần). Seed: `npm run seed:product-master`.
+
+### `POST /categories`
+
+| Field | Bắt buộc | Ghi chú |
+|-------|----------|---------|
+| `categoryName` | ✅ | Unique (không phân biệt hoa thường) |
+
+```json
+{
+  "categoryName": "Áo"
+}
+```
+
+### `GET /categories`
+
+Query tùy chọn: `page`, `limit`
+
+### `PATCH /categories/:categoryId`
+
+```json
+{
+  "categoryName": "Áo khoác"
+}
+```
+
+---
+
+## 7. Season
+
+Master data global (mùa). Seed: `npm run seed:product-master`.
+
+### `POST /seasons`
+
+| Field | Bắt buộc | Ghi chú |
+|-------|----------|---------|
+| `seasonName` | ✅ | Unique (không phân biệt hoa thường) |
+
+```json
+{
+  "seasonName": "Xuân 2026"
+}
+```
+
+### `GET /seasons`
+
+Query tùy chọn: `page`, `limit`
+
+### `PATCH /seasons/:seasonId`
+
+```json
+{
+  "seasonName": "Xuân-Hè 2026"
+}
+```
+
+---
+
+## 8. Batch
 
 Batch gắn một inbound request sau receiving.
 
@@ -403,7 +467,7 @@ Chỉ cập nhật: `batchCode`, `warehouseReceivedAt` (không đổi `inboundRe
 
 ---
 
-## 7. SKU
+## 9. SKU
 
 Mỗi SKU thuộc một tenant (`tenantId` + `skuCode` unique).
 
@@ -455,7 +519,7 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
 
 ---
 
-## 8. LPN
+## 10. LPN
 
 1 LPN = 1 thùng/kiện (license plate number), gắn `batchId` sau receiving. Có thể chứa nhiều SKU qua bảng `lpn_details`.
 
@@ -520,7 +584,7 @@ Query tùy chọn: `tenantId`, `batchId`, `status`, `boxType`, `currentBinId`, `
 
 ---
 
-## 9. LPN Detail
+## 11. LPN Detail
 
 Dòng hàng trong một LPN: SKU + số lượng.
 
@@ -575,6 +639,11 @@ Query bắt buộc: `lpnId`. Tùy chọn: `page`, `limit`
 ## Ví dụ flow Inbound (SKU → LPN)
 
 ```http
+# 0. Seed / list category & season (nếu chưa chạy seed)
+npm run seed:product-master
+GET /api/categories
+GET /api/seasons
+
 # 1. Tenant khai báo SKU master
 POST /api/skus
     { "tenantId": "...", "skuCode": "SKU-001", "productName": "..." }

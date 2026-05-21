@@ -1,13 +1,13 @@
 import Sku from '../models/Sku.js';
-import Category from '../models/Category.js';
 import Collection from '../models/Collection.js';
-import Season from '../models/Season.js';
 import AppError from '../utils/AppError.js';
 import {
   MOVEMENT_CATEGORY,
   SKU_STATUS,
 } from '../constants/warehouseStructure.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
+import { getCategory } from './category.service.js';
+import { getSeason } from './season.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 
 const CREATE_FIELDS = [
@@ -63,34 +63,35 @@ function trimStrings(data, fields) {
   }
 }
 
-async function assertOptionalFk(Model, id, fieldName) {
+async function assertOptionalCollectionId(id) {
   if (id == null || id === '') return null;
-  const uuid = parseUuid(id, fieldName);
-  const row = await Model.findById(uuid);
+  const uuid = parseUuid(id, 'collectionId');
+  const row = await Collection.findById(uuid);
   if (!row) {
-    throw new AppError(`${fieldName} not found`, 404, 'NOT_FOUND');
+    throw new AppError('collectionId not found', 404, 'NOT_FOUND');
   }
   return uuid;
 }
 
 async function resolveOptionalFks(data) {
   if (data.categoryId !== undefined) {
-    data.categoryId =
-      data.categoryId === null
-        ? null
-        : await assertOptionalFk(Category, data.categoryId, 'categoryId');
+    if (data.categoryId === null || data.categoryId === '') {
+      data.categoryId = null;
+    } else {
+      await getCategory(data.categoryId);
+      data.categoryId = parseUuid(data.categoryId, 'categoryId');
+    }
   }
   if (data.collectionId !== undefined) {
-    data.collectionId =
-      data.collectionId === null
-        ? null
-        : await assertOptionalFk(Collection, data.collectionId, 'collectionId');
+    data.collectionId = await assertOptionalCollectionId(data.collectionId);
   }
   if (data.seasonId !== undefined) {
-    data.seasonId =
-      data.seasonId === null
-        ? null
-        : await assertOptionalFk(Season, data.seasonId, 'seasonId');
+    if (data.seasonId === null || data.seasonId === '') {
+      data.seasonId = null;
+    } else {
+      await getSeason(data.seasonId);
+      data.seasonId = parseUuid(data.seasonId, 'seasonId');
+    }
   }
   return data;
 }
