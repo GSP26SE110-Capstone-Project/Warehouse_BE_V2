@@ -136,6 +136,7 @@ const spec = {
     { name: 'SKU', description: 'Tenant product SKUs' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
+    { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
     { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
     { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
@@ -622,6 +623,56 @@ const spec = {
             enum: ['RECEIVING', 'STORED', 'PICKED', 'SHIPPED', 'DAMAGED'],
           },
         },
+      },
+
+      LpnDetailSku: {
+        type: 'object',
+        properties: {
+          skuId: uuid,
+          skuCode: { type: 'string' },
+          productName: { type: 'string' },
+          color: { type: 'string', nullable: true },
+          size: { type: 'string', nullable: true },
+        },
+      },
+      LpnDetail: {
+        type: 'object',
+        properties: {
+          lpnDetailId: uuid,
+          lpnId: uuid,
+          skuId: uuid,
+          quantity: { type: 'integer', minimum: 1 },
+          sku: { $ref: '#/components/schemas/LpnDetailSku' },
+        },
+      },
+      LpnDetailCreate: {
+        type: 'object',
+        required: ['lpnId', 'skuId', 'quantity'],
+        properties: {
+          lpnId: uuid,
+          skuId: uuid,
+          quantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      LpnDetailUpdate: {
+        type: 'object',
+        properties: {
+          quantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      LpnWithDetails: {
+        allOf: [
+          { $ref: '#/components/schemas/Lpn' },
+          {
+            type: 'object',
+            properties: {
+              details: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/LpnDetail' },
+              },
+            },
+          },
+        ],
       },
 
       HealthData: {
@@ -2352,6 +2403,96 @@ const spec = {
           400: stdErrors[400],
           404: stdErrors[404],
           409: stdErrors[409],
+        },
+      },
+    },
+    '/api/lpns/{lpnId}/details': {
+      get: {
+        tags: ['LPN'],
+        summary: 'Get LPN with SKU details',
+        description:
+          'Returns the LPN and all lpn_details lines (skuCode, productName, quantity).',
+        parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnWithDetails' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/lpn-details': {
+      get: {
+        tags: ['LPNDetail'],
+        summary: 'List SKU lines in an LPN',
+        parameters: [
+          { in: 'query', name: 'lpnId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/LpnDetail' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['LPNDetail'],
+        summary: 'Add SKU to LPN',
+        description:
+          'One SKU per LPN (duplicate skuId → 409). Updates LPN actualQuantity and fillPercentage.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LpnDetailCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }, 'LPN detail created'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/lpn-details/{lpnDetailId}': {
+      get: {
+        tags: ['LPNDetail'],
+        summary: 'Get LPN detail by ID',
+        parameters: [{ in: 'path', name: 'lpnDetailId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['LPNDetail'],
+        summary: 'Update quantity in LPN',
+        parameters: [{ in: 'path', name: 'lpnDetailId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LpnDetailUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }, 'Updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['LPNDetail'],
+        summary: 'Remove SKU from LPN',
+        parameters: [{ in: 'path', name: 'lpnDetailId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/LpnDetail' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
         },
       },
     },

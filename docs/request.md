@@ -331,7 +331,7 @@ Base URL: `http://localhost:3000/api`
 
 Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 
-> **Lưu ý:** `/categories`, `/seasons`, `/collections`, `/skus`, `/batches`, `/lpns` đã có API + Swagger. `/lpn-details` chưa implement.
+> **Lưu ý:** `/categories`, `/seasons`, `/collections`, `/skus`, `/batches`, `/lpns`, `/lpn-details` đã có API + Swagger.
 
 **Seed master data:**
 - `npm run seed:product-master` — Áo, Quần + 4 mùa 2026
@@ -347,7 +347,8 @@ Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 | Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
 | SKU | `/skus` ✅ | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
-| LPN detail | `/lpn-details` | `/lpn-details?lpnId=` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` |
+| LPN detail | `/lpn-details` ✅ | `/lpn-details?lpnId=` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` | `/lpn-details/:lpnDetailId` |
+| LPN + SKUs | — | — | `/lpns/:lpnId/details` ✅ | — | — |
 
 ## Enum tham chiếu
 
@@ -573,7 +574,7 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
 | `volumeUnits` | ✅ | — | ≥ 1; theo bảng quy đổi `boxType` |
 | `maxCapacity` | | — | Sức chứa tối đa (đơn vị SKU) trong thùng |
 | `actualQuantity` | | `0` | Tổng số lượng SKU đã đóng vào thùng |
-| `fillPercentage` | | — | 0–100 (tùy chọn) |
+| `fillPercentage` | | — | 0–100 (tùy chọn) | = actual_quantity / max_capacity
 | `currentBinId` | | — | UUID bin (sau putaway) |
 | `status` | | `RECEIVING` | enum `lpn.status` |
 
@@ -608,6 +609,10 @@ Query bắt buộc: `tenantId`. Tùy chọn: `status`, `movementCategory`, `page
 
 Query tùy chọn: `tenantId`, `batchId`, `status`, `boxType`, `currentBinId`, `page`, `limit`
 
+### `GET /lpns/:lpnId/details`
+
+Trả LPN kèm mảng `details` — mỗi phần tử có `quantity` và `sku` (`skuCode`, `productName`, `color`, `size`).
+
 ### `PATCH /lpns/:lpnId`
 
 ```json
@@ -625,7 +630,9 @@ Query tùy chọn: `tenantId`, `batchId`, `status`, `boxType`, `currentBinId`, `
 
 ## 12. LPN Detail
 
-Dòng hàng trong một LPN: SKU + số lượng.
+Dòng hàng trong một LPN: SKU + số lượng. Mỗi LPN **một dòng / SKU** (trùng `skuId` → 409, dùng PATCH đổi `quantity`).
+
+Sau create/update/delete detail, hệ thống tự cập nhật `lpns.actualQuantity` (tổng `quantity`) và `fillPercentage` (nếu có `maxCapacity`).
 
 ### `POST /lpn-details`
 
@@ -663,7 +670,9 @@ Dòng hàng trong một LPN: SKU + số lượng.
 
 ### `GET /lpn-details?lpnId={uuid}`
 
-Query bắt buộc: `lpnId`. Tùy chọn: `page`, `limit`
+Query bắt buộc: `lpnId`. Tùy chọn: `page`, `limit`. Response mỗi item có nested `sku`.
+
+Hoặc dùng `GET /lpns/:lpnId/details` để lấy một lần LPN + toàn bộ details.
 
 ### `PATCH /lpn-details/:lpnDetailId`
 
@@ -697,9 +706,13 @@ POST /api/lpns
     { "tenantId": "...", "batchId": "...", "lpnCode": "LPN-001",
       "boxType": "MEDIUM", "volumeUnits": 2 }
 
-# 3. Đóng hàng vào LPN
+# 3. Đóng hàng vào LPN (mỗi SKU một request)
 POST /api/lpn-details
     { "lpnId": "...", "skuId": "...", "quantity": 24 }
+
+# Xem SKU trong thùng
+GET /api/lpns/{lpnId}/details
+GET /api/lpn-details?lpnId={lpnId}
 
 # 4. Putaway — gán bin
 PATCH /api/lpns/{lpnId}

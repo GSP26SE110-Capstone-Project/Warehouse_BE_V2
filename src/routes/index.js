@@ -16,6 +16,7 @@ import contractRoutes from './contract.routes.js';
 import contractItemRoutes from './contractItem.routes.js';
 import storageReservationRoutes from './storageReservation.routes.js';
 import lpnRoutes from './lpn.routes.js';
+import lpnDetailRoutes from './lpnDetail.routes.js';
 import batchRoutes from './batch.routes.js';
 import skuRoutes from './sku.routes.js';
 import categoryRoutes from './category.routes.js';
@@ -42,6 +43,7 @@ router.use('/seasons', seasonRoutes);
 router.use('/collections', collectionRoutes);
 router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
+router.use('/lpn-details', lpnDetailRoutes);
 
 router.get(
   '/health',

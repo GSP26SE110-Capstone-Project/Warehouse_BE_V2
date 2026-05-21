@@ -1,4 +1,5 @@
 import * as lpnService from '../services/lpn.service.js';
+import * as lpnDetailService from '../services/lpnDetail.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -22,6 +23,11 @@ export async function list(req, res) {
 
 export async function getById(req, res) {
   const lpn = await lpnService.getLpn(req.params.lpnId);
+  success(res, lpn);
+}
+
+export async function getWithDetails(req, res) {
+  const lpn = await lpnDetailService.getLpnWithDetails(req.params.lpnId);
   success(res, lpn);
 }
 
