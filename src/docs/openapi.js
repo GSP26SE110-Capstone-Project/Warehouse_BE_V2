@@ -129,7 +129,7 @@ const spec = {
       '### Flow 1 — Tenant onboarding\n' +
       '1. `POST /tenants` — guest tạo tenant company\n' +
       '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không chọn kho)\n' +
-      '3. `GET /rental-requests/lookup?code=RR-…` — guest tra cứu trạng thái (public)\n' +
+      '3. `GET /rental-requests/lookup?code=RR-…&email=…` — guest tra cứu (mã + email liên hệ)\n' +
       '4. WH inbox: `GET /warehouses/{warehouseId}/rental-requests?status=PENDING`\n' +
       '5. Approve + claim: `PATCH /rental-requests/{id}` với `status=APPROVED` + `warehouseId` (kho nhanh nhất thắng)\n' +
       '6. `POST /contracts` → contract-items → storage-reservations\n\n' +
@@ -3194,13 +3194,20 @@ const spec = {
         tags: ['RentalRequest'],
         summary: 'Lookup rental request by code (guest)',
         description:
-          'Public tra cứu trạng thái yêu cầu thuê bằng `requestCode` (ví dụ RR-…). Không cần đăng nhập.',
+          'Public tra cứu trạng thái yêu cầu thuê bằng `requestCode` + `contactEmail` đã đăng ký. Không cần đăng nhập. Trả 404 chung nếu mã hoặc email không khớp.',
         parameters: [
           {
             in: 'query',
             name: 'code',
             required: true,
             schema: { type: 'string', example: 'RR-M5ABC-01' },
+          },
+          {
+            in: 'query',
+            name: 'email',
+            required: true,
+            schema: { type: 'string', format: 'email', example: 'contact@company.com' },
+            description: 'Email liên hệ khi tạo tenant (`POST /tenants`)',
           },
         ],
         responses: {

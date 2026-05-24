@@ -30,7 +30,10 @@ export async function getById(req, res) {
 }
 
 export async function lookupByCode(req, res) {
-  const item = await rentalRequestService.lookupRentalRequestByCode(req.query.code);
+  const item = await rentalRequestService.lookupRentalRequestByCode(
+    req.query.code,
+    req.query.email
+  );
   success(res, item);
 }
 

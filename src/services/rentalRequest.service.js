@@ -293,10 +293,14 @@ export async function getRentalRequest(rentalRequestId) {
   return item;
 }
 
-export async function lookupRentalRequestByCode(requestCode) {
+export async function lookupRentalRequestByCode(requestCode, email) {
   const code = String(requestCode ?? '').trim();
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
   if (!code) {
     throw new AppError('requestCode is required', 400, 'VALIDATION_ERROR');
+  }
+  if (!normalizedEmail) {
+    throw new AppError('email is required', 400, 'VALIDATION_ERROR');
   }
 
   const row = await RentalRequest.queryOne(
@@ -311,6 +315,10 @@ export async function lookupRentalRequestByCode(requestCode) {
   }
 
   const tenant = await getTenantCompany(item.tenantId);
+  const tenantEmail = String(tenant.contactEmail ?? '').trim().toLowerCase();
+  if (!tenantEmail || tenantEmail !== normalizedEmail) {
+    throw new AppError('Rental request not found', 404, 'NOT_FOUND');
+  }
 
   let warehouseName = null;
   if (item.warehouseId) {
