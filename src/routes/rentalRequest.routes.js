@@ -4,6 +4,7 @@ import * as rentalRequestController from '../controllers/rentalRequest.controlle
 
 const router = Router();
 
+router.get('/lookup', asyncHandler(rentalRequestController.lookupByCode));
 router.post('/', asyncHandler(rentalRequestController.create));
 router.get('/', asyncHandler(rentalRequestController.list));
 router.get('/:rentalRequestId', asyncHandler(rentalRequestController.getById));

@@ -293,6 +293,54 @@ export async function getRentalRequest(rentalRequestId) {
   return item;
 }
 
+export async function lookupRentalRequestByCode(requestCode) {
+  const code = String(requestCode ?? '').trim();
+  if (!code) {
+    throw new AppError('requestCode is required', 400, 'VALIDATION_ERROR');
+  }
+
+  const row = await RentalRequest.queryOne(
+    `SELECT * FROM rental_requests
+     WHERE UPPER(TRIM(request_code)) = UPPER(TRIM($1))
+     LIMIT 1`,
+    [code]
+  );
+  const item = mapRentalRow(row);
+  if (!item) {
+    throw new AppError('Rental request not found', 404, 'NOT_FOUND');
+  }
+
+  const tenant = await getTenantCompany(item.tenantId);
+
+  let warehouseName = null;
+  if (item.warehouseId) {
+    const warehouse = await getWarehouseById(item.warehouseId);
+    warehouseName = warehouse.warehouseName ?? null;
+  }
+
+  return {
+    requestCode: item.requestCode,
+    status: item.status,
+    companyName: tenant.companyName,
+    city: item.city,
+    district: item.district,
+    contractType: item.contractType ?? null,
+    pricingModel: item.pricingModel ?? null,
+    billingCycle: item.billingCycle ?? null,
+    estimatedBoxCount: item.estimatedBoxCount ?? null,
+    estimatedSkuCount: item.estimatedSkuCount ?? null,
+    requiresFastPicking: item.requiresFastPicking ?? false,
+    requiresPremiumStorage: item.requiresPremiumStorage ?? false,
+    expectedStartDate: item.expectedStartDate ?? null,
+    expectedEndDate: item.expectedEndDate ?? null,
+    rejectionReason: item.rejectionReason ?? null,
+    warehouseName,
+    createdAt: item.createdAt ?? null,
+    updatedAt: item.updatedAt ?? null,
+    reviewedAt: item.reviewedAt ?? null,
+  };
+}
+
 export async function listRentalRequests({
   tenantId,
   warehouseId,

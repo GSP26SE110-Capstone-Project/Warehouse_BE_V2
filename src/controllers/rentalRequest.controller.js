@@ -29,6 +29,11 @@ export async function getById(req, res) {
   success(res, item);
 }
 
+export async function lookupByCode(req, res) {
+  const item = await rentalRequestService.lookupRentalRequestByCode(req.query.code);
+  success(res, item);
+}
+
 export async function create(req, res) {
   const item = await rentalRequestService.createRentalRequest(req.body);
   created(res, item);

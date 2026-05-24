@@ -129,9 +129,10 @@ const spec = {
       '### Flow 1 — Tenant onboarding\n' +
       '1. `POST /tenants` — guest tạo tenant company\n' +
       '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không chọn kho)\n' +
-      '3. WH inbox: `GET /warehouses/{warehouseId}/rental-requests?status=PENDING`\n' +
-      '4. Approve + claim: `PATCH /rental-requests/{id}` với `status=APPROVED` + `warehouseId` (kho nhanh nhất thắng)\n' +
-      '5. `POST /contracts` → contract-items → storage-reservations\n\n' +
+      '3. `GET /rental-requests/lookup?code=RR-…` — guest tra cứu trạng thái (public)\n' +
+      '4. WH inbox: `GET /warehouses/{warehouseId}/rental-requests?status=PENDING`\n' +
+      '5. Approve + claim: `PATCH /rental-requests/{id}` với `status=APPROVED` + `warehouseId` (kho nhanh nhất thắng)\n' +
+      '6. `POST /contracts` → contract-items → storage-reservations\n\n' +
       '### Flow 2 — Warehouse structure\n' +
       'Warehouse → Zone → Rack → Rack Level → Bin\n\n' +
       '### Flow 3 — Inbound (SKU / LPN)\n' +
@@ -139,7 +140,7 @@ const spec = {
       '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
       '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
-      '- `POST /tenants`, `POST /rental-requests` — public (guest onboarding)',
+      '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/lookup` — public (guest onboarding)',
   },
   servers: [{ url: 'http://localhost:3000', description: 'Local development' }],
   tags: [
@@ -3182,6 +3183,47 @@ const spec = {
         parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Lpn' }, 'Deleted successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/rental-requests/lookup': {
+      get: {
+        tags: ['RentalRequest'],
+        summary: 'Lookup rental request by code (guest)',
+        description:
+          'Public tra cứu trạng thái yêu cầu thuê bằng `requestCode` (ví dụ RR-…). Không cần đăng nhập.',
+        parameters: [
+          {
+            in: 'query',
+            name: 'code',
+            required: true,
+            schema: { type: 'string', example: 'RR-M5ABC-01' },
+          },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              requestCode: { type: 'string' },
+              status: {
+                type: 'string',
+                enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+              },
+              companyName: { type: 'string' },
+              city: { type: 'string' },
+              district: { type: 'string' },
+              contractType: { type: 'string', nullable: true },
+              pricingModel: { type: 'string', nullable: true },
+              billingCycle: { type: 'string', nullable: true },
+              warehouseName: { type: 'string', nullable: true },
+              rejectionReason: { type: 'string', nullable: true },
+              createdAt: { type: 'string', format: 'date-time', nullable: true },
+              reviewedAt: { type: 'string', format: 'date-time', nullable: true },
+            },
+          }),
           400: stdErrors[400],
           404: stdErrors[404],
         },
