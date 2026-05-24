@@ -18,6 +18,7 @@ import storageReservationRoutes from './storageReservation.routes.js';
 import lpnRoutes from './lpn.routes.js';
 import lpnDetailRoutes from './lpnDetail.routes.js';
 import inboundRequestRoutes from './inboundRequest.routes.js';
+import outboundRequestRoutes from './outboundRequest.routes.js';
 import batchRoutes from './batch.routes.js';
 import skuRoutes from './sku.routes.js';
 import categoryRoutes from './category.routes.js';
@@ -46,6 +47,7 @@ router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
 router.use('/lpn-details', lpnDetailRoutes);
 router.use('/inbound-requests', inboundRequestRoutes);
+router.use('/outbound-requests', outboundRequestRoutes);
 
 router.get(
   '/health',

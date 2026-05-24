@@ -135,6 +135,7 @@ const spec = {
     { name: 'Collection', description: 'Tenant product collections' },
     { name: 'SKU', description: 'Tenant product SKUs' },
     { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 3)' },
+    { name: 'OutboundRequest', description: 'Tenant outbound / shipping requests (Flow 7)' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
@@ -640,6 +641,98 @@ const spec = {
           },
           approvedBy: { ...uuid, nullable: true },
           receivedBy: { ...uuid, nullable: true },
+        },
+      },
+
+      OutboundRequest: {
+        type: 'object',
+        properties: {
+          outboundRequestId: uuid,
+          tenantId: uuid,
+          contractId: uuid,
+          warehouseId: uuid,
+          outboundCode: { type: 'string', example: 'OUT-LX1A2B-0C' },
+          requestedShipDate: { type: 'string', format: 'date-time', nullable: true },
+          actualShippedAt: { type: 'string', format: 'date-time', nullable: true },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'RESERVED',
+              'PICKING',
+              'PACKING',
+              'SHIPPED',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+          },
+          createdBy: { ...uuid, nullable: true },
+          approvedBy: { ...uuid, nullable: true },
+          ...timestamps,
+        },
+      },
+      OutboundRequestCreate: {
+        type: 'object',
+        required: ['tenantId', 'contractId', 'warehouseId'],
+        properties: {
+          tenantId: uuid,
+          contractId: uuid,
+          warehouseId: uuid,
+          outboundCode: {
+            type: 'string',
+            description: 'Auto-generated if omitted (OUT-...)',
+          },
+          requestedShipDate: { type: 'string', format: 'date-time' },
+          actualShippedAt: { type: 'string', format: 'date-time' },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'RESERVED',
+              'PICKING',
+              'PACKING',
+              'SHIPPED',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+            default: 'PENDING',
+          },
+          createdBy: uuid,
+          approvedBy: uuid,
+        },
+      },
+      OutboundRequestUpdate: {
+        type: 'object',
+        properties: {
+          requestedShipDate: {
+            type: 'string',
+            format: 'date-time',
+            nullable: true,
+          },
+          actualShippedAt: {
+            type: 'string',
+            format: 'date-time',
+            nullable: true,
+          },
+          status: {
+            type: 'string',
+            enum: [
+              'DRAFT',
+              'PENDING',
+              'APPROVED',
+              'RESERVED',
+              'PICKING',
+              'PACKING',
+              'SHIPPED',
+              'COMPLETED',
+              'CANCELLED',
+            ],
+          },
+          approvedBy: { ...uuid, nullable: true },
         },
       },
 
@@ -2686,6 +2779,116 @@ const spec = {
         responses: {
           200: successEnvelope(
             { $ref: '#/components/schemas/InboundRequest' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/outbound-requests': {
+      get: {
+        tags: ['OutboundRequest'],
+        summary: 'List outbound requests (filter by tenant, warehouse, contract, status)',
+        parameters: [
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'warehouseId', schema: uuid },
+          { in: 'query', name: 'contractId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: [
+                'DRAFT',
+                'PENDING',
+                'APPROVED',
+                'RESERVED',
+                'PICKING',
+                'PACKING',
+                'SHIPPED',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/OutboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['OutboundRequest'],
+        summary: 'Create outbound request (contract must be ACTIVE)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequest' },
+            'Outbound request created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/outbound-requests/{outboundRequestId}': {
+      get: {
+        tags: ['OutboundRequest'],
+        summary: 'Get outbound request by ID',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/OutboundRequest' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['OutboundRequest'],
+        summary: 'Update outbound request (status, ship dates, approver)',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequest' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['OutboundRequest'],
+        summary: 'Delete outbound request',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequest' },
             'Deleted successfully'
           ),
           400: stdErrors[400],
