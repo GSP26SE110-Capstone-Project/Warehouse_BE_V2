@@ -2,6 +2,7 @@ import RentalRequest from '../models/RentalRequest.js';
 import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { locationMatches, requireLocationField } from '../utils/location.js';
+import { resolveCityDistrict } from './location.service.js';
 import { ZONE_TYPE, RACK_TYPE } from '../constants/warehouseStructure.js';
 import {
   BILLING_CYCLE,
@@ -25,6 +26,7 @@ const CREATE_FIELDS = [
   'estimatedSkuCount',
   'estimatedBoxCount',
   'estimatedVolume',
+  'requestedAreaM2',
   'averageStorageDays',
   'estimatedInboundPerWeek',
   'estimatedOutboundPerWeek',
@@ -46,6 +48,7 @@ const UPDATE_FIELDS = [
   'estimatedSkuCount',
   'estimatedBoxCount',
   'estimatedVolume',
+  'requestedAreaM2',
   'averageStorageDays',
   'estimatedInboundPerWeek',
   'estimatedOutboundPerWeek',
@@ -154,6 +157,8 @@ function normalizeNumericFields(data) {
     );
   if (data.estimatedVolume !== undefined)
     data.estimatedVolume = parseNonNegativeNumber(data.estimatedVolume, 'estimatedVolume');
+  if (data.requestedAreaM2 !== undefined)
+    data.requestedAreaM2 = parseNonNegativeNumber(data.requestedAreaM2, 'requestedAreaM2');
   if (data.expectedStartDate !== undefined)
     data.expectedStartDate = parseDate(data.expectedStartDate, 'expectedStartDate');
   if (data.expectedEndDate !== undefined)
@@ -172,6 +177,19 @@ function normalizeLocationFields(data) {
     throw new AppError(district.error, 400, 'VALIDATION_ERROR');
   }
   data.district = district.value;
+}
+
+async function assertKnownCityDistrict(data) {
+  const resolved = await resolveCityDistrict(data.city, data.district);
+  if (!resolved) {
+    throw new AppError(
+      'city and district must be a valid pair from the location catalog',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+  data.city = resolved.city;
+  data.district = resolved.district;
 }
 
 function normalizeCreatePayload(body) {
@@ -337,6 +355,9 @@ export async function lookupRentalRequestByCode(requestCode, email) {
     billingCycle: item.billingCycle ?? null,
     estimatedBoxCount: item.estimatedBoxCount ?? null,
     estimatedSkuCount: item.estimatedSkuCount ?? null,
+    estimatedInboundPerWeek: item.estimatedInboundPerWeek ?? null,
+    estimatedOutboundPerWeek: item.estimatedOutboundPerWeek ?? null,
+    requestedAreaM2: item.requestedAreaM2 ?? null,
     requiresFastPicking: item.requiresFastPicking ?? false,
     requiresPremiumStorage: item.requiresPremiumStorage ?? false,
     expectedStartDate: item.expectedStartDate ?? null,
@@ -406,6 +427,7 @@ export async function listRentalRequests({
 
 export async function createRentalRequest(body) {
   const data = normalizeCreatePayload(body);
+  await assertKnownCityDistrict(data);
   await getTenantCompany(data.tenantId);
   return RentalRequest.create(data);
 }

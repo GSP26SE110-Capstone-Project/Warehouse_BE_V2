@@ -1,4 +1,5 @@
 import * as rentalRequestService from '../services/rentalRequest.service.js';
+import AppError from '../utils/AppError.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -25,7 +26,11 @@ export async function list(req, res) {
 }
 
 export async function getById(req, res) {
-  const item = await rentalRequestService.getRentalRequest(req.params.rentalRequestId);
+  const { rentalRequestId } = req.params;
+  if (rentalRequestId === 'lookup' || rentalRequestId === 'guest') {
+    throw new AppError('Rental request not found', 404, 'NOT_FOUND');
+  }
+  const item = await rentalRequestService.getRentalRequest(rentalRequestId);
   success(res, item);
 }
 

@@ -4,7 +4,8 @@ import * as rentalRequestController from '../controllers/rentalRequest.controlle
 
 const router = Router();
 
-router.get('/lookup', asyncHandler(rentalRequestController.lookupByCode));
+// Must be before /:rentalRequestId — Express 5 treats "lookup" as :id otherwise (400 Invalid UUID)
+router.get('/guest/lookup', asyncHandler(rentalRequestController.lookupByCode));
 router.post('/', asyncHandler(rentalRequestController.create));
 router.get('/', asyncHandler(rentalRequestController.list));
 router.get('/:rentalRequestId', asyncHandler(rentalRequestController.getById));

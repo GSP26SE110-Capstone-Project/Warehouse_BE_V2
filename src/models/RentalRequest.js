@@ -54,6 +54,10 @@ export const rentalRequestSchema = {
     type: 'decimal',
     required: false,
   },
+  requestedAreaM2: {
+    type: 'decimal',
+    required: false,
+  },
   averageStorageDays: {
     type: 'number',
     required: false,

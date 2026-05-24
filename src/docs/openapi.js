@@ -129,7 +129,7 @@ const spec = {
       '### Flow 1 — Tenant onboarding\n' +
       '1. `POST /tenants` — guest tạo tenant company\n' +
       '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không chọn kho)\n' +
-      '3. `GET /rental-requests/lookup?code=RR-…&email=…` — guest tra cứu (mã + email liên hệ)\n' +
+      '3. `GET /rental-requests/guest/lookup?code=RR-…&email=…` — guest tra cứu (mã + email liên hệ)\n' +
       '4. WH inbox: `GET /warehouses/{warehouseId}/rental-requests?status=PENDING`\n' +
       '5. Approve + claim: `PATCH /rental-requests/{id}` với `status=APPROVED` + `warehouseId` (kho nhanh nhất thắng)\n' +
       '6. `POST /contracts` → contract-items → storage-reservations\n\n' +
@@ -140,7 +140,7 @@ const spec = {
       '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
       '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
-      '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/lookup` — public (guest onboarding)',
+      '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/guest/lookup` — public (guest onboarding)',
   },
   servers: [{ url: 'http://localhost:3000', description: 'Local development' }],
   tags: [
@@ -1087,12 +1087,17 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
             nullable: true,
           },
           estimatedSkuCount: { type: 'integer', nullable: true },
           estimatedBoxCount: { type: 'integer', nullable: true },
           estimatedVolume: { type: 'number', nullable: true },
+          requestedAreaM2: {
+            type: 'number',
+            nullable: true,
+            description: 'Diện tích mong muốn (m²) — DEDICATED_WAREHOUSE / DEDICATED_ZONE',
+          },
           averageStorageDays: { type: 'integer', nullable: true },
           estimatedInboundPerWeek: { type: 'integer', nullable: true },
           estimatedOutboundPerWeek: { type: 'integer', nullable: true },
@@ -1151,11 +1156,16 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
           estimatedVolume: { type: 'number', minimum: 0 },
+          requestedAreaM2: {
+            type: 'number',
+            minimum: 0,
+            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone',
+          },
           averageStorageDays: { type: 'integer', minimum: 0 },
           estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
           estimatedOutboundPerWeek: { type: 'integer', minimum: 0 },
@@ -1204,7 +1214,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
             nullable: true,
           },
           allowDynamicRelocation: { type: 'boolean' },
@@ -1266,7 +1276,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
             default: 'MONTHLY',
           },
           allowDynamicRelocation: { type: 'boolean', default: true },
@@ -1319,7 +1329,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
           allowDynamicRelocation: { type: 'boolean' },
           autoRenew: { type: 'boolean' },
@@ -1621,11 +1631,16 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
           estimatedVolume: { type: 'number', minimum: 0 },
+          requestedAreaM2: {
+            type: 'number',
+            minimum: 0,
+            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone',
+          },
           averageStorageDays: { type: 'integer', minimum: 0 },
           estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
           estimatedOutboundPerWeek: { type: 'integer', minimum: 0 },
@@ -3189,7 +3204,7 @@ const spec = {
       },
     },
 
-    '/api/rental-requests/lookup': {
+    '/api/rental-requests/guest/lookup': {
       get: {
         tags: ['RentalRequest'],
         summary: 'Lookup rental request by code (guest)',
