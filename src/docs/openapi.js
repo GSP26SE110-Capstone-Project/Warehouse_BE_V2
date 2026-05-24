@@ -887,6 +887,40 @@ const spec = {
         },
       },
 
+      ChangePasswordRequest: {
+        type: 'object',
+        required: ['currentPassword', 'newPassword'],
+        properties: {
+          currentPassword: { type: 'string', format: 'password' },
+          newPassword: {
+            type: 'string',
+            format: 'password',
+            minLength: 8,
+            description: 'Phải khác mật khẩu hiện tại, tối thiểu 8 ký tự.',
+          },
+        },
+      },
+      ChangePasswordRequestData: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', format: 'email' },
+          expiresInMinutes: { type: 'integer', example: 10 },
+        },
+      },
+      ChangePasswordVerifyRequest: {
+        type: 'object',
+        required: ['otp'],
+        properties: {
+          otp: { type: 'string', example: '123456' },
+        },
+      },
+      ChangePasswordVerifyData: {
+        type: 'object',
+        properties: {
+          changedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+
       RentalRequest: {
         type: 'object',
         properties: {
@@ -1514,6 +1548,65 @@ const spec = {
           400: stdErrors[400],
           401: stdErrors[401],
           403: stdErrors[403],
+        },
+      },
+    },
+
+    '/api/auth/change-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Yêu cầu đổi mật khẩu — gửi OTP về email',
+        security: bearerSecurity,
+        description:
+          'Bước 1/2. Verify `currentPassword`, sinh OTP 6 số (TTL 10 phút) và gửi tới email của user hiện tại. Chưa đổi password ở bước này.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ChangePasswordRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ChangePasswordRequestData' },
+            'OTP đã được gửi tới email',
+          ),
+          400: stdErrors[400],
+          401: stdErrors[401],
+          502: {
+            description: 'Gửi email thất bại',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/auth/change-password/verify': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Xác nhận OTP và áp dụng đổi mật khẩu',
+        security: bearerSecurity,
+        description:
+          'Bước 2/2. Nhập đúng OTP đã nhận trong email để áp dụng mật khẩu mới. OTP single-use, tối đa 5 lần nhập sai sẽ bị khoá — phải request lại.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ChangePasswordVerifyRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ChangePasswordVerifyData' },
+            'Đổi mật khẩu thành công',
+          ),
+          400: stdErrors[400],
+          401: stdErrors[401],
         },
       },
     },
