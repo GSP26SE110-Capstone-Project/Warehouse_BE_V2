@@ -14,6 +14,7 @@
     "seed:warehouse": "node scripts/seed-warehouse.mjs",
     "seed:product-master": "node scripts/seed-product-master.mjs",
     "seed:collections": "node scripts/seed-collections.mjs",
+    "seed:sku-lpn": "node scripts/seed-sku-lpn.mjs",
     "db:migrate": "node scripts/run-migration.mjs scripts/sql/db4_schema.sql",
     "db:migrate:zone-type": "node scripts/run-migration.mjs scripts/sql/zone_type_remove_dedicated.sql",
     "db:migrate:rental-requests": "node scripts/run-migration.mjs scripts/sql/rental_requests_add_estimation_fields.sql",

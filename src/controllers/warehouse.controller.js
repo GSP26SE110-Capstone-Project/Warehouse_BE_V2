@@ -25,10 +25,12 @@ export async function getById(req, res) {
 
 export async function listRentalRequests(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
-  const { status, contractType, pricingModel } = req.query;
+  const { tenantId, regionMatch, status, contractType, pricingModel } = req.query;
 
   const result = await rentalRequestService.listRentalRequests({
     warehouseId: req.params.warehouseId,
+    regionMatch: regionMatch ?? 'true',
+    tenantId,
     status,
     contractType,
     pricingModel,

@@ -1,14 +1,18 @@
 import * as rentalRequestService from '../services/rentalRequest.service.js';
-import AppError from '../utils/AppError.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
-import { parsePagination, parseUuid } from '../utils/validate.js';
+import { parsePagination } from '../utils/validate.js';
 
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
-  const { warehouseId, status, contractType, pricingModel } = req.query;
+  const { tenantId, warehouseId, regionMatch, city, district, status, contractType, pricingModel } =
+    req.query;
 
   const result = await rentalRequestService.listRentalRequests({
+    tenantId,
     warehouseId,
+    regionMatch,
+    city,
+    district,
     status,
     contractType,
     pricingModel,
@@ -26,13 +30,7 @@ export async function getById(req, res) {
 }
 
 export async function create(req, res) {
-  const { warehouseId } = req.body;
-  if (!warehouseId) {
-    throw new AppError('warehouseId is required', 400, 'VALIDATION_ERROR');
-  }
-  parseUuid(warehouseId, 'warehouseId');
-
-  const item = await rentalRequestService.createRentalRequest(warehouseId, req.body);
+  const item = await rentalRequestService.createRentalRequest(req.body);
   created(res, item);
 }
 

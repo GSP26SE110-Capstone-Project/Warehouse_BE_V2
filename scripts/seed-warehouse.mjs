@@ -22,6 +22,8 @@ const PRIMARY_WAREHOUSE = {
   warehouseCode: 'WH-HCM-01',
   warehouseName: 'Kho HCM Trung tâm',
   address: 'Quận 7, TP.HCM',
+  city: 'TP.HCM',
+  district: 'Quận 7',
   totalAreaM2: 5000,
   usableAreaM2: 4200,
   // 4 zone chính + 2 zone hỗ trợ (QC, RETURN).
@@ -94,6 +96,8 @@ const EXTRA_WAREHOUSES = [
     warehouseCode: 'WH-HCM-02',
     warehouseName: 'Kho HCM Quận 9',
     address: 'TP. Thủ Đức, TP.HCM',
+    city: 'TP.HCM',
+    district: 'Quận 9',
     totalAreaM2: 3500,
     usableAreaM2: 3000,
     zones: [
@@ -123,6 +127,8 @@ const EXTRA_WAREHOUSES = [
     warehouseCode: 'WH-HN-01',
     warehouseName: 'Kho Hà Nội Long Biên',
     address: 'Long Biên, Hà Nội',
+    city: 'Hà Nội',
+    district: 'Long Biên',
     totalAreaM2: 4000,
     usableAreaM2: 3400,
     zones: [
@@ -176,15 +182,21 @@ async function ensureWarehouse(wh) {
 
   const result = await pool.query(
     `INSERT INTO warehouses
-       (warehouse_id, warehouse_code, warehouse_name, address,
+       (warehouse_id, warehouse_code, warehouse_name, address, city, district,
         total_area_m2, usable_area_m2, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE')
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE')
+     ON CONFLICT (warehouse_code) DO UPDATE
+       SET city = EXCLUDED.city,
+           district = EXCLUDED.district,
+           address = EXCLUDED.address
      RETURNING warehouse_id`,
     [
       wh.warehouseId,
       wh.warehouseCode,
       wh.warehouseName,
       wh.address,
+      wh.city,
+      wh.district,
       wh.totalAreaM2,
       wh.usableAreaM2,
     ]

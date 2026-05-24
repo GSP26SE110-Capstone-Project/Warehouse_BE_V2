@@ -21,6 +21,9 @@ const errorResponse = {
         'INVALID_ID',
         'INTERNAL_ERROR',
         'DB_UNAVAILABLE',
+        'NO_SLOT_CANDIDATE',
+        'OLLAMA_UNAVAILABLE',
+        'OLLAMA_DISABLED',
       ],
     },
     errors: { type: 'object', nullable: true },
@@ -97,6 +100,10 @@ const stdErrors = {
     description: 'Duplicate key',
     content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
   },
+  503: {
+    description: 'Service unavailable (e.g. Ollama not running)',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+  },
 };
 
 const bearerSecurity = [{ bearerAuth: [] }];
@@ -138,6 +145,7 @@ const spec = {
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
+    { name: 'AI', description: 'Rule-based putaway slot recommendations (Phase 1a)' },
     { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
     { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
@@ -159,6 +167,8 @@ const spec = {
           warehouseCode: { type: 'string', example: 'WH-HCM-01' },
           warehouseName: { type: 'string', example: 'Kho HCM Trung tâm' },
           address: { type: 'string', nullable: true },
+          city: { type: 'string', nullable: true, example: 'TP.HCM' },
+          district: { type: 'string', nullable: true, example: 'Quận 7' },
           totalAreaM2: { type: 'number', nullable: true },
           usableAreaM2: { type: 'number', nullable: true },
           status: {
@@ -175,6 +185,8 @@ const spec = {
           warehouseCode: { type: 'string' },
           warehouseName: { type: 'string' },
           address: { type: 'string' },
+          city: { type: 'string', example: 'TP.HCM' },
+          district: { type: 'string', example: 'Quận 7' },
           totalAreaM2: { type: 'number' },
           usableAreaM2: { type: 'number' },
           status: {
@@ -189,6 +201,8 @@ const spec = {
         properties: {
           warehouseName: { type: 'string' },
           address: { type: 'string' },
+          city: { type: 'string', example: 'TP.HCM' },
+          district: { type: 'string', example: 'Quận 7' },
           totalAreaM2: { type: 'number' },
           usableAreaM2: { type: 'number' },
           status: {
@@ -704,6 +718,131 @@ const spec = {
           },
         },
       },
+      AiSlotRecommendationCreate: {
+        type: 'object',
+        required: ['lpnId', 'warehouseId'],
+        properties: {
+          lpnId: uuid,
+          warehouseId: uuid,
+          inboundRequestId: uuid,
+          explainWithLlm: {
+            type: 'boolean',
+            default: false,
+            description:
+              'If true, call Ollama (llama3.2:3b) for Vietnamese explanation. Bin choice stays rule-based.',
+          },
+        },
+      },
+      OllamaHealth: {
+        type: 'object',
+        properties: {
+          reachable: { type: 'boolean' },
+          enabled: { type: 'boolean' },
+          baseUrl: { type: 'string', example: 'http://127.0.0.1:11434' },
+          model: { type: 'string', example: 'llama3.2:3b' },
+          modelAvailable: { type: 'boolean' },
+          models: { type: 'array', items: { type: 'string' } },
+          message: { type: 'string' },
+        },
+      },
+      AiSlotLlmExplanation: {
+        type: 'object',
+        properties: {
+          recommendationId: uuid,
+          lpnCode: { type: 'string', nullable: true },
+          zoneCode: { type: 'string', nullable: true },
+          binCode: { type: 'string', nullable: true },
+          recommendationScore: { type: 'number', nullable: true },
+          reasons: { type: 'array', items: { type: 'string' } },
+          explanation: {
+            type: 'string',
+            description: 'Vietnamese explanation from Ollama',
+          },
+          llmModel: { type: 'string', example: 'llama3.2:3b' },
+          ollamaBaseUrl: { type: 'string' },
+          totalDurationNs: { type: 'integer', nullable: true },
+        },
+      },
+      AiSlotAlternative: {
+        type: 'object',
+        properties: {
+          recommendedZoneId: uuid,
+          recommendedBinId: uuid,
+          zoneCode: { type: 'string' },
+          binCode: { type: 'string' },
+          score: { type: 'number' },
+          reasons: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      AiSlotRecommendation: {
+        type: 'object',
+        properties: {
+          recommendationId: uuid,
+          inboundRequestId: { ...uuid, nullable: true },
+          lpnId: { ...uuid, nullable: true },
+          skuId: { ...uuid, nullable: true },
+          recommendedZoneId: { ...uuid, nullable: true },
+          recommendedBinId: { ...uuid, nullable: true },
+          recommendationScore: { type: 'number', nullable: true },
+          reason: {
+            type: 'string',
+            description: 'JSON: reasons, modelVersion, featureSnapshot',
+          },
+          isApplied: { type: 'boolean' },
+          createdAt: { type: 'string', format: 'date-time' },
+          parsedReason: { type: 'object', nullable: true },
+          alternatives: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AiSlotAlternative' },
+          },
+          zoneCode: { type: 'string', nullable: true },
+          binCode: { type: 'string', nullable: true },
+          suggestedRackType: {
+            type: 'string',
+            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            nullable: true,
+          },
+          reasons: { type: 'array', items: { type: 'string' } },
+          featureSnapshot: { type: 'object', nullable: true },
+          modelVersion: { type: 'string', example: 'slotting-v1-rule' },
+          llmExplanation: { type: 'string', nullable: true },
+          llmModel: { type: 'string', nullable: true },
+          llmError: { type: 'string', nullable: true },
+          llmErrorCode: { type: 'string', nullable: true },
+        },
+      },
+      AiSlotRecommendationPreview: {
+        type: 'object',
+        properties: {
+          lpnId: uuid,
+          lpnCode: { type: 'string' },
+          tenantId: uuid,
+          warehouseId: uuid,
+          recommendedZoneId: uuid,
+          recommendedBinId: uuid,
+          zoneCode: { type: 'string' },
+          binCode: { type: 'string' },
+          score: { type: 'number' },
+          reasons: { type: 'array', items: { type: 'string' } },
+          featureSnapshot: { type: 'object' },
+          modelVersion: { type: 'string' },
+          suggestedRackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          alternatives: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AiSlotAlternative' },
+          },
+          llmExplanation: { type: 'string', nullable: true },
+          llmModel: { type: 'string', nullable: true },
+          llmError: { type: 'string', nullable: true },
+          llmErrorCode: { type: 'string', nullable: true },
+        },
+      },
+      AiSlotRecommendationUpdate: {
+        type: 'object',
+        properties: {
+          isApplied: { type: 'boolean' },
+        },
+      },
       LpnCreate: {
         type: 'object',
         required: ['tenantId', 'batchId', 'lpnCode', 'boxType'],
@@ -892,14 +1031,10 @@ const spec = {
         properties: {
           rentalRequestId: uuid,
           requestCode: { type: 'string', example: 'RR-LX1A2B-0C' },
-          companyName: { type: 'string', example: 'ABC Fashion JSC' },
-          companyCode: { type: 'string', nullable: true },
-          taxCode: { type: 'string', nullable: true },
-          address: { type: 'string', nullable: true },
-          contactName: { type: 'string', nullable: true },
-          contactEmail: { type: 'string', nullable: true },
-          contactPhone: { type: 'string', nullable: true },
-          warehouseId: uuid,
+          tenantId: uuid,
+          city: { type: 'string', example: 'TP.HCM' },
+          district: { type: 'string', example: 'Quận 7' },
+          warehouseId: { ...uuid, nullable: true },
           contractType: {
             type: 'string',
             enum: [
@@ -955,20 +1090,15 @@ const spec = {
       },
       RentalRequestCreate: {
         type: 'object',
-        required: ['warehouseId', 'companyName'],
+        required: ['tenantId', 'city', 'district'],
         properties: {
-          warehouseId: uuid,
+          tenantId: uuid,
+          city: { type: 'string', example: 'TP.HCM' },
+          district: { type: 'string', example: 'Quận 7' },
           requestCode: {
             type: 'string',
             description: 'Auto-generated if omitted',
           },
-          companyName: { type: 'string' },
-          companyCode: { type: 'string' },
-          taxCode: { type: 'string' },
-          address: { type: 'string' },
-          contactName: { type: 'string' },
-          contactEmail: { type: 'string', format: 'email' },
-          contactPhone: { type: 'string' },
           contractType: {
             type: 'string',
             enum: [
@@ -1428,13 +1558,6 @@ const spec = {
         description:
           'Status workflow: PENDING → UNDER_REVIEW → APPROVED → CONVERTED (or REJECTED).',
         properties: {
-          companyName: { type: 'string' },
-          companyCode: { type: 'string' },
-          taxCode: { type: 'string' },
-          address: { type: 'string' },
-          contactName: { type: 'string' },
-          contactEmail: { type: 'string', format: 'email' },
-          contactPhone: { type: 'string' },
           contractType: {
             type: 'string',
             enum: [
@@ -1479,6 +1602,11 @@ const spec = {
           reviewedAt: { type: 'string', format: 'date-time' },
           rejectionReason: { type: 'string' },
           reviewNote: { type: 'string' },
+          warehouseId: {
+            ...uuid,
+            description:
+              'Required when status=APPROVED — claims the request for this warehouse (first approve wins).',
+          },
         },
       },
     },
@@ -1717,9 +1845,16 @@ const spec = {
     '/api/warehouses/{warehouseId}/rental-requests': {
       get: {
         tags: ['Warehouse', 'RentalRequest'],
-        summary: 'List rental requests for a warehouse',
+        summary: 'List regional rental inbox for a warehouse (unclaimed by default)',
         parameters: [
           { in: 'path', name: 'warehouseId', required: true, schema: uuid },
+          { in: 'query', name: 'tenantId', schema: uuid },
+          {
+            in: 'query',
+            name: 'regionMatch',
+            schema: { type: 'boolean', default: true },
+            description: 'Default true — unclaimed requests in same city/district as warehouse.',
+          },
           {
             in: 'query',
             name: 'status',
@@ -2723,6 +2858,135 @@ const spec = {
         },
       },
     },
+    '/api/ai/slot-recommendations/ollama/health': {
+      get: {
+        tags: ['AI'],
+        summary: 'Check Ollama connection and model availability',
+        description:
+          'Default Ollama URL http://127.0.0.1:11434, model llama3.2:3b (OLLAMA_BASE_URL, OLLAMA_MODEL).',
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/OllamaHealth' }),
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/preview': {
+      post: {
+        tags: ['AI'],
+        summary: 'Preview putaway slot recommendation (no DB write)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotRecommendationCreate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotRecommendationPreview' },
+            'Slot recommendation preview'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/ai/slot-recommendations': {
+      post: {
+        tags: ['AI'],
+        summary: 'Create and persist top putaway slot recommendation',
+        description:
+          'Rule engine scores bins by free capacity, tenant reservation, same-SKU zone, rack type. Stores row in ai_slot_recommendations.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotRecommendationCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotRecommendation' },
+            'Slot recommendation created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      get: {
+        tags: ['AI'],
+        summary: 'List AI slot recommendations',
+        parameters: [
+          { in: 'query', name: 'lpnId', schema: uuid },
+          { in: 'query', name: 'inboundRequestId', schema: uuid },
+          { in: 'query', name: 'isApplied', schema: { type: 'boolean' } },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/AiSlotRecommendation' }),
+          400: stdErrors[400],
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/{recommendationId}/explain': {
+      get: {
+        tags: ['AI'],
+        summary: 'Explain recommendation in Vietnamese (Ollama / Llama)',
+        description:
+          'Calls local Ollama. Does not change recommended bin — rule engine decision only.',
+        parameters: [
+          { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotLlmExplanation' },
+            'Slot recommendation explained'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          503: stdErrors[503],
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/{recommendationId}': {
+      get: {
+        tags: ['AI'],
+        summary: 'Get AI slot recommendation by ID',
+        parameters: [
+          { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/AiSlotRecommendation' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['AI'],
+        summary: 'Update recommendation (e.g. mark applied after putaway)',
+        parameters: [
+          { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotRecommendationUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotRecommendation' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/lpns/{lpnId}/rack-suggestion': {
       get: {
         tags: ['LPN'],
@@ -2879,10 +3143,24 @@ const spec = {
         parameters: [
           {
             in: 'query',
+            name: 'tenantId',
+            schema: uuid,
+          },
+          {
+            in: 'query',
             name: 'warehouseId',
             schema: uuid,
             description: 'Filter by warehouse; or use GET /api/warehouses/{warehouseId}/rental-requests',
           },
+          {
+            in: 'query',
+            name: 'regionMatch',
+            schema: { type: 'boolean', default: false },
+            description:
+              'With warehouseId: list unclaimed requests matching that warehouse city/district.',
+          },
+          { in: 'query', name: 'city', schema: { type: 'string' } },
+          { in: 'query', name: 'district', schema: { type: 'string' } },
           {
             in: 'query',
             name: 'status',

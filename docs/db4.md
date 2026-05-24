@@ -277,6 +277,9 @@ Table warehouses {
   warehouse_name varchar [not null]
   address text
 
+  city varchar [note: 'Match rental request region']
+  district varchar
+
   total_area_m2 decimal
   usable_area_m2 decimal
 
@@ -415,25 +418,16 @@ Table rental_requests {
 
   request_code varchar [unique, not null]
 
-  // ======================================================
-  // TENANT INFORMATION
-  // ======================================================
+  tenant_id uuid [not null, ref: > tenant_companies.tenant_id]
 
-  company_name varchar [not null]
-  company_code varchar
-  tax_code varchar
+  city varchar [not null, note: 'Desired warehouse region']
+  district varchar [not null]
 
-  address text
-
-  contact_name varchar
-  contact_email varchar
-  contact_phone varchar
+  warehouse_id uuid [ref: > warehouses.warehouse_id, note: 'Set when a warehouse claims (approves) first']
 
   // ======================================================
   // RENTAL TARGET
   // ======================================================
-
-  warehouse_id uuid [not null, ref: > warehouses.warehouse_id]
 
   contract_type contract_type_enum
   pricing_model pricing_model_enum
@@ -501,6 +495,9 @@ Table rental_requests {
   updated_at timestamp
 
   indexes {
+    tenant_id
+    city
+    district
     warehouse_id
     contract_type
     pricing_model

@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS warehouses (
   warehouse_code VARCHAR(100) NOT NULL UNIQUE,
   warehouse_name VARCHAR(255) NOT NULL,
   address TEXT,
+  city VARCHAR(100),
+  district VARCHAR(100),
   total_area_m2 NUMERIC(18, 4),
   usable_area_m2 NUMERIC(18, 4),
   status warehouse_status_enum DEFAULT 'ACTIVE',
@@ -155,14 +157,10 @@ CREATE INDEX IF NOT EXISTS idx_bins_reservation_type ON bins (reservation_type);
 CREATE TABLE IF NOT EXISTS rental_requests (
   rental_request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   request_code VARCHAR(100) NOT NULL UNIQUE,
-  company_name VARCHAR(255) NOT NULL,
-  company_code VARCHAR(100),
-  tax_code VARCHAR(100),
-  address TEXT,
-  contact_name VARCHAR(255),
-  contact_email VARCHAR(255),
-  contact_phone VARCHAR(50),
-  warehouse_id UUID NOT NULL REFERENCES warehouses (warehouse_id),
+  tenant_id UUID NOT NULL REFERENCES tenant_companies (tenant_id),
+  city VARCHAR(100) NOT NULL,
+  district VARCHAR(100) NOT NULL,
+  warehouse_id UUID REFERENCES warehouses (warehouse_id),
   contract_type contract_type_enum,
   pricing_model pricing_model_enum,
   billing_cycle billing_cycle_enum,
@@ -190,6 +188,8 @@ CREATE TABLE IF NOT EXISTS rental_requests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rental_requests_warehouse_id ON rental_requests (warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_tenant_id ON rental_requests (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_city_district ON rental_requests (city, district);
 CREATE INDEX IF NOT EXISTS idx_rental_requests_status ON rental_requests (status);
 CREATE INDEX IF NOT EXISTS idx_rental_requests_contract_type ON rental_requests (contract_type);
 CREATE INDEX IF NOT EXISTS idx_rental_requests_pricing_model ON rental_requests (pricing_model);
