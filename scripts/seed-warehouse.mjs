@@ -170,26 +170,21 @@ const stats = {
 };
 
 async function ensureWarehouse(wh) {
-  const existing = await pool.query(
-    'SELECT warehouse_id FROM warehouses WHERE warehouse_id = $1 OR warehouse_code = $2',
-    [wh.warehouseId, wh.warehouseCode]
-  );
-  if (existing.rows.length > 0) {
-    stats.warehouses.skipped++;
-    console.log('Warehouse exists:', wh.warehouseCode);
-    return existing.rows[0].warehouse_id;
-  }
-
   const result = await pool.query(
     `INSERT INTO warehouses
        (warehouse_id, warehouse_code, warehouse_name, address, city, district,
         total_area_m2, usable_area_m2, status)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE')
      ON CONFLICT (warehouse_code) DO UPDATE
-       SET city = EXCLUDED.city,
+       SET warehouse_name = EXCLUDED.warehouse_name,
+           address = EXCLUDED.address,
+           city = EXCLUDED.city,
            district = EXCLUDED.district,
-           address = EXCLUDED.address
-     RETURNING warehouse_id`,
+           total_area_m2 = EXCLUDED.total_area_m2,
+           usable_area_m2 = EXCLUDED.usable_area_m2,
+           updated_at = NOW()
+     RETURNING warehouse_id,
+       (xmax = 0) AS inserted`,
     [
       wh.warehouseId,
       wh.warehouseCode,
@@ -201,9 +196,16 @@ async function ensureWarehouse(wh) {
       wh.usableAreaM2,
     ]
   );
-  stats.warehouses.inserted++;
-  console.log('Created warehouse:', wh.warehouseCode);
-  return result.rows[0].warehouse_id;
+
+  const row = result.rows[0];
+  if (row.inserted) {
+    stats.warehouses.inserted++;
+    console.log('Created warehouse:', wh.warehouseCode);
+  } else {
+    stats.warehouses.skipped++;
+    console.log('Updated warehouse region:', wh.warehouseCode, '→', wh.city, wh.district);
+  }
+  return row.warehouse_id;
 }
 
 async function upsertZone(warehouseId, zone) {

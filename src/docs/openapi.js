@@ -24,6 +24,8 @@ const errorResponse = {
         'NO_SLOT_CANDIDATE',
         'OLLAMA_UNAVAILABLE',
         'OLLAMA_DISABLED',
+        'ALREADY_CLAIMED',
+        'CLAIM_FAILED',
       ],
     },
     errors: { type: 'object', nullable: true },
@@ -97,7 +99,7 @@ const stdErrors = {
     content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
   },
   409: {
-    description: 'Duplicate key',
+    description: 'Conflict (duplicate key, rental request already claimed, etc.)',
     content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
   },
   503: {
@@ -119,13 +121,25 @@ const spec = {
     title: 'Smart Warehouse API',
     version: '1.0.0',
     description:
-      'NextGen Warehouse backend — Flow 2: Warehouse structure (flat REST).\n\n' +
-      '- **POST**: parent ID in body (`warehouseId`, `zoneId`, `rackId`, `rackLevelId`)\n' +
-      '- **GET list**: parent ID in query\n' +
-      '- **GET/PATCH/DELETE**: resource ID in path only\n\n' +
-      '### Authentication & users\n' +
+      'NextGen Warehouse backend — đồng bộ với `docs/request.md`.\n\n' +
+      '### Convention (mọi flow)\n' +
+      '- Base: `/api`, body **camelCase**, cập nhật dùng **PATCH** (không PUT)\n' +
+      '- GET list: `page` (default 1), `limit` (default 20, max 100)\n' +
+      '- POST: ID cha trong **body**; GET list: ID cha/lọc trong **query**\n\n' +
+      '### Flow 1 — Tenant onboarding\n' +
+      '1. `POST /tenants` — guest tạo tenant company\n' +
+      '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không chọn kho)\n' +
+      '3. WH inbox: `GET /warehouses/{warehouseId}/rental-requests?status=PENDING`\n' +
+      '4. Approve + claim: `PATCH /rental-requests/{id}` với `status=APPROVED` + `warehouseId` (kho nhanh nhất thắng)\n' +
+      '5. `POST /contracts` → contract-items → storage-reservations\n\n' +
+      '### Flow 2 — Warehouse structure\n' +
+      'Warehouse → Zone → Rack → Rack Level → Bin\n\n' +
+      '### Flow 3 — Inbound (SKU / LPN)\n' +
+      'Category, Season, Collection, Inbound request, Batch, SKU, LPN, LPN detail, AI slot recommendation\n\n' +
+      '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
-      '- `POST /api/users` — Bearer token; hierarchy: SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF',
+      '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
+      '- `POST /tenants`, `POST /rental-requests` — public (guest onboarding)',
   },
   servers: [{ url: 'http://localhost:3000', description: 'Local development' }],
   tags: [
@@ -146,8 +160,8 @@ const spec = {
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
     { name: 'AI', description: 'Rule-based putaway slot recommendations (Phase 1a)' },
-    { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
-    { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
+    { name: 'RentalRequest', description: 'Flow 1 — Guest gửi yêu cầu thuê theo city/district; WH claim khi approve' },
+    { name: 'TenantCompany', description: 'Flow 1 — Tenant company (bước 1 guest onboarding)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
     { name: 'ContractItem', description: 'Contract line items (Flow 1)' },
     { name: 'StorageReservation', description: 'Storage reservations (Flow 1)' },
@@ -181,6 +195,8 @@ const spec = {
       WarehouseCreate: {
         type: 'object',
         required: ['warehouseCode', 'warehouseName'],
+        description:
+          '`city` và `district` dùng match rental request theo khu vực (Flow 1 inbox).',
         properties: {
           warehouseCode: { type: 'string' },
           warehouseName: { type: 'string' },
@@ -845,7 +861,9 @@ const spec = {
       },
       LpnCreate: {
         type: 'object',
-        required: ['tenantId', 'batchId', 'lpnCode', 'boxType'],
+        required: ['tenantId', 'batchId', 'lpnCode', 'boxType', 'volumeUnits'],
+        description:
+          '1 LPN = 1 thùng. `volumeUnits` theo `boxType`: SMALL=1, MEDIUM=2, LARGE=4, EXTRA=8.',
         properties: {
           tenantId: uuid,
           batchId: uuid,
@@ -857,7 +875,7 @@ const spec = {
           volumeUnits: {
             type: 'integer',
             minimum: 1,
-            description: 'Optional; auto from boxType if omitted',
+            description: 'SMALL=1, MEDIUM=2, LARGE=4, EXTRA=8 (align with boxType)',
           },
           maxCapacity: { type: 'integer', minimum: 1 },
           actualQuantity: { type: 'integer', minimum: 0, default: 0 },
@@ -974,8 +992,16 @@ const spec = {
         type: 'object',
         required: ['email', 'password'],
         properties: {
-          email: { type: 'string', format: 'email' },
-          password: { type: 'string', format: 'password' },
+          email: {
+            type: 'string',
+            format: 'email',
+            example: 'admin@warehouse.local',
+          },
+          password: {
+            type: 'string',
+            format: 'password',
+            example: 'Admin@12345',
+          },
         },
       },
       UserCreate: {
@@ -994,11 +1020,13 @@ const spec = {
           },
           warehouseId: {
             ...uuid,
-            description: 'Required when SYSTEM_ADMIN creates WH_ADMIN / WH_STAFF',
+            description:
+              'Required when SYSTEM_ADMIN creates WH_ADMIN. WH_ADMIN creating WH_STAFF may omit (inherited from admin).',
           },
           tenantId: {
             ...uuid,
-            description: 'Required when SYSTEM_ADMIN creates TENANT_ADMIN / TENANT_STAFF',
+            description:
+              'Required when SYSTEM_ADMIN creates TENANT_ADMIN. TENANT_ADMIN creating TENANT_STAFF may omit (inherited).',
           },
           status: {
             type: 'string',
@@ -1028,13 +1056,19 @@ const spec = {
 
       RentalRequest: {
         type: 'object',
+        description:
+          'Guest chọn khu vực; `warehouseId` null cho đến khi một warehouse approve (claim).',
         properties: {
           rentalRequestId: uuid,
           requestCode: { type: 'string', example: 'RR-LX1A2B-0C' },
           tenantId: uuid,
           city: { type: 'string', example: 'TP.HCM' },
           district: { type: 'string', example: 'Quận 7' },
-          warehouseId: { ...uuid, nullable: true },
+          warehouseId: {
+            ...uuid,
+            nullable: true,
+            description: 'Null until a warehouse claims via PATCH status=APPROVED',
+          },
           contractType: {
             type: 'string',
             enum: [
@@ -1090,14 +1124,16 @@ const spec = {
       },
       RentalRequestCreate: {
         type: 'object',
+        description:
+          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve.',
         required: ['tenantId', 'city', 'district'],
         properties: {
           tenantId: uuid,
-          city: { type: 'string', example: 'TP.HCM' },
-          district: { type: 'string', example: 'Quận 7' },
+          city: { type: 'string', example: 'TP.HCM', description: 'Thành phố tenant muốn thuê kho' },
+          district: { type: 'string', example: 'Quận 7', description: 'Quận/huyện' },
           requestCode: {
             type: 'string',
-            description: 'Auto-generated if omitted',
+            description: 'Auto-generated RR-… if omitted',
           },
           contractType: {
             type: 'string',
@@ -1140,6 +1176,7 @@ const spec = {
             enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
             default: 'PENDING',
           },
+          createdBy: { ...uuid, description: 'Optional UUID user' },
         },
       },
       Contract: {
@@ -1259,7 +1296,11 @@ const spec = {
       ContractUpdate: {
         type: 'object',
         description:
-          'Status workflow: DRAFT → PENDING_APPROVAL → ACTIVE (sau khi đủ 2 chữ ký).',
+          'Workflow ký HĐ:\n' +
+          '- Submit: `{ status: PENDING_APPROVAL }`\n' +
+          '- Tenant ký: `{ tenantSignature }`\n' +
+          '- Warehouse ký + active: `{ warehouseSignature, approvedBy, status: ACTIVE }`\n' +
+          '- Huỷ/kết thúc: `{ status: TERMINATED }` hoặc `{ status: CANCELLED }`',
         properties: {
           contractName: { type: 'string' },
           contractType: {
@@ -1523,6 +1564,7 @@ const spec = {
       },
       TenantCompanyCreate: {
         type: 'object',
+        description: 'Flow 1 bước 1 — guest tạo hồ sơ công ty trước khi gửi rental request.',
         required: ['companyName'],
         properties: {
           companyName: { type: 'string' },
@@ -1556,7 +1598,12 @@ const spec = {
       RentalRequestUpdate: {
         type: 'object',
         description:
-          'Status workflow: PENDING → UNDER_REVIEW → APPROVED → CONVERTED (or REJECTED).',
+          'Workflow review:\n' +
+          '- UNDER_REVIEW: `{ status, reviewedBy }`\n' +
+          '- APPROVE + claim (first wins): `{ status: APPROVED, warehouseId, reviewedBy, reviewedAt?, reviewNote? }`\n' +
+          '- REJECT: `{ status: REJECTED, reviewedBy, rejectionReason }`\n' +
+          '- CONVERTED: sau khi tạo contract\n' +
+          'Cập nhật thông tin công ty qua `PATCH /tenants/{tenantId}`.',
         properties: {
           contractType: {
             type: 'string',
@@ -1845,7 +1892,10 @@ const spec = {
     '/api/warehouses/{warehouseId}/rental-requests': {
       get: {
         tags: ['Warehouse', 'RentalRequest'],
-        summary: 'List regional rental inbox for a warehouse (unclaimed by default)',
+        summary: 'Warehouse regional inbox (unclaimed rental requests)',
+        description:
+          'Default `regionMatch=true`: PENDING/unclaimed requests matching warehouse `city` + `district`. ' +
+          'Equivalent: `GET /rental-requests?warehouseId={id}&regionMatch=true`.',
         parameters: [
           { in: 'path', name: 'warehouseId', required: true, schema: uuid },
           { in: 'query', name: 'tenantId', schema: uuid },
@@ -2841,7 +2891,9 @@ const spec = {
       },
       post: {
         tags: ['LPN'],
-        summary: 'Create LPN',
+        summary: 'Create LPN (carton after receiving)',
+        description:
+          'Requires batch from inbound receiving. Set `weightKg` for rack-suggestion. Migration: `npm run db:migrate:lpn-weight`.',
         requestBody: {
           required: true,
           content: {
@@ -3139,7 +3191,12 @@ const spec = {
     '/api/rental-requests': {
       get: {
         tags: ['RentalRequest'],
-        summary: 'List rental requests (all warehouses or filter by warehouseId)',
+        summary: 'List rental requests',
+        description:
+          'Query filters:\n' +
+          '- `warehouseId` + `regionMatch=true` — inbox kho: yêu cầu **chưa claim** cùng city/district\n' +
+          '- `warehouseId` (không regionMatch) — yêu cầu **đã gán** cho kho đó\n' +
+          '- `city`, `district`, `tenantId`, `status`, `contractType`, `pricingModel`',
         parameters: [
           {
             in: 'query',
@@ -3197,7 +3254,9 @@ const spec = {
       },
       post: {
         tags: ['RentalRequest'],
-        summary: 'Create rental request',
+        summary: 'Create rental request (guest — by region)',
+        description:
+          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê. Public — no auth.',
         requestBody: {
           required: true,
           content: {
@@ -3237,7 +3296,8 @@ const spec = {
       },
       post: {
         tags: ['TenantCompany'],
-        summary: 'Create tenant company',
+        summary: 'Create tenant company (guest onboarding step 1)',
+        description: 'Public — no auth. Guest creates company profile before rental request.',
         requestBody: {
           required: true,
           content: {
@@ -3318,7 +3378,10 @@ const spec = {
       },
       patch: {
         tags: ['RentalRequest'],
-        summary: 'Update rental request (incl. status review/approval)',
+        summary: 'Update rental request / approve & claim warehouse',
+        description:
+          'Unclaimed request: only `APPROVED` (with `warehouseId`) or `REJECTED`. ' +
+          'Approve sets `warehouseId` atomically — other warehouses get 409 ALREADY_CLAIMED.',
         parameters: [
           { in: 'path', name: 'rentalRequestId', required: true, schema: uuid },
         ],
@@ -3337,6 +3400,7 @@ const spec = {
           ),
           400: stdErrors[400],
           404: stdErrors[404],
+          409: stdErrors[409],
         },
       },
       delete: {
