@@ -18,6 +18,7 @@ import storageReservationRoutes from './storageReservation.routes.js';
 import lpnRoutes from './lpn.routes.js';
 import lpnDetailRoutes from './lpnDetail.routes.js';
 import inboundRequestRoutes from './inboundRequest.routes.js';
+import outboundRequestRoutes from './outboundRequest.routes.js';
 import aiSlotRecommendationRoutes from './aiSlotRecommendation.routes.js';
 import batchRoutes from './batch.routes.js';
 import skuRoutes from './sku.routes.js';
@@ -55,7 +56,6 @@ router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
 router.use('/lpn-details', lpnDetailRoutes);
 router.use('/inbound-requests', inboundRequestRoutes);
-router.use('/ai/slot-recommendations', aiSlotRecommendationRoutes);
 
 router.get(
   '/health',

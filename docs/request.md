@@ -336,7 +336,7 @@ Base URL: `http://localhost:3000/api`
 
 Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 
-> **Lưu ý:** `/inbound-requests`, `/categories`, `/seasons`, `/collections`, `/skus`, `/batches`, `/lpns`, `/lpn-details` đã có API + Swagger.
+> **Lưu ý:** `/inbound-requests`, `/outbound-requests`, `/categories`, `/seasons`, `/collections`, `/skus`, `/batches`, `/lpns`, `/lpn-details` đã có API + Swagger.
 
 **Seed master data:**
 - `npm run seed:product-master` — Áo, Quần + 4 mùa 2026
@@ -350,6 +350,7 @@ Cùng convention Flow 2 (JSON camelCase, PATCH, phân trang `page` / `limit`).
 | Season | `/seasons` ✅ | `/seasons` | `/seasons/:seasonId` | `/seasons/:seasonId` | `/seasons/:seasonId` |
 | Collection | `/collections` ✅ | `/collections?tenantId=` | `/collections/:collectionId` | `/collections/:collectionId` | `/collections/:collectionId` |
 | Inbound request | `/inbound-requests` ✅ | `/inbound-requests?tenantId=&warehouseId=&contractId=&status=` hoặc `/warehouses/:warehouseId/inbound-requests` | `/inbound-requests/:inboundRequestId` | `/inbound-requests/:inboundRequestId` | `/inbound-requests/:inboundRequestId` |
+| Outbound request | `/outbound-requests` ✅ | `/outbound-requests?tenantId=&warehouseId=&contractId=&status=` | `/outbound-requests/:outboundRequestId` | `/outbound-requests/:outboundRequestId` | `/outbound-requests/:outboundRequestId` |
 | Batch | `/batches` ✅ | `/batches?inboundRequestId=` | `/batches/:batchId` | `/batches/:batchId` | `/batches/:batchId` |
 | SKU | `/skus` ✅ | `/skus?tenantId=` | `/skus/:skuId` | `/skus/:skuId` | `/skus/:skuId` |
 | LPN | `/lpns` ✅ | `/lpns?tenantId=&batchId=&status=` | `/lpns/:lpnId` | `/lpns/:lpnId` | `/lpns/:lpnId` |
@@ -531,6 +532,69 @@ Chỉ cập nhật: `expectedArrivalDate`, `actualArrivalAt`, `status`, `approve
   "actualArrivalAt": "2026-05-25T09:15:00.000Z"
 }
 ```
+
+---
+
+## 9b. Outbound Request
+
+Tenant tạo yêu cầu xuất hàng khi đã có **hợp đồng ACTIVE** (`contractId`) trùng `tenantId` và `warehouseId`.
+
+Enum `status`: `DRAFT`, `PENDING`, `APPROVED`, `RESERVED`, `PICKING`, `PACKING`, `SHIPPED`, `COMPLETED`, `CANCELLED`.
+
+### `POST /outbound-requests`
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|-------|----------|----------|---------|
+| `tenantId` | ✅ | — | UUID tenant |
+| `contractId` | ✅ | — | Phải `ACTIVE`, cùng tenant & warehouse |
+| `warehouseId` | ✅ | — | UUID kho |
+| `outboundCode` | | auto `OUT-...` | Unique toàn hệ thống |
+| `requestedShipDate` | | — | ISO 8601 |
+| `actualShippedAt` | | — | ISO 8601 |
+| `status` | | `PENDING` | Xem enum phía trên |
+| `createdBy` | | — | UUID user |
+| `approvedBy` | | — | UUID user |
+
+```json
+{
+  "tenantId": "uuid-tenant",
+  "contractId": "uuid-contract-active",
+  "warehouseId": "uuid-warehouse",
+  "requestedShipDate": "2026-05-28T10:00:00.000Z",
+  "status": "PENDING",
+  "createdBy": "uuid-user"
+}
+```
+
+### `GET /outbound-requests`
+
+Query tùy chọn: `tenantId`, `warehouseId`, `contractId`, `status`, `page`, `limit`.
+
+### `GET /outbound-requests/:outboundRequestId`
+
+Lấy chi tiết 1 outbound request.
+
+### `PATCH /outbound-requests/:outboundRequestId`
+
+Chỉ cập nhật: `requestedShipDate`, `actualShippedAt`, `status`, `approvedBy` (không đổi tenant/contract/warehouse).
+
+```json
+{
+  "status": "APPROVED",
+  "approvedBy": "uuid-wh-admin"
+}
+```
+
+```json
+{
+  "status": "SHIPPED",
+  "actualShippedAt": "2026-05-28T14:30:00.000Z"
+}
+```
+
+### `DELETE /outbound-requests/:outboundRequestId`
+
+Xoá outbound request (kèm `outbound_request_items` cascade).
 
 ---
 
