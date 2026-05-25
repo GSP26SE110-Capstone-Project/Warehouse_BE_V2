@@ -1,7 +1,15 @@
 import Rack from '../models/Rack.js';
 import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
-import { RACK_STATUS, RACK_TYPE } from '../constants/warehouseStructure.js';
+import {
+  RACK_FIXED_LEVEL_COUNT,
+  RACK_STATUS,
+  RACK_TYPE,
+} from '../constants/warehouseStructure.js';
+import {
+  computeZoneStorageCapacity,
+  RACK_FOOTPRINT_M2,
+} from '../constants/warehouseCapacity.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 
 const CREATE_FIELDS = ['rackCode', 'rackType', 'maxLevels', 'status'];
@@ -27,6 +35,7 @@ function normalizeCreatePayload(body, zoneId) {
 
   data.rackCode = data.rackCode.trim();
   if (data.rackType == null) data.rackType = 'STANDARD';
+  if (data.maxLevels == null) data.maxLevels = RACK_FIXED_LEVEL_COUNT;
   if (data.status == null) data.status = 'ACTIVE';
 
   assertEnum(data.rackType, RACK_TYPE, 'rackType');
@@ -74,6 +83,26 @@ async function assertZoneExists(zoneId) {
   return zone;
 }
 
+async function assertRackCapacity(zone) {
+  const capacity = computeZoneStorageCapacity(zone.areaM2);
+  if (!capacity.hasArea) {
+    throw new AppError(
+      'Zone must have areaM2 set before adding racks',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+  const current = await Rack.count({ zoneId: zone.zoneId });
+  if (current >= capacity.maxRacks) {
+    throw new AppError(
+      `Zone capacity reached: max ${capacity.maxRacks} racks (${RACK_FOOTPRINT_M2} m²/rack on ${capacity.storageAreaM2.toFixed(1)} m² storage after ${Math.round(capacity.aisleRatio * 100)}% aisles)`,
+      400,
+      'CAPACITY_EXCEEDED'
+    );
+  }
+  return capacity;
+}
+
 export async function getRack(rackId) {
   const id = parseUuid(rackId, 'rackId');
   const rack = await Rack.findById(id);
@@ -116,7 +145,8 @@ export async function listRacks(zoneId, { status, rackType, page, limit, offset 
 
 export async function createRack(zoneId, body) {
   const zId = parseUuid(zoneId, 'zoneId');
-  await assertZoneExists(zId);
+  const zone = await assertZoneExists(zId);
+  await assertRackCapacity(zone);
 
   const data = normalizeCreatePayload(body, zId);
   return Rack.create(data);

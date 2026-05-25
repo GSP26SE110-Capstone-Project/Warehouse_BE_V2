@@ -58,6 +58,31 @@ async function assertTenantExists(tenantId) {
   return id;
 }
 
+/** Mỗi kho chỉ được có một tài khoản WH_ADMIN */
+async function assertUniqueWhAdminForWarehouse(warehouseId, excludeUserId = null) {
+  const whId = parseUuid(warehouseId, 'warehouseId');
+  const values = [whId];
+  let sql = `
+    SELECT user_id, full_name, email, status
+    FROM users
+    WHERE warehouse_id = $1
+      AND role = 'WH_ADMIN'::role_enum
+  `;
+  if (excludeUserId) {
+    values.push(parseUuid(excludeUserId, 'userId'));
+    sql += ` AND user_id != $2`;
+  }
+  const result = await pool.query(sql, values);
+  if (result.rows.length > 0) {
+    const row = result.rows[0];
+    throw new AppError(
+      `Kho đã có Warehouse Admin (${row.full_name}, ${row.email}). Mỗi kho chỉ được một WH Admin.`,
+      400,
+      'WH_ADMIN_EXISTS'
+    );
+  }
+}
+
 function resolveScopeForNewUser(creator, body) {
   const role = body.role;
   let tenantId = null;
@@ -153,6 +178,9 @@ async function normalizeCreatePayload(body, creator) {
   if (scope.warehouseId) {
     data.warehouseId = await assertWarehouseExists(scope.warehouseId);
     data.tenantId = null;
+    if (data.role === 'WH_ADMIN') {
+      await assertUniqueWhAdminForWarehouse(data.warehouseId);
+    }
   }
   if (scope.tenantId) {
     data.tenantId = await assertTenantExists(scope.tenantId);
@@ -240,6 +268,37 @@ export async function listUsers(creator, { role, status, page, limit, offset }) 
   };
 }
 
+async function applySystemAdminScopePatch(creator, existing, body, data) {
+  if (creator.role !== 'SYSTEM_ADMIN') return;
+
+  if (body.warehouseId !== undefined) {
+    if (!WAREHOUSE_ROLES.includes(existing.role)) {
+      throw new AppError(
+        'warehouseId can only be set for warehouse roles',
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+    data.warehouseId = await assertWarehouseExists(body.warehouseId);
+    data.tenantId = null;
+    if (existing.role === 'WH_ADMIN') {
+      await assertUniqueWhAdminForWarehouse(data.warehouseId, existing.userId);
+    }
+  }
+
+  if (body.tenantId !== undefined) {
+    if (!TENANT_ROLES.includes(existing.role)) {
+      throw new AppError(
+        'tenantId can only be set for tenant roles',
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+    data.tenantId = await assertTenantExists(body.tenantId);
+    data.warehouseId = null;
+  }
+}
+
 export async function updateUser(creator, userId, body) {
   const id = parseUuid(userId, 'userId');
   const existing = await User.findById(id);
@@ -258,6 +317,8 @@ export async function updateUser(creator, userId, body) {
     }
   }
   assertEnum(data.status, USER_STATUS, 'status');
+
+  await applySystemAdminScopePatch(creator, existing, body, data);
 
   if (creator.role !== 'SYSTEM_ADMIN' && data.status === 'ACTIVE' && existing.status === 'BLOCKED') {
     throw new AppError('Cannot reactivate blocked user', 403, 'FORBIDDEN');

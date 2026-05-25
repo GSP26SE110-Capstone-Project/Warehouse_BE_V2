@@ -165,36 +165,24 @@ restricted access
 10. Shared Storage Pricing
 
 Đây là:
-dynamic pricing
+dynamic pricing — tenant dùng bao nhiêu (box/rack thực tế) tính bấy nhiêu **trong cả kỳ hóa đơn**.
 
-Ví dụ:
-Usage
-Fee
-1 EXTRA/day
-50k
-5 EXTRA/day
-250k
+**Capstone / guest form:** chu kỳ **MONTHLY** hoặc **YEARLY** (không chọn billing theo ngày).
 
+Cách tính gợi ý (một hóa đơn cuối kỳ, không snapshot từng ngày trên UI guest):
 
-Nếu giữa tháng xuất bớt:
-system snapshot:
-Day
-Occupied
-1–15
-10 EXTRA
-16–30
-5 EXTRA
+Ví dụ tháng 30 ngày, mức sử dụng trung bình:
+- Nửa đầu tháng ~10 EXTRA
+- Nửa sau ~5 EXTRA
+→ Có thể ghi nhận **mức trung bình ~7–8 EXTRA** cho kỳ, hoặc peak tùy policy hợp đồng.
 
+Billing tháng (minh họa):
+(7.5 EXTRA × 50k × 30 ngày tương đương) ≈ **11.25 triệu / tháng**
 
-Billing:
-(10 × 50k × 15)
-+
-(5 × 50k × 15)
-=
-11.25 triệu
+Hoặc đơn giản hóa capstone:
+`phí kỳ = đơn giá tham chiếu × mức sử dụng trung bình trong kỳ`
 
-Đây là:
-usage-based billing
+→ **usage-based**, nhưng **tổng hợp theo tháng/năm**, không bảng Day 1–15 / 16–30 trên landing.
 
 11. Reserved Storage Pricing
 
@@ -297,14 +285,14 @@ box/day
 default capstone flow
 
 SHARED_STORAGE
-usage-based
+usage-based — hóa đơn MONTHLY / YEARLY
 
 RESERVED_STORAGE
-fixed reserved billing
+fixed reserved — hóa đơn MONTHLY / YEARLY
 
 DEDICATED_ZONE
-fixed monthly billing
+fixed — theo m², MONTHLY / YEARLY
 
 DEDICATED_WAREHOUSE
-fixed monthly billing
+fixed — theo m², MONTHLY / YEARLY
 

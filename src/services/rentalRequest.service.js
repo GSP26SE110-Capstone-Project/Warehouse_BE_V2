@@ -473,7 +473,7 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
          updated_at = NOW()
      WHERE rental_request_id = $5
        AND warehouse_id IS NULL
-       AND status = ANY($6::text[])
+       AND status = ANY($6::rental_request_status_enum[])
        AND LOWER(TRIM(city)) = LOWER(TRIM($7))
        AND LOWER(TRIM(district)) = LOWER(TRIM($8))
      RETURNING *`,

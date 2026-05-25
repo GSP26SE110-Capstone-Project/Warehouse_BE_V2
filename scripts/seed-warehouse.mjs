@@ -53,13 +53,13 @@ const PRIMARY_WAREHOUSE = {
     },
     {
       zoneCode: 'Z-C01',
-      zoneName: 'Bulk C01',
-      zoneType: 'BULK',
+      zoneName: 'Shared C01',
+      zoneType: 'SHARED',
       areaM2: 900,
       isDedicated: false,
       racks: [
-        { rackCode: 'R-C01-01', rackType: 'HIGH_CAPACITY', maxLevels: 5 },
-        { rackCode: 'R-C01-02', rackType: 'HIGH_CAPACITY', maxLevels: 5 },
+        { rackCode: 'R-C01-01', rackType: 'STANDARD', maxLevels: 3 },
+        { rackCode: 'R-C01-02', rackType: 'STANDARD', maxLevels: 3 },
       ],
     },
     {
@@ -69,14 +69,6 @@ const PRIMARY_WAREHOUSE = {
       areaM2: 400,
       isDedicated: true,
       racks: [{ rackCode: 'R-P01-01', rackType: 'STANDARD', maxLevels: 3 }],
-    },
-    {
-      zoneCode: 'Z-QC',
-      zoneName: 'QC Area',
-      zoneType: 'QC',
-      areaM2: 200,
-      isDedicated: false,
-      racks: [],
     },
     {
       zoneCode: 'Z-RET',
@@ -145,11 +137,11 @@ const EXTRA_WAREHOUSES = [
       },
       {
         zoneCode: 'Z-C01',
-        zoneName: 'Bulk C01',
-        zoneType: 'BULK',
+        zoneName: 'Premium C01',
+        zoneType: 'PREMIUM',
         areaM2: 850,
         isDedicated: false,
-        racks: [{ rackCode: 'R-C01-01', rackType: 'HIGH_CAPACITY', maxLevels: 4 }],
+        racks: [{ rackCode: 'R-C01-01', rackType: 'STANDARD', maxLevels: 3 }],
       },
     ],
   },

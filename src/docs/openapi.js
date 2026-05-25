@@ -238,7 +238,7 @@ const spec = {
           zoneName: { type: 'string', nullable: true },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           areaM2: { type: 'number', nullable: true },
           isDedicated: { type: 'boolean' },
@@ -255,7 +255,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
             default: 'SHARED',
           },
           areaM2: { type: 'number' },
@@ -269,7 +269,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           areaM2: { type: 'number' },
           isDedicated: { type: 'boolean' },
@@ -283,7 +283,7 @@ const spec = {
           rackId: uuid,
           zoneId: uuid,
           rackCode: { type: 'string', example: 'R-A01-01' },
-          rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          rackType: { type: 'string', enum: ['STANDARD'] },
           maxLevels: { type: 'integer', nullable: true },
           status: { type: 'string', enum: ['ACTIVE', 'BLOCKED'] },
           ...timestamps,
@@ -297,7 +297,7 @@ const spec = {
           rackCode: { type: 'string' },
           rackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
             default: 'STANDARD',
           },
           maxLevels: { type: 'integer', minimum: 1 },
@@ -307,7 +307,7 @@ const spec = {
       RackUpdate: {
         type: 'object',
         properties: {
-          rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          rackType: { type: 'string', enum: ['STANDARD'] },
           maxLevels: { type: 'integer', minimum: 1 },
           status: { type: 'string', enum: ['ACTIVE', 'BLOCKED'] },
         },
@@ -711,7 +711,7 @@ const spec = {
           lpnId: uuid,
           lpnCode: { type: 'string' },
           weightKg: { type: 'number', nullable: true },
-          suggestedRackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          suggestedRackType: { type: 'string', enum: ['STANDARD'] },
           thresholdKg: { type: 'number' },
           reason: { type: 'string' },
           warehouseId: uuid,
@@ -727,7 +727,7 @@ const spec = {
                 maxWeightKg: { type: 'number', nullable: true },
                 rackId: uuid,
                 rackCode: { type: 'string' },
-                rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+                rackType: { type: 'string', enum: ['STANDARD'] },
                 zoneId: uuid,
                 zoneCode: { type: 'string' },
               },
@@ -816,7 +816,7 @@ const spec = {
           binCode: { type: 'string', nullable: true },
           suggestedRackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
             nullable: true,
           },
           reasons: { type: 'array', items: { type: 'string' } },
@@ -843,7 +843,7 @@ const spec = {
           reasons: { type: 'array', items: { type: 'string' } },
           featureSnapshot: { type: 'object' },
           modelVersion: { type: 'string' },
-          suggestedRackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          suggestedRackType: { type: 'string', enum: ['STANDARD'] },
           alternatives: {
             type: 'array',
             items: { $ref: '#/components/schemas/AiSlotAlternative' },
@@ -1106,12 +1106,12 @@ const spec = {
           notes: { type: 'string', nullable: true },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
             nullable: true,
           },
           suggestedRackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
             nullable: true,
           },
           expectedStartDate: { type: 'string', format: 'date-time', nullable: true },
@@ -1174,11 +1174,11 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           suggestedRackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
           },
           expectedStartDate: { type: 'string', format: 'date-time' },
           expectedEndDate: { type: 'string', format: 'date-time' },
@@ -1649,11 +1649,11 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           suggestedRackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
           },
           expectedStartDate: { type: 'string', format: 'date-time' },
           expectedEndDate: { type: 'string', format: 'date-time' },
@@ -2026,7 +2026,7 @@ const spec = {
             name: 'zoneType',
             schema: {
               type: 'string',
-              enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+              enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
             },
           },
           { $ref: '#/components/parameters/page' },
@@ -2121,7 +2121,7 @@ const spec = {
           {
             in: 'query',
             name: 'rackType',
-            schema: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+            schema: { type: 'string', enum: ['STANDARD'] },
           },
           { $ref: '#/components/parameters/page' },
           { $ref: '#/components/parameters/limit' },

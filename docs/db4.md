@@ -38,9 +38,7 @@ Enum warehouse_status_enum {
 Enum zone_type_enum {
   SHARED
   FAST_MOVING
-  BULK
   PREMIUM
-  QC
   RETURN
 }
 
@@ -51,7 +49,6 @@ Enum zone_status_enum {
 
 Enum rack_type_enum {
   STANDARD
-  HIGH_CAPACITY
 }
 
 Enum rack_status_enum {
@@ -84,6 +81,7 @@ Enum billing_cycle_enum {
   DAILY
   MONTHLY
   QUARTERLY
+  YEARLY
 }
 
 Enum billing_unit_enum {
@@ -289,6 +287,41 @@ Table warehouses {
   updated_at timestamp
 }
 
+// ======================================================
+// LOCATION REFERENCE (guest rental form dropdowns)
+// rental_requests.city / district store VARCHAR labels (no FK)
+// ======================================================
+
+Table cities {
+  city_id uuid [pk]
+
+  city_code varchar [unique, not null, note: 'e.g. HCM, HN']
+  city_name varchar [unique, not null, note: 'e.g. TP.HCM, Hà Nội — matches warehouses.city']
+
+  display_order int [default: 0]
+  is_active boolean [default: true]
+
+  created_at timestamp
+}
+
+Table districts {
+  district_id uuid [pk]
+
+  city_id uuid [not null, ref: > cities.city_id]
+
+  district_name varchar [not null, note: 'e.g. Quận 7 — matches warehouses.district']
+
+  display_order int [default: 0]
+  is_active boolean [default: true]
+
+  created_at timestamp
+
+  indexes {
+    (city_id, district_name) [unique]
+    city_id
+  }
+}
+
 Table users {
   user_id uuid [pk]
 
@@ -420,8 +453,8 @@ Table rental_requests {
 
   tenant_id uuid [not null, ref: > tenant_companies.tenant_id]
 
-  city varchar [not null, note: 'Desired warehouse region']
-  district varchar [not null]
+  city varchar [not null, note: 'Desired region — value from cities.city_name catalog']
+  district varchar [not null, note: 'Value from districts.district_name catalog']
 
   warehouse_id uuid [ref: > warehouses.warehouse_id, note: 'Set when a warehouse claims (approves) first']
 
@@ -440,15 +473,16 @@ Table rental_requests {
   estimated_sku_count int
   estimated_box_count int
 
-  estimated_volume decimal
+  estimated_volume decimal [note: 'Estimated goods volume (m³), not warehouse area']
+  requested_area_m2 decimal [note: 'Guest desired area (m²); optional — DEDICATED_WAREHOUSE / DEDICATED_ZONE']
   average_storage_days int
 
   // ======================================================
   // OPERATION ESTIMATION
   // ======================================================
 
-  estimated_inbound_per_week int
-  estimated_outbound_per_week int
+  estimated_inbound_per_week int [note: 'Avg inbound trips per week (guest form)']
+  estimated_outbound_per_week int [note: 'Avg outbound trips per week (guest form)']
 
   // ======================================================
   // STORAGE REQUIREMENTS

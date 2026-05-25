@@ -1,56 +1,20 @@
 import pool from '../config/db.js';
 import AppError from '../utils/AppError.js';
-import {
-  DEFAULT_HIGH_CAPACITY_WEIGHT_KG,
-  RACK_TYPE,
-} from '../constants/warehouseStructure.js';
+import { RACK_TYPE } from '../constants/warehouseStructure.js';
 import { parseUuid } from '../utils/validate.js';
 import { getLpn } from './lpn.service.js';
 import { getWarehouseById } from './warehouse.service.js';
 
-function getHighCapacityThresholdKg() {
-  const env = process.env.LPN_HIGH_CAPACITY_WEIGHT_KG;
-  if (env == null || env === '') {
-    return DEFAULT_HIGH_CAPACITY_WEIGHT_KG;
-  }
-  const n = Number(env);
-  if (Number.isNaN(n) || n <= 0) {
-    return DEFAULT_HIGH_CAPACITY_WEIGHT_KG;
-  }
-  return n;
-}
-
 export function suggestRackTypeFromWeight(weightKg) {
-  const threshold = getHighCapacityThresholdKg();
-
-  if (weightKg == null || weightKg === '') {
-    return {
-      suggestedRackType: 'STANDARD',
-      weightKg: null,
-      thresholdKg: threshold,
-      reason: 'No weight recorded; default to STANDARD rack',
-    };
-  }
-
-  const w = Number(weightKg);
-  if (Number.isNaN(w) || w < 0) {
+  const w = weightKg == null || weightKg === '' ? null : Number(weightKg);
+  if (w != null && (Number.isNaN(w) || w < 0)) {
     throw new AppError('weightKg must be a non-negative number', 400, 'VALIDATION_ERROR');
-  }
-
-  if (w > threshold) {
-    return {
-      suggestedRackType: 'HIGH_CAPACITY',
-      weightKg: w,
-      thresholdKg: threshold,
-      reason: `Weight ${w} kg exceeds ${threshold} kg standard limit`,
-    };
   }
 
   return {
     suggestedRackType: 'STANDARD',
     weightKg: w,
-    thresholdKg: threshold,
-    reason: `Weight ${w} kg is within standard limit (≤ ${threshold} kg)`,
+    reason: 'Kho quần áo: chỉ dùng rack STANDARD',
   };
 }
 
@@ -81,21 +45,15 @@ export async function suggestRackPlacementForLpn(lpnId, { warehouseId } = {}) {
   };
 
   if (!warehouseId) {
-    result.note =
-      'Pass warehouseId query to list rack levels that support this weight and rack type';
+    result.note = 'Truyền warehouseId để liệt kê tầng rack phù hợp';
     return result;
   }
 
   const whId = parseUuid(warehouseId, 'warehouseId');
   await getWarehouseById(whId);
 
-  if (rackTypeHint.weightKg == null) {
-    result.note = 'Record weightKg on LPN for level capacity filtering';
-    return result;
-  }
-
-  const weight = rackTypeHint.weightKg;
-  const rackType = rackTypeHint.suggestedRackType;
+  const weight = rackTypeHint.weightKg ?? 0;
+  const rackType = 'STANDARD';
 
   if (!RACK_TYPE.includes(rackType)) {
     throw new AppError('Invalid suggested rack type', 500, 'INTERNAL_ERROR');
