@@ -165,6 +165,22 @@ function normalizeNumericFields(data) {
     data.expectedEndDate = parseDate(data.expectedEndDate, 'expectedEndDate');
 }
 
+function assertExpectedRentalDates(data) {
+  if (data.expectedStartDate == null) {
+    throw new AppError('expectedStartDate is required', 400, 'VALIDATION_ERROR');
+  }
+  if (data.expectedEndDate == null) {
+    throw new AppError('expectedEndDate is required', 400, 'VALIDATION_ERROR');
+  }
+  if (data.expectedStartDate >= data.expectedEndDate) {
+    throw new AppError(
+      'expectedEndDate must be after expectedStartDate',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+}
+
 function normalizeLocationFields(data) {
   const city = requireLocationField(data.city, 'city');
   if (city.error) {
@@ -216,6 +232,7 @@ function normalizeCreatePayload(body) {
 
   normalizeNumericFields(data);
   validateEnums(data);
+  assertExpectedRentalDates(data);
 
   return data;
 }
