@@ -10,14 +10,7 @@ CREATE TABLE IF NOT EXISTS rental_requests (
   rental_request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   request_code VARCHAR UNIQUE,
 
-  company_name VARCHAR,
-  company_code VARCHAR,
-  tax_code VARCHAR,
-  address TEXT,
-
-  contact_name VARCHAR,
-  contact_phone VARCHAR,
-  contact_email VARCHAR,
+  tenant_id UUID NOT NULL REFERENCES tenant_companies (tenant_id),
 
   warehouse_id UUID NOT NULL REFERENCES warehouses (warehouse_id),
 
@@ -42,3 +35,4 @@ CREATE TABLE IF NOT EXISTS rental_requests (
 
 CREATE INDEX IF NOT EXISTS idx_rental_requests_status ON rental_requests (status);
 CREATE INDEX IF NOT EXISTS idx_rental_requests_warehouse_id ON rental_requests (warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_tenant_id ON rental_requests (tenant_id);

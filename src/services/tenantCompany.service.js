@@ -60,6 +60,11 @@ function normalizeCreatePayload(body) {
     'address',
   ]);
 
+  if (!data.contactEmail?.trim()) {
+    throw new AppError('contactEmail is required', 400, 'VALIDATION_ERROR');
+  }
+  data.contactEmail = data.contactEmail.trim().toLowerCase();
+
   if (data.status == null) data.status = 'ACTIVE';
   assertEnum(data.status, TENANT_STATUS, 'status');
 

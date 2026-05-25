@@ -5,23 +5,17 @@ export const WAREHOUSE_STATUS = Object.freeze([
   'CLOSED',
 ]);
 
-export const ZONE_TYPE = Object.freeze([
-  'SHARED',
-  'FAST_MOVING',
-  'BULK',
-  'PREMIUM',
-  'QC',
-  'RETURN',
-]);
+export const ZONE_TYPE = Object.freeze(['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN']);
 
 export const ZONE_STATUS = Object.freeze(['ACTIVE', 'BLOCKED']);
 
-export const RACK_TYPE = Object.freeze(['STANDARD', 'HIGH_CAPACITY']);
-
-/** LPN weight above this (kg) suggests HIGH_CAPACITY racks. Override via env LPN_HIGH_CAPACITY_WEIGHT_KG. */
-export const DEFAULT_HIGH_CAPACITY_WEIGHT_KG = 25;
+/** Kho quần áo: chỉ rack tiêu chuẩn */
+export const RACK_TYPE = Object.freeze(['STANDARD']);
 
 export const RACK_STATUS = Object.freeze(['ACTIVE', 'BLOCKED']);
+
+/** Rack quần áo: cố định 3 tầng / rack */
+export const RACK_FIXED_LEVEL_COUNT = 3;
 
 export const BOX_TYPE = Object.freeze(['SMALL', 'MEDIUM', 'LARGE', 'EXTRA']);
 

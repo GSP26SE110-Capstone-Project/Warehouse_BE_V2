@@ -19,11 +19,14 @@ import lpnRoutes from './lpn.routes.js';
 import lpnDetailRoutes from './lpnDetail.routes.js';
 import inboundRequestRoutes from './inboundRequest.routes.js';
 import outboundRequestRoutes from './outboundRequest.routes.js';
+import aiSlotRecommendationRoutes from './aiSlotRecommendation.routes.js';
 import batchRoutes from './batch.routes.js';
 import skuRoutes from './sku.routes.js';
 import categoryRoutes from './category.routes.js';
 import seasonRoutes from './season.routes.js';
 import collectionRoutes from './collection.routes.js';
+import locationRoutes from './location.routes.js';
+import * as rentalRequestController from '../controllers/rentalRequest.controller.js';
 
 const router = Router();
 
@@ -34,6 +37,11 @@ router.use('/zones', zoneRoutes);
 router.use('/racks', rackRoutes);
 router.use('/rack-levels', rackLevelRoutes);
 router.use('/bins', binRoutes);
+// Registered on api router before mount — guest lookup (code + email query)
+router.get(
+  '/rental-requests/guest/lookup',
+  asyncHandler(rentalRequestController.lookupByCode)
+);
 router.use('/rental-requests', rentalRequestRoutes);
 router.use('/tenants', tenantCompanyRoutes);
 router.use('/contracts', contractRoutes);
@@ -43,11 +51,11 @@ router.use('/batches', batchRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/seasons', seasonRoutes);
 router.use('/collections', collectionRoutes);
+router.use('/locations', locationRoutes);
 router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
 router.use('/lpn-details', lpnDetailRoutes);
 router.use('/inbound-requests', inboundRequestRoutes);
-router.use('/outbound-requests', outboundRequestRoutes);
 
 router.get(
   '/health',

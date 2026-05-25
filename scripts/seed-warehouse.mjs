@@ -22,6 +22,8 @@ const PRIMARY_WAREHOUSE = {
   warehouseCode: 'WH-HCM-01',
   warehouseName: 'Kho HCM Trung tâm',
   address: 'Quận 7, TP.HCM',
+  city: 'TP.HCM',
+  district: 'Quận 7',
   totalAreaM2: 5000,
   usableAreaM2: 4200,
   // 4 zone chính + 2 zone hỗ trợ (QC, RETURN).
@@ -51,13 +53,13 @@ const PRIMARY_WAREHOUSE = {
     },
     {
       zoneCode: 'Z-C01',
-      zoneName: 'Bulk C01',
-      zoneType: 'BULK',
+      zoneName: 'Shared C01',
+      zoneType: 'SHARED',
       areaM2: 900,
       isDedicated: false,
       racks: [
-        { rackCode: 'R-C01-01', rackType: 'HIGH_CAPACITY', maxLevels: 5 },
-        { rackCode: 'R-C01-02', rackType: 'HIGH_CAPACITY', maxLevels: 5 },
+        { rackCode: 'R-C01-01', rackType: 'STANDARD', maxLevels: 3 },
+        { rackCode: 'R-C01-02', rackType: 'STANDARD', maxLevels: 3 },
       ],
     },
     {
@@ -67,14 +69,6 @@ const PRIMARY_WAREHOUSE = {
       areaM2: 400,
       isDedicated: true,
       racks: [{ rackCode: 'R-P01-01', rackType: 'STANDARD', maxLevels: 3 }],
-    },
-    {
-      zoneCode: 'Z-QC',
-      zoneName: 'QC Area',
-      zoneType: 'QC',
-      areaM2: 200,
-      isDedicated: false,
-      racks: [],
     },
     {
       zoneCode: 'Z-RET',
@@ -94,6 +88,8 @@ const EXTRA_WAREHOUSES = [
     warehouseCode: 'WH-HCM-02',
     warehouseName: 'Kho HCM Quận 9',
     address: 'TP. Thủ Đức, TP.HCM',
+    city: 'TP.HCM',
+    district: 'Quận 9',
     totalAreaM2: 3500,
     usableAreaM2: 3000,
     zones: [
@@ -123,6 +119,8 @@ const EXTRA_WAREHOUSES = [
     warehouseCode: 'WH-HN-01',
     warehouseName: 'Kho Hà Nội Long Biên',
     address: 'Long Biên, Hà Nội',
+    city: 'Hà Nội',
+    district: 'Long Biên',
     totalAreaM2: 4000,
     usableAreaM2: 3400,
     zones: [
@@ -139,11 +137,11 @@ const EXTRA_WAREHOUSES = [
       },
       {
         zoneCode: 'Z-C01',
-        zoneName: 'Bulk C01',
-        zoneType: 'BULK',
+        zoneName: 'Premium C01',
+        zoneType: 'PREMIUM',
         areaM2: 850,
         isDedicated: false,
-        racks: [{ rackCode: 'R-C01-01', rackType: 'HIGH_CAPACITY', maxLevels: 4 }],
+        racks: [{ rackCode: 'R-C01-01', rackType: 'STANDARD', maxLevels: 3 }],
       },
     ],
   },
@@ -164,34 +162,42 @@ const stats = {
 };
 
 async function ensureWarehouse(wh) {
-  const existing = await pool.query(
-    'SELECT warehouse_id FROM warehouses WHERE warehouse_id = $1 OR warehouse_code = $2',
-    [wh.warehouseId, wh.warehouseCode]
-  );
-  if (existing.rows.length > 0) {
-    stats.warehouses.skipped++;
-    console.log('Warehouse exists:', wh.warehouseCode);
-    return existing.rows[0].warehouse_id;
-  }
-
   const result = await pool.query(
     `INSERT INTO warehouses
-       (warehouse_id, warehouse_code, warehouse_name, address,
+       (warehouse_id, warehouse_code, warehouse_name, address, city, district,
         total_area_m2, usable_area_m2, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE')
-     RETURNING warehouse_id`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE')
+     ON CONFLICT (warehouse_code) DO UPDATE
+       SET warehouse_name = EXCLUDED.warehouse_name,
+           address = EXCLUDED.address,
+           city = EXCLUDED.city,
+           district = EXCLUDED.district,
+           total_area_m2 = EXCLUDED.total_area_m2,
+           usable_area_m2 = EXCLUDED.usable_area_m2,
+           updated_at = NOW()
+     RETURNING warehouse_id,
+       (xmax = 0) AS inserted`,
     [
       wh.warehouseId,
       wh.warehouseCode,
       wh.warehouseName,
       wh.address,
+      wh.city,
+      wh.district,
       wh.totalAreaM2,
       wh.usableAreaM2,
     ]
   );
-  stats.warehouses.inserted++;
-  console.log('Created warehouse:', wh.warehouseCode);
-  return result.rows[0].warehouse_id;
+
+  const row = result.rows[0];
+  if (row.inserted) {
+    stats.warehouses.inserted++;
+    console.log('Created warehouse:', wh.warehouseCode);
+  } else {
+    stats.warehouses.skipped++;
+    console.log('Updated warehouse region:', wh.warehouseCode, '→', wh.city, wh.district);
+  }
+  return row.warehouse_id;
 }
 
 async function upsertZone(warehouseId, zone) {

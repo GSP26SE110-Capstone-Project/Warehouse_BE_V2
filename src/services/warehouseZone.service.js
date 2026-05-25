@@ -65,6 +65,28 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
+async function assertZoneAreaWithinWarehouse(warehouseId, areaM2, excludeZoneId = null) {
+  const warehouse = await getWarehouseById(warehouseId);
+  const usable = warehouse.usableAreaM2 != null ? Number(warehouse.usableAreaM2) : null;
+  if (usable == null || usable <= 0) return;
+
+  const zones = await WarehouseZone.findAll({ warehouseId });
+  let sum = 0;
+  for (const z of zones) {
+    if (excludeZoneId && z.zoneId === excludeZoneId) continue;
+    sum += Number(z.areaM2) || 0;
+  }
+  sum += Number(areaM2) || 0;
+
+  if (sum > usable) {
+    throw new AppError(
+      `Total zone area (${sum} m²) exceeds warehouse usable area (${usable} m²)`,
+      400,
+      'CAPACITY_EXCEEDED'
+    );
+  }
+}
+
 export async function getZone(zoneId) {
   const id = parseUuid(zoneId, 'zoneId');
   const zone = await WarehouseZone.findById(id);
@@ -110,14 +132,21 @@ export async function createZone(warehouseId, body) {
   await getWarehouseById(whId);
 
   const data = normalizeCreatePayload(body, whId);
+  if (data.areaM2 != null) {
+    await assertZoneAreaWithinWarehouse(whId, data.areaM2);
+  }
   return WarehouseZone.create(data);
 }
 
 export async function updateZone(zoneId, body) {
   const id = parseUuid(zoneId, 'zoneId');
-  await getZone(id);
+  const zone = await getZone(id);
 
   const data = normalizeUpdatePayload(body);
+  const nextArea = data.areaM2 !== undefined ? data.areaM2 : zone.areaM2;
+  if (nextArea != null) {
+    await assertZoneAreaWithinWarehouse(zone.warehouseId, nextArea, id);
+  }
   return WarehouseZone.updateById(id, data);
 }
 

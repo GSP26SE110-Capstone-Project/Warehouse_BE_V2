@@ -31,9 +31,7 @@ BEGIN
   CREATE TYPE zone_type_enum_new AS ENUM (
     'SHARED',
     'FAST_MOVING',
-    'BULK',
     'PREMIUM',
-    'QC',
     'RETURN'
   );
 

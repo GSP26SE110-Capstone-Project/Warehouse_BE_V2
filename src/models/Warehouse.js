@@ -18,6 +18,16 @@ export const warehouseSchema = {
     type: 'string',
     required: false,
   },
+  city: {
+    type: 'string',
+    required: false,
+    maxLength: 100,
+  },
+  district: {
+    type: 'string',
+    required: false,
+    maxLength: 100,
+  },
   totalAreaM2: {
     type: 'decimal',
     required: false,

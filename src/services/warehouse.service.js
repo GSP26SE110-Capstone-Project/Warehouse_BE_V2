@@ -7,6 +7,8 @@ const CREATE_FIELDS = [
   'warehouseCode',
   'warehouseName',
   'address',
+  'city',
+  'district',
   'totalAreaM2',
   'usableAreaM2',
   'status',
@@ -15,6 +17,8 @@ const CREATE_FIELDS = [
 const UPDATE_FIELDS = [
   'warehouseName',
   'address',
+  'city',
+  'district',
   'totalAreaM2',
   'usableAreaM2',
   'status',
@@ -43,6 +47,8 @@ function normalizeCreatePayload(body) {
   data.warehouseCode = data.warehouseCode.trim();
   data.warehouseName = data.warehouseName.trim();
   if (data.address != null) data.address = String(data.address).trim();
+  if (data.city != null) data.city = String(data.city).trim();
+  if (data.district != null) data.district = String(data.district).trim();
   if (data.status == null) data.status = 'ACTIVE';
 
   assertEnum(data.status, WAREHOUSE_STATUS, 'status');
@@ -59,6 +65,8 @@ function normalizeUpdatePayload(body) {
     }
   }
   if (data.address != null) data.address = String(data.address).trim();
+  if (data.city != null) data.city = String(data.city).trim();
+  if (data.district != null) data.district = String(data.district).trim();
   assertEnum(data.status, WAREHOUSE_STATUS, 'status');
 
   if (Object.keys(data).length === 0) {

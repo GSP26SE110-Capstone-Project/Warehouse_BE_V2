@@ -10,37 +10,24 @@ export const rentalRequestSchema = {
     required: true,
     unique: true,
   },
-  companyName: {
+  tenantId: {
     type: 'string',
     required: true,
+    foreignKey: 'tenant_id',
   },
-  companyCode: {
+  city: {
     type: 'string',
-    required: false,
+    required: true,
+    maxLength: 100,
   },
-  taxCode: {
+  district: {
     type: 'string',
-    required: false,
-  },
-  address: {
-    type: 'string',
-    required: false,
-  },
-  contactName: {
-    type: 'string',
-    required: false,
-  },
-  contactEmail: {
-    type: 'string',
-    required: false,
-  },
-  contactPhone: {
-    type: 'string',
-    required: false,
+    required: true,
+    maxLength: 100,
   },
   warehouseId: {
     type: 'string',
-    required: true,
+    required: false,
     foreignKey: 'warehouse_id',
   },
   contractType: {
@@ -64,6 +51,10 @@ export const rentalRequestSchema = {
     required: false,
   },
   estimatedVolume: {
+    type: 'decimal',
+    required: false,
+  },
+  requestedAreaM2: {
     type: 'decimal',
     required: false,
   },

@@ -1,6 +1,9 @@
 -- ======================================================
 -- Warehouse BE V2 — full schema from docs/db4.md
--- PostgreSQL 15+
+-- PostgreSQL 15+ (keep in sync with init-scripts/01-db4-schema.sql)
+--
+-- After migrate on empty DB, seed location catalog:
+--   npm run seed:locations
 -- ======================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -10,14 +13,14 @@ DO $do$ BEGIN CREATE TYPE role_enum AS ENUM ('SYSTEM_ADMIN','WH_ADMIN','WH_STAFF
 DO $do$ BEGIN CREATE TYPE user_status_enum AS ENUM ('ACTIVE','INACTIVE','SUSPENDED','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE tenant_status_enum AS ENUM ('ACTIVE','SUSPENDED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE warehouse_status_enum AS ENUM ('ACTIVE','INACTIVE','MAINTENANCE','CLOSED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
-DO $do$ BEGIN CREATE TYPE zone_type_enum AS ENUM ('SHARED','FAST_MOVING','BULK','PREMIUM','QC','RETURN'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
+DO $do$ BEGIN CREATE TYPE zone_type_enum AS ENUM ('SHARED','FAST_MOVING','PREMIUM','RETURN'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE zone_status_enum AS ENUM ('ACTIVE','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
-DO $do$ BEGIN CREATE TYPE rack_type_enum AS ENUM ('STANDARD','HIGH_CAPACITY'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
+DO $do$ BEGIN CREATE TYPE rack_type_enum AS ENUM ('STANDARD'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE rack_status_enum AS ENUM ('ACTIVE','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE bin_status_enum AS ENUM ('EMPTY','PARTIAL','FULL','RESERVED','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE contract_type_enum AS ENUM ('SHARED_STORAGE','RESERVED_STORAGE','DEDICATED_ZONE','DEDICATED_WAREHOUSE'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE pricing_model_enum AS ENUM ('USAGE_BASED','FIXED','HYBRID'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
-DO $do$ BEGIN CREATE TYPE billing_cycle_enum AS ENUM ('DAILY','MONTHLY','QUARTERLY'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
+DO $do$ BEGIN CREATE TYPE billing_cycle_enum AS ENUM ('DAILY','MONTHLY','QUARTERLY','YEARLY'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE billing_unit_enum AS ENUM ('BOX_DAY','BIN_DAY','RACK_DAY','ZONE_DAY','WAREHOUSE_DAY','INBOUND_LPN','OUTBOUND_LPN','HANDLING_UNIT'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE contract_status_enum AS ENUM ('DRAFT','PENDING_APPROVAL','ACTIVE','EXPIRED','TERMINATED','CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE reservation_type_enum AS ENUM ('SHARED','RESERVED','DEDICATED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
@@ -61,12 +64,38 @@ CREATE TABLE IF NOT EXISTS warehouses (
   warehouse_code VARCHAR(100) NOT NULL UNIQUE,
   warehouse_name VARCHAR(255) NOT NULL,
   address TEXT,
+  city VARCHAR(100),
+  district VARCHAR(100),
   total_area_m2 NUMERIC(18, 4),
   usable_area_m2 NUMERIC(18, 4),
   status warehouse_status_enum DEFAULT 'ACTIVE',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_warehouses_city_district ON warehouses (city, district);
+
+-- Location catalog for guest rental form (rental_requests.city/district are VARCHAR, no FK)
+CREATE TABLE IF NOT EXISTS cities (
+  city_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  city_code VARCHAR(20) NOT NULL UNIQUE,
+  city_name VARCHAR(100) NOT NULL UNIQUE,
+  display_order INT NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS districts (
+  district_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  city_id UUID NOT NULL REFERENCES cities (city_id) ON DELETE CASCADE,
+  district_name VARCHAR(100) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (city_id, district_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_districts_city_id ON districts (city_id);
 
 CREATE TABLE IF NOT EXISTS users (
   user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -155,20 +184,17 @@ CREATE INDEX IF NOT EXISTS idx_bins_reservation_type ON bins (reservation_type);
 CREATE TABLE IF NOT EXISTS rental_requests (
   rental_request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   request_code VARCHAR(100) NOT NULL UNIQUE,
-  company_name VARCHAR(255) NOT NULL,
-  company_code VARCHAR(100),
-  tax_code VARCHAR(100),
-  address TEXT,
-  contact_name VARCHAR(255),
-  contact_email VARCHAR(255),
-  contact_phone VARCHAR(50),
-  warehouse_id UUID NOT NULL REFERENCES warehouses (warehouse_id),
+  tenant_id UUID NOT NULL REFERENCES tenant_companies (tenant_id),
+  city VARCHAR(100) NOT NULL,
+  district VARCHAR(100) NOT NULL,
+  warehouse_id UUID REFERENCES warehouses (warehouse_id),
   contract_type contract_type_enum,
   pricing_model pricing_model_enum,
   billing_cycle billing_cycle_enum,
   estimated_sku_count INT,
   estimated_box_count INT,
   estimated_volume NUMERIC(18, 4),
+  requested_area_m2 NUMERIC(18, 4),
   average_storage_days INT,
   estimated_inbound_per_week INT,
   estimated_outbound_per_week INT,
@@ -190,6 +216,11 @@ CREATE TABLE IF NOT EXISTS rental_requests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rental_requests_warehouse_id ON rental_requests (warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_tenant_id ON rental_requests (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_city_district ON rental_requests (city, district);
+CREATE INDEX IF NOT EXISTS idx_rental_requests_unclaimed_region
+  ON rental_requests (city, district, status)
+  WHERE warehouse_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_rental_requests_status ON rental_requests (status);
 CREATE INDEX IF NOT EXISTS idx_rental_requests_contract_type ON rental_requests (contract_type);
 CREATE INDEX IF NOT EXISTS idx_rental_requests_pricing_model ON rental_requests (pricing_model);

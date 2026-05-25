@@ -21,6 +21,11 @@ const errorResponse = {
         'INVALID_ID',
         'INTERNAL_ERROR',
         'DB_UNAVAILABLE',
+        'NO_SLOT_CANDIDATE',
+        'OLLAMA_UNAVAILABLE',
+        'OLLAMA_DISABLED',
+        'ALREADY_CLAIMED',
+        'CLAIM_FAILED',
       ],
     },
     errors: { type: 'object', nullable: true },
@@ -94,7 +99,11 @@ const stdErrors = {
     content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
   },
   409: {
-    description: 'Duplicate key',
+    description: 'Conflict (duplicate key, rental request already claimed, etc.)',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+  },
+  503: {
+    description: 'Service unavailable (e.g. Ollama not running)',
     content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
   },
 };
@@ -112,13 +121,26 @@ const spec = {
     title: 'Smart Warehouse API',
     version: '1.0.0',
     description:
-      'NextGen Warehouse backend — Flow 2: Warehouse structure (flat REST).\n\n' +
-      '- **POST**: parent ID in body (`warehouseId`, `zoneId`, `rackId`, `rackLevelId`)\n' +
-      '- **GET list**: parent ID in query\n' +
-      '- **GET/PATCH/DELETE**: resource ID in path only\n\n' +
-      '### Authentication & users\n' +
+      'NextGen Warehouse backend — đồng bộ với `docs/request.md`.\n\n' +
+      '### Convention (mọi flow)\n' +
+      '- Base: `/api`, body **camelCase**, cập nhật dùng **PATCH** (không PUT)\n' +
+      '- GET list: `page` (default 1), `limit` (default 20, max 100)\n' +
+      '- POST: ID cha trong **body**; GET list: ID cha/lọc trong **query**\n\n' +
+      '### Flow 1 — Tenant onboarding\n' +
+      '1. `POST /tenants` — guest tạo tenant company\n' +
+      '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không chọn kho)\n' +
+      '3. `GET /rental-requests/guest/lookup?code=RR-…&email=…` — guest tra cứu (mã + email liên hệ)\n' +
+      '4. WH inbox: `GET /warehouses/{warehouseId}/rental-requests?status=PENDING`\n' +
+      '5. Approve + claim: `PATCH /rental-requests/{id}` với `status=APPROVED` + `warehouseId` (kho nhanh nhất thắng)\n' +
+      '6. `POST /contracts` → contract-items → storage-reservations\n\n' +
+      '### Flow 2 — Warehouse structure\n' +
+      'Warehouse → Zone → Rack → Rack Level → Bin\n\n' +
+      '### Flow 3 — Inbound (SKU / LPN)\n' +
+      'Category, Season, Collection, Inbound request, Batch, SKU, LPN, LPN detail, AI slot recommendation\n\n' +
+      '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
-      '- `POST /api/users` — Bearer token; hierarchy: SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF',
+      '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
+      '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/guest/lookup` — public (guest onboarding)',
   },
   servers: [{ url: 'http://localhost:3000', description: 'Local development' }],
   tags: [
@@ -139,8 +161,9 @@ const spec = {
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
-    { name: 'RentalRequest', description: 'Tenant rental requests (Flow 1)' },
-    { name: 'TenantCompany', description: 'Tenant companies (Flow 1)' },
+    { name: 'AI', description: 'Rule-based putaway slot recommendations (Phase 1a)' },
+    { name: 'RentalRequest', description: 'Flow 1 — Guest gửi yêu cầu thuê theo city/district; WH claim khi approve' },
+    { name: 'TenantCompany', description: 'Flow 1 — Tenant company (bước 1 guest onboarding)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
     { name: 'ContractItem', description: 'Contract line items (Flow 1)' },
     { name: 'StorageReservation', description: 'Storage reservations (Flow 1)' },
@@ -160,6 +183,8 @@ const spec = {
           warehouseCode: { type: 'string', example: 'WH-HCM-01' },
           warehouseName: { type: 'string', example: 'Kho HCM Trung tâm' },
           address: { type: 'string', nullable: true },
+          city: { type: 'string', nullable: true, example: 'TP.HCM' },
+          district: { type: 'string', nullable: true, example: 'Quận 7' },
           totalAreaM2: { type: 'number', nullable: true },
           usableAreaM2: { type: 'number', nullable: true },
           status: {
@@ -172,10 +197,14 @@ const spec = {
       WarehouseCreate: {
         type: 'object',
         required: ['warehouseCode', 'warehouseName'],
+        description:
+          '`city` và `district` dùng match rental request theo khu vực (Flow 1 inbox).',
         properties: {
           warehouseCode: { type: 'string' },
           warehouseName: { type: 'string' },
           address: { type: 'string' },
+          city: { type: 'string', example: 'TP.HCM' },
+          district: { type: 'string', example: 'Quận 7' },
           totalAreaM2: { type: 'number' },
           usableAreaM2: { type: 'number' },
           status: {
@@ -190,6 +219,8 @@ const spec = {
         properties: {
           warehouseName: { type: 'string' },
           address: { type: 'string' },
+          city: { type: 'string', example: 'TP.HCM' },
+          district: { type: 'string', example: 'Quận 7' },
           totalAreaM2: { type: 'number' },
           usableAreaM2: { type: 'number' },
           status: {
@@ -208,7 +239,7 @@ const spec = {
           zoneName: { type: 'string', nullable: true },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           areaM2: { type: 'number', nullable: true },
           isDedicated: { type: 'boolean' },
@@ -225,7 +256,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
             default: 'SHARED',
           },
           areaM2: { type: 'number' },
@@ -239,7 +270,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           areaM2: { type: 'number' },
           isDedicated: { type: 'boolean' },
@@ -253,7 +284,7 @@ const spec = {
           rackId: uuid,
           zoneId: uuid,
           rackCode: { type: 'string', example: 'R-A01-01' },
-          rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          rackType: { type: 'string', enum: ['STANDARD'] },
           maxLevels: { type: 'integer', nullable: true },
           status: { type: 'string', enum: ['ACTIVE', 'BLOCKED'] },
           ...timestamps,
@@ -267,7 +298,7 @@ const spec = {
           rackCode: { type: 'string' },
           rackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
             default: 'STANDARD',
           },
           maxLevels: { type: 'integer', minimum: 1 },
@@ -277,7 +308,7 @@ const spec = {
       RackUpdate: {
         type: 'object',
         properties: {
-          rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          rackType: { type: 'string', enum: ['STANDARD'] },
           maxLevels: { type: 'integer', minimum: 1 },
           status: { type: 'string', enum: ['ACTIVE', 'BLOCKED'] },
         },
@@ -773,7 +804,7 @@ const spec = {
           lpnId: uuid,
           lpnCode: { type: 'string' },
           weightKg: { type: 'number', nullable: true },
-          suggestedRackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+          suggestedRackType: { type: 'string', enum: ['STANDARD'] },
           thresholdKg: { type: 'number' },
           reason: { type: 'string' },
           warehouseId: uuid,
@@ -789,7 +820,7 @@ const spec = {
                 maxWeightKg: { type: 'number', nullable: true },
                 rackId: uuid,
                 rackCode: { type: 'string' },
-                rackType: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+                rackType: { type: 'string', enum: ['STANDARD'] },
                 zoneId: uuid,
                 zoneCode: { type: 'string' },
               },
@@ -797,9 +828,136 @@ const spec = {
           },
         },
       },
+      AiSlotRecommendationCreate: {
+        type: 'object',
+        required: ['lpnId', 'warehouseId'],
+        properties: {
+          lpnId: uuid,
+          warehouseId: uuid,
+          inboundRequestId: uuid,
+          explainWithLlm: {
+            type: 'boolean',
+            default: false,
+            description:
+              'If true, call Ollama (llama3.2:3b) for Vietnamese explanation. Bin choice stays rule-based.',
+          },
+        },
+      },
+      OllamaHealth: {
+        type: 'object',
+        properties: {
+          reachable: { type: 'boolean' },
+          enabled: { type: 'boolean' },
+          baseUrl: { type: 'string', example: 'http://127.0.0.1:11434' },
+          model: { type: 'string', example: 'llama3.2:3b' },
+          modelAvailable: { type: 'boolean' },
+          models: { type: 'array', items: { type: 'string' } },
+          message: { type: 'string' },
+        },
+      },
+      AiSlotLlmExplanation: {
+        type: 'object',
+        properties: {
+          recommendationId: uuid,
+          lpnCode: { type: 'string', nullable: true },
+          zoneCode: { type: 'string', nullable: true },
+          binCode: { type: 'string', nullable: true },
+          recommendationScore: { type: 'number', nullable: true },
+          reasons: { type: 'array', items: { type: 'string' } },
+          explanation: {
+            type: 'string',
+            description: 'Vietnamese explanation from Ollama',
+          },
+          llmModel: { type: 'string', example: 'llama3.2:3b' },
+          ollamaBaseUrl: { type: 'string' },
+          totalDurationNs: { type: 'integer', nullable: true },
+        },
+      },
+      AiSlotAlternative: {
+        type: 'object',
+        properties: {
+          recommendedZoneId: uuid,
+          recommendedBinId: uuid,
+          zoneCode: { type: 'string' },
+          binCode: { type: 'string' },
+          score: { type: 'number' },
+          reasons: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      AiSlotRecommendation: {
+        type: 'object',
+        properties: {
+          recommendationId: uuid,
+          inboundRequestId: { ...uuid, nullable: true },
+          lpnId: { ...uuid, nullable: true },
+          skuId: { ...uuid, nullable: true },
+          recommendedZoneId: { ...uuid, nullable: true },
+          recommendedBinId: { ...uuid, nullable: true },
+          recommendationScore: { type: 'number', nullable: true },
+          reason: {
+            type: 'string',
+            description: 'JSON: reasons, modelVersion, featureSnapshot',
+          },
+          isApplied: { type: 'boolean' },
+          createdAt: { type: 'string', format: 'date-time' },
+          parsedReason: { type: 'object', nullable: true },
+          alternatives: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AiSlotAlternative' },
+          },
+          zoneCode: { type: 'string', nullable: true },
+          binCode: { type: 'string', nullable: true },
+          suggestedRackType: {
+            type: 'string',
+            enum: ['STANDARD'],
+            nullable: true,
+          },
+          reasons: { type: 'array', items: { type: 'string' } },
+          featureSnapshot: { type: 'object', nullable: true },
+          modelVersion: { type: 'string', example: 'slotting-v1-rule' },
+          llmExplanation: { type: 'string', nullable: true },
+          llmModel: { type: 'string', nullable: true },
+          llmError: { type: 'string', nullable: true },
+          llmErrorCode: { type: 'string', nullable: true },
+        },
+      },
+      AiSlotRecommendationPreview: {
+        type: 'object',
+        properties: {
+          lpnId: uuid,
+          lpnCode: { type: 'string' },
+          tenantId: uuid,
+          warehouseId: uuid,
+          recommendedZoneId: uuid,
+          recommendedBinId: uuid,
+          zoneCode: { type: 'string' },
+          binCode: { type: 'string' },
+          score: { type: 'number' },
+          reasons: { type: 'array', items: { type: 'string' } },
+          featureSnapshot: { type: 'object' },
+          modelVersion: { type: 'string' },
+          suggestedRackType: { type: 'string', enum: ['STANDARD'] },
+          alternatives: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AiSlotAlternative' },
+          },
+          llmExplanation: { type: 'string', nullable: true },
+          llmModel: { type: 'string', nullable: true },
+          llmError: { type: 'string', nullable: true },
+          llmErrorCode: { type: 'string', nullable: true },
+        },
+      },
+      AiSlotRecommendationUpdate: {
+        type: 'object',
+        properties: {
+          isApplied: { type: 'boolean' },
+        },
+      },
       LpnCreate: {
         type: 'object',
-        required: ['tenantId', 'batchId', 'lpnCode', 'boxType'],
+        required: ['tenantId', 'batchId', 'lpnCode', 'boxType', 'volumeUnits'],
+        description:
+          '1 LPN = 1 thùng. `volumeUnits` theo `boxType`: SMALL=1, MEDIUM=2, LARGE=4, EXTRA=8.',
         properties: {
           tenantId: uuid,
           batchId: uuid,
@@ -811,7 +969,7 @@ const spec = {
           volumeUnits: {
             type: 'integer',
             minimum: 1,
-            description: 'Optional; auto from boxType if omitted',
+            description: 'SMALL=1, MEDIUM=2, LARGE=4, EXTRA=8 (align with boxType)',
           },
           maxCapacity: { type: 'integer', minimum: 1 },
           actualQuantity: { type: 'integer', minimum: 0, default: 0 },
@@ -928,8 +1086,16 @@ const spec = {
         type: 'object',
         required: ['email', 'password'],
         properties: {
-          email: { type: 'string', format: 'email' },
-          password: { type: 'string', format: 'password' },
+          email: {
+            type: 'string',
+            format: 'email',
+            example: 'admin@warehouse.local',
+          },
+          password: {
+            type: 'string',
+            format: 'password',
+            example: 'Admin@12345',
+          },
         },
       },
       UserCreate: {
@@ -948,11 +1114,13 @@ const spec = {
           },
           warehouseId: {
             ...uuid,
-            description: 'Required when SYSTEM_ADMIN creates WH_ADMIN / WH_STAFF',
+            description:
+              'Required when SYSTEM_ADMIN creates WH_ADMIN. WH_ADMIN creating WH_STAFF may omit (inherited from admin).',
           },
           tenantId: {
             ...uuid,
-            description: 'Required when SYSTEM_ADMIN creates TENANT_ADMIN / TENANT_STAFF',
+            description:
+              'Required when SYSTEM_ADMIN creates TENANT_ADMIN. TENANT_ADMIN creating TENANT_STAFF may omit (inherited).',
           },
           status: {
             type: 'string',
@@ -1016,17 +1184,19 @@ const spec = {
 
       RentalRequest: {
         type: 'object',
+        description:
+          'Guest chọn khu vực; `warehouseId` null cho đến khi một warehouse approve (claim).',
         properties: {
           rentalRequestId: uuid,
           requestCode: { type: 'string', example: 'RR-LX1A2B-0C' },
-          companyName: { type: 'string', example: 'ABC Fashion JSC' },
-          companyCode: { type: 'string', nullable: true },
-          taxCode: { type: 'string', nullable: true },
-          address: { type: 'string', nullable: true },
-          contactName: { type: 'string', nullable: true },
-          contactEmail: { type: 'string', nullable: true },
-          contactPhone: { type: 'string', nullable: true },
-          warehouseId: uuid,
+          tenantId: uuid,
+          city: { type: 'string', example: 'TP.HCM' },
+          district: { type: 'string', example: 'Quận 7' },
+          warehouseId: {
+            ...uuid,
+            nullable: true,
+            description: 'Null until a warehouse claims via PATCH status=APPROVED',
+          },
           contractType: {
             type: 'string',
             enum: [
@@ -1044,12 +1214,17 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
             nullable: true,
           },
           estimatedSkuCount: { type: 'integer', nullable: true },
           estimatedBoxCount: { type: 'integer', nullable: true },
           estimatedVolume: { type: 'number', nullable: true },
+          requestedAreaM2: {
+            type: 'number',
+            nullable: true,
+            description: 'Diện tích mong muốn (m²) — DEDICATED_WAREHOUSE / DEDICATED_ZONE',
+          },
           averageStorageDays: { type: 'integer', nullable: true },
           estimatedInboundPerWeek: { type: 'integer', nullable: true },
           estimatedOutboundPerWeek: { type: 'integer', nullable: true },
@@ -1058,12 +1233,12 @@ const spec = {
           notes: { type: 'string', nullable: true },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
             nullable: true,
           },
           suggestedRackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
             nullable: true,
           },
           expectedStartDate: { type: 'string', format: 'date-time', nullable: true },
@@ -1082,20 +1257,17 @@ const spec = {
       },
       RentalRequestCreate: {
         type: 'object',
-        required: ['warehouseId', 'companyName'],
+        description:
+          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve.',
+        required: ['tenantId', 'city', 'district'],
         properties: {
-          warehouseId: uuid,
+          tenantId: uuid,
+          city: { type: 'string', example: 'TP.HCM', description: 'Thành phố tenant muốn thuê kho' },
+          district: { type: 'string', example: 'Quận 7', description: 'Quận/huyện' },
           requestCode: {
             type: 'string',
-            description: 'Auto-generated if omitted',
+            description: 'Auto-generated RR-… if omitted',
           },
-          companyName: { type: 'string' },
-          companyCode: { type: 'string' },
-          taxCode: { type: 'string' },
-          address: { type: 'string' },
-          contactName: { type: 'string' },
-          contactEmail: { type: 'string', format: 'email' },
-          contactPhone: { type: 'string' },
           contractType: {
             type: 'string',
             enum: [
@@ -1111,11 +1283,16 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
           estimatedVolume: { type: 'number', minimum: 0 },
+          requestedAreaM2: {
+            type: 'number',
+            minimum: 0,
+            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone',
+          },
           averageStorageDays: { type: 'integer', minimum: 0 },
           estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
           estimatedOutboundPerWeek: { type: 'integer', minimum: 0 },
@@ -1124,11 +1301,11 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           suggestedRackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
           },
           expectedStartDate: { type: 'string', format: 'date-time' },
           expectedEndDate: { type: 'string', format: 'date-time' },
@@ -1137,6 +1314,7 @@ const spec = {
             enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
             default: 'PENDING',
           },
+          createdBy: { ...uuid, description: 'Optional UUID user' },
         },
       },
       Contract: {
@@ -1163,7 +1341,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
             nullable: true,
           },
           allowDynamicRelocation: { type: 'boolean' },
@@ -1225,7 +1403,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
             default: 'MONTHLY',
           },
           allowDynamicRelocation: { type: 'boolean', default: true },
@@ -1256,7 +1434,11 @@ const spec = {
       ContractUpdate: {
         type: 'object',
         description:
-          'Status workflow: DRAFT → PENDING_APPROVAL → ACTIVE (sau khi đủ 2 chữ ký).',
+          'Workflow ký HĐ:\n' +
+          '- Submit: `{ status: PENDING_APPROVAL }`\n' +
+          '- Tenant ký: `{ tenantSignature }`\n' +
+          '- Warehouse ký + active: `{ warehouseSignature, approvedBy, status: ACTIVE }`\n' +
+          '- Huỷ/kết thúc: `{ status: TERMINATED }` hoặc `{ status: CANCELLED }`',
         properties: {
           contractName: { type: 'string' },
           contractType: {
@@ -1274,7 +1456,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
           allowDynamicRelocation: { type: 'boolean' },
           autoRenew: { type: 'boolean' },
@@ -1520,6 +1702,7 @@ const spec = {
       },
       TenantCompanyCreate: {
         type: 'object',
+        description: 'Flow 1 bước 1 — guest tạo hồ sơ công ty trước khi gửi rental request.',
         required: ['companyName'],
         properties: {
           companyName: { type: 'string' },
@@ -1553,15 +1736,13 @@ const spec = {
       RentalRequestUpdate: {
         type: 'object',
         description:
-          'Status workflow: PENDING → UNDER_REVIEW → APPROVED → CONVERTED (or REJECTED).',
+          'Workflow review:\n' +
+          '- UNDER_REVIEW: `{ status, reviewedBy }`\n' +
+          '- APPROVE + claim (first wins): `{ status: APPROVED, warehouseId, reviewedBy, reviewedAt?, reviewNote? }`\n' +
+          '- REJECT: `{ status: REJECTED, reviewedBy, rejectionReason }`\n' +
+          '- CONVERTED: sau khi tạo contract\n' +
+          'Cập nhật thông tin công ty qua `PATCH /tenants/{tenantId}`.',
         properties: {
-          companyName: { type: 'string' },
-          companyCode: { type: 'string' },
-          taxCode: { type: 'string' },
-          address: { type: 'string' },
-          contactName: { type: 'string' },
-          contactEmail: { type: 'string', format: 'email' },
-          contactPhone: { type: 'string' },
           contractType: {
             type: 'string',
             enum: [
@@ -1577,11 +1758,16 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY'],
+            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
           estimatedVolume: { type: 'number', minimum: 0 },
+          requestedAreaM2: {
+            type: 'number',
+            minimum: 0,
+            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone',
+          },
           averageStorageDays: { type: 'integer', minimum: 0 },
           estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
           estimatedOutboundPerWeek: { type: 'integer', minimum: 0 },
@@ -1590,11 +1776,11 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
           },
           suggestedRackType: {
             type: 'string',
-            enum: ['STANDARD', 'HIGH_CAPACITY'],
+            enum: ['STANDARD'],
           },
           expectedStartDate: { type: 'string', format: 'date-time' },
           expectedEndDate: { type: 'string', format: 'date-time' },
@@ -1606,6 +1792,11 @@ const spec = {
           reviewedAt: { type: 'string', format: 'date-time' },
           rejectionReason: { type: 'string' },
           reviewNote: { type: 'string' },
+          warehouseId: {
+            ...uuid,
+            description:
+              'Required when status=APPROVED — claims the request for this warehouse (first approve wins).',
+          },
         },
       },
     },
@@ -1903,9 +2094,19 @@ const spec = {
     '/api/warehouses/{warehouseId}/rental-requests': {
       get: {
         tags: ['Warehouse', 'RentalRequest'],
-        summary: 'List rental requests for a warehouse',
+        summary: 'Warehouse regional inbox (unclaimed rental requests)',
+        description:
+          'Default `regionMatch=true`: PENDING/unclaimed requests matching warehouse `city` + `district`. ' +
+          'Equivalent: `GET /rental-requests?warehouseId={id}&regionMatch=true`.',
         parameters: [
           { in: 'path', name: 'warehouseId', required: true, schema: uuid },
+          { in: 'query', name: 'tenantId', schema: uuid },
+          {
+            in: 'query',
+            name: 'regionMatch',
+            schema: { type: 'boolean', default: true },
+            description: 'Default true — unclaimed requests in same city/district as warehouse.',
+          },
           {
             in: 'query',
             name: 'status',
@@ -2011,7 +2212,7 @@ const spec = {
             name: 'zoneType',
             schema: {
               type: 'string',
-              enum: ['SHARED', 'FAST_MOVING', 'BULK', 'PREMIUM', 'QC', 'RETURN'],
+              enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
             },
           },
           { $ref: '#/components/parameters/page' },
@@ -2106,7 +2307,7 @@ const spec = {
           {
             in: 'query',
             name: 'rackType',
-            schema: { type: 'string', enum: ['STANDARD', 'HIGH_CAPACITY'] },
+            schema: { type: 'string', enum: ['STANDARD'] },
           },
           { $ref: '#/components/parameters/page' },
           { $ref: '#/components/parameters/limit' },
@@ -3002,7 +3203,9 @@ const spec = {
       },
       post: {
         tags: ['LPN'],
-        summary: 'Create LPN',
+        summary: 'Create LPN (carton after receiving)',
+        description:
+          'Requires batch from inbound receiving. Set `weightKg` for rack-suggestion. Migration: `npm run db:migrate:lpn-weight`.',
         requestBody: {
           required: true,
           content: {
@@ -3016,6 +3219,135 @@ const spec = {
           400: stdErrors[400],
           404: stdErrors[404],
           409: stdErrors[409],
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/ollama/health': {
+      get: {
+        tags: ['AI'],
+        summary: 'Check Ollama connection and model availability',
+        description:
+          'Default Ollama URL http://127.0.0.1:11434, model llama3.2:3b (OLLAMA_BASE_URL, OLLAMA_MODEL).',
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/OllamaHealth' }),
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/preview': {
+      post: {
+        tags: ['AI'],
+        summary: 'Preview putaway slot recommendation (no DB write)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotRecommendationCreate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotRecommendationPreview' },
+            'Slot recommendation preview'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/ai/slot-recommendations': {
+      post: {
+        tags: ['AI'],
+        summary: 'Create and persist top putaway slot recommendation',
+        description:
+          'Rule engine scores bins by free capacity, tenant reservation, same-SKU zone, rack type. Stores row in ai_slot_recommendations.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotRecommendationCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotRecommendation' },
+            'Slot recommendation created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      get: {
+        tags: ['AI'],
+        summary: 'List AI slot recommendations',
+        parameters: [
+          { in: 'query', name: 'lpnId', schema: uuid },
+          { in: 'query', name: 'inboundRequestId', schema: uuid },
+          { in: 'query', name: 'isApplied', schema: { type: 'boolean' } },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/AiSlotRecommendation' }),
+          400: stdErrors[400],
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/{recommendationId}/explain': {
+      get: {
+        tags: ['AI'],
+        summary: 'Explain recommendation in Vietnamese (Ollama / Llama)',
+        description:
+          'Calls local Ollama. Does not change recommended bin — rule engine decision only.',
+        parameters: [
+          { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotLlmExplanation' },
+            'Slot recommendation explained'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          503: stdErrors[503],
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/{recommendationId}': {
+      get: {
+        tags: ['AI'],
+        summary: 'Get AI slot recommendation by ID',
+        parameters: [
+          { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/AiSlotRecommendation' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['AI'],
+        summary: 'Update recommendation (e.g. mark applied after putaway)',
+        parameters: [
+          { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotRecommendationUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotRecommendation' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
         },
       },
     },
@@ -3168,17 +3500,84 @@ const spec = {
       },
     },
 
+    '/api/rental-requests/guest/lookup': {
+      get: {
+        tags: ['RentalRequest'],
+        summary: 'Lookup rental request by code (guest)',
+        description:
+          'Public tra cứu trạng thái yêu cầu thuê bằng `requestCode` + `contactEmail` đã đăng ký. Không cần đăng nhập. Trả 404 chung nếu mã hoặc email không khớp.',
+        parameters: [
+          {
+            in: 'query',
+            name: 'code',
+            required: true,
+            schema: { type: 'string', example: 'RR-M5ABC-01' },
+          },
+          {
+            in: 'query',
+            name: 'email',
+            required: true,
+            schema: { type: 'string', format: 'email', example: 'contact@company.com' },
+            description: 'Email liên hệ khi tạo tenant (`POST /tenants`)',
+          },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              requestCode: { type: 'string' },
+              status: {
+                type: 'string',
+                enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
+              },
+              companyName: { type: 'string' },
+              city: { type: 'string' },
+              district: { type: 'string' },
+              contractType: { type: 'string', nullable: true },
+              pricingModel: { type: 'string', nullable: true },
+              billingCycle: { type: 'string', nullable: true },
+              warehouseName: { type: 'string', nullable: true },
+              rejectionReason: { type: 'string', nullable: true },
+              createdAt: { type: 'string', format: 'date-time', nullable: true },
+              reviewedAt: { type: 'string', format: 'date-time', nullable: true },
+            },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
     '/api/rental-requests': {
       get: {
         tags: ['RentalRequest'],
-        summary: 'List rental requests (all warehouses or filter by warehouseId)',
+        summary: 'List rental requests',
+        description:
+          'Query filters:\n' +
+          '- `warehouseId` + `regionMatch=true` — inbox kho: yêu cầu **chưa claim** cùng city/district\n' +
+          '- `warehouseId` (không regionMatch) — yêu cầu **đã gán** cho kho đó\n' +
+          '- `city`, `district`, `tenantId`, `status`, `contractType`, `pricingModel`',
         parameters: [
+          {
+            in: 'query',
+            name: 'tenantId',
+            schema: uuid,
+          },
           {
             in: 'query',
             name: 'warehouseId',
             schema: uuid,
             description: 'Filter by warehouse; or use GET /api/warehouses/{warehouseId}/rental-requests',
           },
+          {
+            in: 'query',
+            name: 'regionMatch',
+            schema: { type: 'boolean', default: false },
+            description:
+              'With warehouseId: list unclaimed requests matching that warehouse city/district.',
+          },
+          { in: 'query', name: 'city', schema: { type: 'string' } },
+          { in: 'query', name: 'district', schema: { type: 'string' } },
           {
             in: 'query',
             name: 'status',
@@ -3215,7 +3614,9 @@ const spec = {
       },
       post: {
         tags: ['RentalRequest'],
-        summary: 'Create rental request',
+        summary: 'Create rental request (guest — by region)',
+        description:
+          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê. Public — no auth.',
         requestBody: {
           required: true,
           content: {
@@ -3255,7 +3656,8 @@ const spec = {
       },
       post: {
         tags: ['TenantCompany'],
-        summary: 'Create tenant company',
+        summary: 'Create tenant company (guest onboarding step 1)',
+        description: 'Public — no auth. Guest creates company profile before rental request.',
         requestBody: {
           required: true,
           content: {
@@ -3336,7 +3738,10 @@ const spec = {
       },
       patch: {
         tags: ['RentalRequest'],
-        summary: 'Update rental request (incl. status review/approval)',
+        summary: 'Update rental request / approve & claim warehouse',
+        description:
+          'Unclaimed request: only `APPROVED` (with `warehouseId`) or `REJECTED`. ' +
+          'Approve sets `warehouseId` atomically — other warehouses get 409 ALREADY_CLAIMED.',
         parameters: [
           { in: 'path', name: 'rentalRequestId', required: true, schema: uuid },
         ],
@@ -3355,6 +3760,7 @@ const spec = {
           ),
           400: stdErrors[400],
           404: stdErrors[404],
+          409: stdErrors[409],
         },
       },
       delete: {

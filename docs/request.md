@@ -133,6 +133,8 @@ Base URL: `http://localhost:3000/api`
 | `warehouseCode` | ✅ | — | Unique |
 | `warehouseName` | ✅ | — | |
 | `address` | | — | |
+| `city` | | — | Thành phố (match rental request theo khu vực) |
+| `district` | | — | Quận/huyện (match rental request theo khu vực) |
 | `totalAreaM2` | | — | |
 | `usableAreaM2` | | — | |
 | `status` | | `ACTIVE` | `ACTIVE`, `INACTIVE`, `MAINTENANCE`, `CLOSED` |
@@ -142,6 +144,8 @@ Base URL: `http://localhost:3000/api`
   "warehouseCode": "WH-HCM-01",
   "warehouseName": "Kho HCM Trung tâm",
   "address": "Quận 7, TP.HCM",
+  "city": "TP.HCM",
+  "district": "Quận 7",
   "totalAreaM2": 5000,
   "usableAreaM2": 4200,
   "status": "ACTIVE"
@@ -881,6 +885,17 @@ POST /api/lpn-details
 GET /api/lpns/{lpnId}/details
 GET /api/lpn-details?lpnId={lpnId}
 
+# 3b. AI gợi ý bin putaway (rule engine + Ollama giải thích)
+GET  /api/ai/slot-recommendations/ollama/health
+POST /api/ai/slot-recommendations/preview
+    { "lpnId": "...", "warehouseId": "...", "explainWithLlm": true }
+POST /api/ai/slot-recommendations
+    { "lpnId": "...", "warehouseId": "..." }
+GET  /api/ai/slot-recommendations/{recommendationId}/explain
+GET  /api/ai/slot-recommendations?lpnId=...
+PATCH /api/ai/slot-recommendations/{recommendationId}
+    { "isApplied": true }
+
 # 4. Putaway — gán bin
 PATCH /api/lpns/{lpnId}
     { "currentBinId": "...", "status": "STORED" }
@@ -951,19 +966,17 @@ Base URL: `http://localhost:3000/api`
 
 ## 6. Rental Request
 
+Guest chọn **khu vực** (city/district), không chọn kho cụ thể. Các warehouse cùng khu vực nhận yêu cầu; **kho approve sớm nhất** được gán (`warehouseId`).
+
 ### `POST /rental-requests`
 
 | Field | Bắt buộc | Mặc định | Ghi chú |
 |-------|----------|----------|---------|
-| `warehouseId` | ✅ | — | UUID kho |
-| `companyName` | ✅ | — | |
+| `tenantId` | ✅ | — | UUID tenant (đã tạo ở `POST /tenants`) |
+| `city` | ✅ | — | Thành phố tenant muốn thuê kho |
+| `district` | ✅ | — | Quận/huyện |
 | `requestCode` | | auto `RR-…` | Unique; tự sinh nếu bỏ trống |
-| `companyCode` | | — | |
-| `taxCode` | | — | |
-| `address` | | — | |
-| `contactName` | | — | |
-| `contactEmail` | | — | |
-| `contactPhone` | | — | |
+| `warehouseId` | | `null` | **Không gửi lúc tạo** — set khi warehouse approve |
 | `contractType` | | — | enum `contractType` |
 | `pricingModel` | | — | enum `pricingModel` |
 | `billingCycle` | | — | enum `billingCycle` |
@@ -984,14 +997,9 @@ Base URL: `http://localhost:3000/api`
 
 ```json
 {
-  "warehouseId": "uuid-warehouse",
-  "companyName": "ABC Fashion JSC",
-  "companyCode": "ABC-FS",
-  "taxCode": "0312345678",
-  "address": "Quận 1, TP.HCM",
-  "contactName": "Nguyễn Văn A",
-  "contactEmail": "ceo@abc-fashion.vn",
-  "contactPhone": "0901234567",
+  "tenantId": "uuid-tenant",
+  "city": "TP.HCM",
+  "district": "Quận 7",
   "contractType": "SHARED_STORAGE",
   "pricingModel": "USAGE_BASED",
   "billingCycle": "MONTHLY",
@@ -1013,13 +1021,18 @@ Base URL: `http://localhost:3000/api`
 
 ### `GET /rental-requests`
 
-Query tuỳ chọn: `warehouseId`, `status`, `contractType`, `pricingModel`, `page`, `limit`
+Query tuỳ chọn: `tenantId`, `warehouseId`, `regionMatch`, `city`, `district`, `status`, `contractType`, `pricingModel`, `page`, `limit`
 
-### `GET /warehouses/:warehouseId/rental-requests` (theo từng kho)
+| Query | Ghi chú |
+|-------|---------|
+| `warehouseId` + `regionMatch=true` | Inbox kho: yêu cầu **chưa claim** (`warehouseId` null) cùng city/district với kho |
+| `warehouseId` (không regionMatch) | Yêu cầu **đã gán** cho kho đó |
 
-Lấy danh sách rental request **của một warehouse** (`warehouseId` trong path).
+### `GET /warehouses/:warehouseId/rental-requests` (inbox theo khu vực)
 
-Query tuỳ chọn: `status`, `contractType`, `pricingModel`, `page`, `limit`
+Mặc định `regionMatch=true`: lấy yêu cầu **chưa claim** trùng city/district với warehouse trong path.
+
+Query tuỳ chọn: `tenantId`, `regionMatch`, `status`, `contractType`, `pricingModel`, `page`, `limit`
 
 ```http
 GET /api/warehouses/{warehouseId}/rental-requests?status=PENDING&page=1&limit=20
@@ -1034,7 +1047,7 @@ GET /api/warehouses/2084bdca-8320-439c-8e37-e0d37fa3d7c9/rental-requests?status=
 Cách tương đương (query thay vì path):
 
 ```http
-GET /api/rental-requests?warehouseId=2084bdca-8320-439c-8e37-e0d37fa3d7c9&status=PENDING
+GET /api/rental-requests?warehouseId=2084bdca-8320-439c-8e37-e0d37fa3d7c9&regionMatch=true&status=PENDING
 ```
 
 ### `PATCH /rental-requests/:rentalRequestId`
@@ -1044,11 +1057,11 @@ Dùng để cập nhật hồ sơ + xử lý workflow review:
 | Status flow | Body gợi ý |
 |-------------|------------|
 | Bắt đầu review | `{ "status": "UNDER_REVIEW", "reviewedBy": "uuid-user" }` |
-| Approve | `{ "status": "APPROVED", "reviewedBy": "uuid-user", "reviewedAt": "2026-05-19T08:00:00Z", "reviewNote": "OK" }` |
+| Approve (claim — kho nhanh nhất) | `{ "status": "APPROVED", "warehouseId": "uuid-warehouse", "reviewedBy": "uuid-user", "reviewedAt": "...", "reviewNote": "OK" }` |
 | Reject | `{ "status": "REJECTED", "reviewedBy": "uuid-user", "rejectionReason": "Hồ sơ thiếu tax code" }` |
 | Đã tạo tenant + contract | `{ "status": "CONVERTED" }` |
 
-Các field thông tin (`companyName`, `contactEmail`, `estimated*`, `suggested*`, …) cũng có thể PATCH cùng.
+Các field thông tin thuê (`estimated*`, `suggested*`, …) cũng có thể PATCH cùng. Thông tin công ty cập nhật qua `PATCH /tenants/:tenantId`.
 
 ---
 
@@ -1282,19 +1295,18 @@ Chỉ cho cập nhật: `reservationType`, `reservedCapacity`, `boxType`, `start
 ## Ví dụ flow Tenant Onboarding (Flow 1)
 
 ```http
-# 1. Tenant submit rental request
-POST /api/rental-requests
-    { "warehouseId": "...", "companyName": "ABC Fashion", ... }
-
-# 2. WH_ADMIN review → APPROVED
-PATCH /api/rental-requests/{rentalRequestId}
-    { "status": "UNDER_REVIEW", "reviewedBy": "..." }
-PATCH /api/rental-requests/{rentalRequestId}
-    { "status": "APPROVED", "reviewedAt": "...", "reviewNote": "OK" }
-
-# 3. Tạo tenant company
+# 1. Guest tạo tenant company
 POST /api/tenants
     { "companyName": "ABC Fashion JSC", ... }
+
+# 2. Guest gửi rental request theo khu vực
+POST /api/rental-requests
+    { "tenantId": "...", "city": "TP.HCM", "district": "Quận 7", ... }
+
+# 3. WH_ADMIN inbox (cùng khu vực) → approve + claim
+GET /api/warehouses/{warehouseId}/rental-requests?status=PENDING
+PATCH /api/rental-requests/{rentalRequestId}
+    { "status": "APPROVED", "warehouseId": "...", "reviewedBy": "..." }
 
 # 4. Tạo contract gắn rental_request_id
 POST /api/contracts

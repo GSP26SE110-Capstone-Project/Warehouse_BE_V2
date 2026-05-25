@@ -15,7 +15,7 @@ export const CONTRACT_TYPE = Object.freeze([
 
 export const PRICING_MODEL = Object.freeze(['USAGE_BASED', 'FIXED', 'HYBRID']);
 
-export const BILLING_CYCLE = Object.freeze(['DAILY', 'MONTHLY', 'QUARTERLY']);
+export const BILLING_CYCLE = Object.freeze(['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY']);
 
 export const TENANT_STATUS = Object.freeze(['ACTIVE', 'SUSPENDED']);
 
