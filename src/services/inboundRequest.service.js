@@ -3,6 +3,7 @@ import AppError from '../utils/AppError.js';
 import { INBOUND_STATUS } from '../constants/inbound.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertInboundStatusTransition } from '../utils/inboundStatus.js';
+import { assertNoInboundReceivingActivity } from './inboundApprovalReadiness.service.js';
 import { getContract } from './contract.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
@@ -241,6 +242,13 @@ export async function updateInboundRequest(inboundRequestId, body) {
 
   if (data.status !== undefined && data.status !== existing.status) {
     assertInboundStatusTransition(existing.status, data.status);
+    if (existing.status === 'APPROVED' && data.status === 'PENDING') {
+      await assertNoInboundReceivingActivity(id);
+      data.approvedBy = null;
+    }
+    if (data.status === 'CANCELLED' && ['APPROVED', 'ARRIVED'].includes(existing.status)) {
+      await assertNoInboundReceivingActivity(id);
+    }
   }
 
   return InboundRequest.updateById(id, data);

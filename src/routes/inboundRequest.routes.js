@@ -17,6 +17,11 @@ router.post(
   asyncHandler(inboundRequestItemController.create)
 );
 
+router.get(
+  '/:inboundRequestId/approval-readiness',
+  asyncHandler(inboundRequestController.getApprovalReadiness)
+);
+
 router.post(
   '/:inboundRequestId/start-receiving',
   asyncHandler(inboundRequestController.startReceiving)

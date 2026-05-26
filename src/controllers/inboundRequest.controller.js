@@ -1,6 +1,7 @@
 import * as inboundRequestService from '../services/inboundRequest.service.js';
 import * as inboundRequestItemService from '../services/inboundRequestItem.service.js';
 import * as inboundWorkflowService from '../services/inboundWorkflow.service.js';
+import * as inboundApprovalReadinessService from '../services/inboundApprovalReadiness.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -19,6 +20,13 @@ export async function list(req, res) {
   });
 
   paginated(res, result.items, result.meta);
+}
+
+export async function getApprovalReadiness(req, res) {
+  const readiness = await inboundApprovalReadinessService.getInboundApprovalReadiness(
+    req.params.inboundRequestId
+  );
+  success(res, readiness);
 }
 
 export async function getById(req, res) {
