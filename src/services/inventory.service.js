@@ -3,13 +3,10 @@ import Inventory from '../models/Inventory.js';
 import InventoryMovement from '../models/InventoryMovement.js';
 import Bin from '../models/Bin.js';
 import AppError from '../utils/AppError.js';
-import { INVENTORY_STATUS, MOVEMENT_TYPE } from '../constants/inventory.js';
+import { INVENTORY_STATUS } from '../constants/inventory.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getSku } from './sku.service.js';
-import { getBatch } from './batch.service.js';
-import { getLpn } from './lpn.service.js';
-import { getBin } from './bin.service.js';
 
 function mapInventoryRow(row) {
   if (!row) return null;

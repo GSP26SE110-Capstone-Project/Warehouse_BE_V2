@@ -8,6 +8,7 @@ router.post('/', asyncHandler(lpnController.create));
 router.get('/', asyncHandler(lpnController.list));
 router.get('/:lpnId/details', asyncHandler(lpnController.getWithDetails));
 router.get('/:lpnId/rack-suggestion', asyncHandler(lpnController.getRackSuggestion));
+router.post('/:lpnId/putaway', asyncHandler(lpnController.putaway));
 router.get('/:lpnId', asyncHandler(lpnController.getById));
 router.patch('/:lpnId', asyncHandler(lpnController.update));
 router.delete('/:lpnId', asyncHandler(lpnController.remove));

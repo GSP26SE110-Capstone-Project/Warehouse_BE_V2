@@ -124,12 +124,12 @@ export async function completeInbound(inboundRequestId, body = {}) {
 }
 
 export async function putawayLpn(lpnId, body) {
-  const lpnUuid = parseUuid(lpnId, 'lpnId');
-  const binId = parseUuid(body.binId, 'binId');
-
-  if (!body.binId) {
+  if (!body?.binId) {
     throw new AppError('binId is required', 400, 'VALIDATION_ERROR');
   }
+
+  const lpnUuid = parseUuid(lpnId, 'lpnId');
+  const binId = parseUuid(body.binId, 'binId');
 
   const lpn = await getLpnWithDetails(lpnUuid);
 
