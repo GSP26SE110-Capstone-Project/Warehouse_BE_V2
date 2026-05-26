@@ -2,6 +2,7 @@ import InboundRequest from '../models/InboundRequest.js';
 import AppError from '../utils/AppError.js';
 import { INBOUND_STATUS } from '../constants/inbound.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
+import { assertInboundStatusTransition } from '../utils/inboundStatus.js';
 import { getContract } from './contract.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
@@ -234,9 +235,14 @@ export async function createInboundRequest(body) {
 
 export async function updateInboundRequest(inboundRequestId, body) {
   const id = parseUuid(inboundRequestId, 'inboundRequestId');
-  await getInboundRequest(id);
+  const existing = await getInboundRequest(id);
 
   const data = normalizeUpdatePayload(body);
+
+  if (data.status !== undefined && data.status !== existing.status) {
+    assertInboundStatusTransition(existing.status, data.status);
+  }
+
   return InboundRequest.updateById(id, data);
 }
 
