@@ -2,6 +2,7 @@ import * as inboundRequestService from '../services/inboundRequest.service.js';
 import * as inboundRequestItemService from '../services/inboundRequestItem.service.js';
 import * as inboundWorkflowService from '../services/inboundWorkflow.service.js';
 import * as inboundApprovalReadinessService from '../services/inboundApprovalReadiness.service.js';
+import * as inboundDeliveryService from '../services/inboundDelivery.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -32,10 +33,19 @@ export async function getApprovalReadiness(req, res) {
 export async function getById(req, res) {
   const includeItems =
     req.query.includeItems === 'true' || req.query.includeItems === '1';
+  const includeDelivery =
+    req.query.includeDelivery === 'true' || req.query.includeDelivery === '1';
 
-  const inbound = includeItems
+  let inbound = includeItems
     ? await inboundRequestItemService.getInboundRequestWithItems(req.params.inboundRequestId)
     : await inboundRequestService.getInboundRequest(req.params.inboundRequestId);
+
+  if (includeDelivery) {
+    const delivery = await inboundDeliveryService.getInboundDeliveryByRequestId(
+      req.params.inboundRequestId
+    );
+    inbound = { ...inbound, delivery };
+  }
 
   success(res, inbound);
 }

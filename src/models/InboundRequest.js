@@ -25,6 +25,10 @@ export const inboundRequestSchema = {
     required: true,
     unique: true,
   },
+  deliveryMode: {
+    type: 'string',
+    required: false,
+  },
   expectedArrivalDate: {
     type: 'datetime',
     required: false,

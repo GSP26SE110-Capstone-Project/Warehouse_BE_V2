@@ -31,6 +31,7 @@ DO $do$ BEGIN CREATE TYPE box_type_enum AS ENUM ('SMALL','MEDIUM','LARGE','EXTRA
 DO $do$ BEGIN CREATE TYPE movement_category_enum AS ENUM ('FAST','NORMAL','SLOW'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE sku_status_enum AS ENUM ('ACTIVE','INACTIVE'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE inbound_status_enum AS ENUM ('DRAFT','PENDING','APPROVED','ARRIVED','RECEIVING','COMPLETED','CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
+DO $do$ BEGIN CREATE TYPE delivery_mode_enum AS ENUM ('TENANT_SELF','WAREHOUSE_TRANSPORT'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE lpn_status_enum AS ENUM ('RECEIVING','STORED','PICKED','SHIPPED','DAMAGED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE inventory_status_enum AS ENUM ('AVAILABLE','RESERVED','PICKED','DAMAGED','IN_TRANSIT','SHIPPED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE movement_type_enum AS ENUM ('INBOUND','PUTAWAY','RELOCATION','PICKING','OUTBOUND','SHIPPING','ADJUSTMENT'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
@@ -347,6 +348,7 @@ CREATE TABLE IF NOT EXISTS inbound_requests (
   contract_id UUID NOT NULL REFERENCES contracts (contract_id),
   warehouse_id UUID NOT NULL REFERENCES warehouses (warehouse_id),
   inbound_code VARCHAR(100) NOT NULL UNIQUE,
+  delivery_mode delivery_mode_enum DEFAULT 'TENANT_SELF',
   expected_arrival_date TIMESTAMPTZ,
   actual_arrival_at TIMESTAMPTZ,
   status inbound_status_enum DEFAULT 'PENDING',
@@ -361,6 +363,24 @@ CREATE INDEX IF NOT EXISTS idx_inbound_requests_tenant_id ON inbound_requests (t
 CREATE INDEX IF NOT EXISTS idx_inbound_requests_contract_id ON inbound_requests (contract_id);
 CREATE INDEX IF NOT EXISTS idx_inbound_requests_warehouse_id ON inbound_requests (warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_inbound_requests_status ON inbound_requests (status);
+
+CREATE TABLE IF NOT EXISTS inbound_deliveries (
+  inbound_delivery_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  inbound_request_id UUID NOT NULL UNIQUE REFERENCES inbound_requests (inbound_request_id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenant_companies (tenant_id),
+  vehicle_plate VARCHAR(32) NOT NULL,
+  driver_name VARCHAR(255),
+  driver_phone VARCHAR(50),
+  driver_id_number VARCHAR(50),
+  carrier_name VARCHAR(255),
+  scheduled_at TIMESTAMPTZ,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbound_deliveries_tenant_id ON inbound_deliveries (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_deliveries_vehicle_plate ON inbound_deliveries (vehicle_plate);
 
 CREATE TABLE IF NOT EXISTS inbound_request_items (
   inbound_request_item_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -531,6 +551,10 @@ CREATE TABLE IF NOT EXISTS shipments (
   shipment_code VARCHAR(100) UNIQUE,
   carrier_name VARCHAR(255),
   tracking_number VARCHAR(255),
+  vehicle_plate VARCHAR(32),
+  driver_name VARCHAR(255),
+  driver_phone VARCHAR(50),
+  driver_id_number VARCHAR(50),
   status shipment_status_enum DEFAULT 'READY',
   shipped_at TIMESTAMPTZ,
   delivered_at TIMESTAMPTZ,

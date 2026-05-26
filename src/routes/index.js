@@ -21,6 +21,7 @@ import inboundRequestRoutes from './inboundRequest.routes.js';
 import inboundRequestItemRoutes from './inboundRequestItem.routes.js';
 import inventoryRoutes from './inventory.routes.js';
 import outboundRequestRoutes from './outboundRequest.routes.js';
+import shipmentRoutes from './shipment.routes.js';
 import aiSlotRecommendationRoutes from './aiSlotRecommendation.routes.js';
 import batchRoutes from './batch.routes.js';
 import skuRoutes from './sku.routes.js';
@@ -60,6 +61,8 @@ router.use('/lpn-details', lpnDetailRoutes);
 router.use('/inbound-requests', inboundRequestRoutes);
 router.use('/inbound-request-items', inboundRequestItemRoutes);
 router.use('/inventories', inventoryRoutes);
+router.use('/outbound-requests', outboundRequestRoutes);
+router.use('/shipments', shipmentRoutes);
 
 router.get(
   '/health',

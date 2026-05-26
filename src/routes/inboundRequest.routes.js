@@ -2,6 +2,7 @@ import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
 import * as inboundRequestController from '../controllers/inboundRequest.controller.js';
 import * as inboundRequestItemController from '../controllers/inboundRequestItem.controller.js';
+import * as inboundDeliveryController from '../controllers/inboundDelivery.controller.js';
 
 const router = Router();
 
@@ -20,6 +21,19 @@ router.post(
 router.get(
   '/:inboundRequestId/approval-readiness',
   asyncHandler(inboundRequestController.getApprovalReadiness)
+);
+
+router.get(
+  '/:inboundRequestId/delivery',
+  asyncHandler(inboundDeliveryController.getByInboundRequest)
+);
+router.put(
+  '/:inboundRequestId/delivery',
+  asyncHandler(inboundDeliveryController.upsert)
+);
+router.delete(
+  '/:inboundRequestId/delivery',
+  asyncHandler(inboundDeliveryController.remove)
 );
 
 router.post(

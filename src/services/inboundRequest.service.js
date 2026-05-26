@@ -1,6 +1,8 @@
 import InboundRequest from '../models/InboundRequest.js';
 import AppError from '../utils/AppError.js';
 import { INBOUND_STATUS } from '../constants/inbound.js';
+import { DELIVERY_MODE } from '../constants/delivery.js';
+import { assertInboundHasDeliveryForGate } from './inboundDelivery.service.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertInboundStatusTransition } from '../utils/inboundStatus.js';
 import { assertNoInboundReceivingActivity } from './inboundApprovalReadiness.service.js';
@@ -13,6 +15,7 @@ const CREATE_FIELDS = [
   'contractId',
   'warehouseId',
   'inboundCode',
+  'deliveryMode',
   'expectedArrivalDate',
   'actualArrivalAt',
   'status',
@@ -22,6 +25,7 @@ const CREATE_FIELDS = [
 ];
 
 const UPDATE_FIELDS = [
+  'deliveryMode',
   'expectedArrivalDate',
   'actualArrivalAt',
   'status',
@@ -117,6 +121,9 @@ function normalizeCreatePayload(body) {
 
   if (data.status == null) data.status = 'PENDING';
   assertEnum(data.status, INBOUND_STATUS, 'status');
+
+  if (data.deliveryMode == null) data.deliveryMode = 'TENANT_SELF';
+  assertEnum(data.deliveryMode, DELIVERY_MODE, 'deliveryMode');
 
   if (data.createdBy != null) data.createdBy = parseOptionalUserId(data.createdBy, 'createdBy');
   if (data.approvedBy != null) data.approvedBy = parseOptionalUserId(data.approvedBy, 'approvedBy');
@@ -240,6 +247,10 @@ export async function updateInboundRequest(inboundRequestId, body) {
 
   const data = normalizeUpdatePayload(body);
 
+  if (data.deliveryMode !== undefined) {
+    assertEnum(data.deliveryMode, DELIVERY_MODE, 'deliveryMode');
+  }
+
   if (data.status !== undefined && data.status !== existing.status) {
     assertInboundStatusTransition(existing.status, data.status);
     if (existing.status === 'APPROVED' && data.status === 'PENDING') {
@@ -248,6 +259,9 @@ export async function updateInboundRequest(inboundRequestId, body) {
     }
     if (data.status === 'CANCELLED' && ['APPROVED', 'ARRIVED'].includes(existing.status)) {
       await assertNoInboundReceivingActivity(id);
+    }
+    if (data.status === 'ARRIVED') {
+      await assertInboundHasDeliveryForGate(id);
     }
   }
 
