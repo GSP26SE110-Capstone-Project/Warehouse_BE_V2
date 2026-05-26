@@ -2,6 +2,7 @@ import Batch from '../models/Batch.js';
 import AppError from '../utils/AppError.js';
 import { parseUuid } from '../utils/validate.js';
 import { getInboundRequest } from './inboundRequest.service.js';
+import { assertInboundAllowsReceivingOps } from '../utils/inboundGuards.js';
 
 const CREATE_FIELDS = ['inboundRequestId', 'batchCode', 'warehouseReceivedAt'];
 
@@ -112,7 +113,7 @@ export async function listBatches({ inboundRequestId, page, limit, offset }) {
 
 export async function createBatch(body) {
   const data = normalizeCreatePayload(body);
-  await getInboundRequest(data.inboundRequestId);
+  await assertInboundAllowsReceivingOps(data.inboundRequestId);
   return Batch.create(data);
 }
 

@@ -17,6 +17,16 @@ router.post(
   asyncHandler(inboundRequestItemController.create)
 );
 
+router.post(
+  '/:inboundRequestId/start-receiving',
+  asyncHandler(inboundRequestController.startReceiving)
+);
+router.post(
+  '/:inboundRequestId/complete-receiving',
+  asyncHandler(inboundRequestController.completeReceiving)
+);
+router.post('/:inboundRequestId/complete', asyncHandler(inboundRequestController.complete));
+
 router.get('/:inboundRequestId', asyncHandler(inboundRequestController.getById));
 router.patch('/:inboundRequestId', asyncHandler(inboundRequestController.update));
 router.delete('/:inboundRequestId', asyncHandler(inboundRequestController.remove));

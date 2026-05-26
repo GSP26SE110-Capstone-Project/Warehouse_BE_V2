@@ -5,11 +5,10 @@ import Lpn from '../models/Lpn.js';
 import AiSlotRecommendation from '../models/AiSlotRecommendation.js';
 import AppError from '../utils/AppError.js';
 import { parseUuid } from '../utils/validate.js';
-import {
-  assertInboundInReceivingPhase,
-  assertInboundStatusTransition,
-} from '../utils/inboundStatus.js';
-import { getInboundRequest, updateInboundRequest } from './inboundRequest.service.js';
+import { assertInboundStatusTransition } from '../utils/inboundStatus.js';
+import { assertInboundAllowsReceivingOps } from '../utils/inboundGuards.js';
+import { getInboundRequest } from './inboundRequest.service.js';
+import { listInboundRequestItems } from './inboundRequestItem.service.js';
 import { receiveInboundItems } from './inboundRequestItem.service.js';
 import { getLpnWithDetails } from './lpnDetail.service.js';
 import { getBatchContext } from './batch.service.js';
@@ -23,12 +22,6 @@ import {
 function parseOptionalUserId(value, fieldName) {
   if (value == null || value === '') return undefined;
   return parseUuid(value, fieldName);
-}
-
-export async function assertInboundAllowsReceivingOps(inboundRequestId) {
-  const inbound = await getInboundRequest(inboundRequestId);
-  assertInboundInReceivingPhase(inbound, 'receiving operations');
-  return inbound;
 }
 
 export async function startReceiving(inboundRequestId, body = {}) {
@@ -60,6 +53,19 @@ export async function completeReceiving(inboundRequestId, body = {}) {
   let items = [];
   if (body.items?.length) {
     items = await receiveInboundItems(id, body.items);
+  } else {
+    const listed = await listInboundRequestItems(id, { page: 1, limit: 500, offset: 0 });
+    const missing = listed.items.filter(
+      (row) => (row.receivedQuantity ?? 0) === 0 && row.expectedQuantity > 0
+    );
+    if (missing.length > 0) {
+      throw new AppError(
+        'All line items must have receivedQuantity before completing receiving (send items in body or PATCH each item)',
+        400,
+        'RECEIVING_INCOMPLETE'
+      );
+    }
+    items = listed.items;
   }
 
   return {
