@@ -3,6 +3,8 @@ import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import { REFERENCE_ZONE_AREA_M2 } from '../constants/warehouseCapacity.js';
 import { WAREHOUSE_STATUS } from '../constants/warehouseStructure.js';
+import { fromDbRecord } from '../models/utils/fieldMapper.js';
+import { warehouseSchema } from '../models/Warehouse.js';
 import { getScopedWarehouseId } from '../utils/warehouseAccess.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 
@@ -151,8 +153,72 @@ export async function getWarehouseZonePlanning(warehouseId) {
   };
 }
 
-export async function listWarehouses({ status, page, limit, offset, scopedWarehouseId }) {
+function mapWarehouseRows(rows) {
+  return rows.map((row) => fromDbRecord(warehouseSchema, row));
+}
+
+async function listWarehousesForTenant(tenantId, { status, limit, offset }) {
+  const tid = parseUuid(tenantId, 'tenantId');
+  const params = [tid];
+  let statusClause = '';
+  if (status) {
+    params.push(status);
+    statusClause = `AND w.status = $${params.length}`;
+  }
+
+  const limitVal = limit ?? 100;
+  const offsetVal = offset ?? 0;
+  params.push(limitVal, offsetVal);
+
+  const rows = await Warehouse.query(
+    `SELECT DISTINCT w.*
+     FROM warehouses w
+     INNER JOIN contracts c ON c.warehouse_id = w.warehouse_id
+     WHERE c.tenant_id = $1
+       AND c.status IN ('DRAFT', 'PENDING_APPROVAL', 'ACTIVE')
+       ${statusClause}
+     ORDER BY w.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+
+  const countParams = status ? [tid, status] : [tid];
+  const countStatusClause = status ? 'AND w.status = $2' : '';
+  const countRow = await Warehouse.queryOne(
+    `SELECT COUNT(DISTINCT w.warehouse_id)::int AS count
+     FROM warehouses w
+     INNER JOIN contracts c ON c.warehouse_id = w.warehouse_id
+     WHERE c.tenant_id = $1
+       AND c.status IN ('DRAFT', 'PENDING_APPROVAL', 'ACTIVE')
+       ${countStatusClause}`,
+    countParams
+  );
+  const total = countRow?.count ?? 0;
+
+  return {
+    items: mapWarehouseRows(rows),
+    meta: {
+      page: Math.floor(offsetVal / limitVal) + 1,
+      limit: limitVal,
+      total,
+      totalPages: Math.ceil(total / limitVal) || 0,
+    },
+  };
+}
+
+export async function listWarehouses({
+  status,
+  page,
+  limit,
+  offset,
+  scopedWarehouseId,
+  scopedTenantId,
+}) {
   assertEnum(status, WAREHOUSE_STATUS, 'status');
+
+  if (scopedTenantId) {
+    return listWarehousesForTenant(scopedTenantId, { status, limit, offset });
+  }
 
   const filters = {};
   if (status) filters.status = status;

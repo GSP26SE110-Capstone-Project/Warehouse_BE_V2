@@ -6,11 +6,12 @@ import * as warehouseController from '../controllers/warehouse.controller.js';
 
 const router = Router();
 const warehouseManagers = ['SYSTEM_ADMIN', 'WH_ADMIN'];
+const warehouseReaders = [...warehouseManagers, 'WH_STAFF', 'TENANT_ADMIN', 'TENANT_STAFF'];
 
 router.use(authenticate);
 
 router.post('/', authorize('SYSTEM_ADMIN'), asyncHandler(warehouseController.create));
-router.get('/', authorize(...warehouseManagers, 'WH_STAFF'), asyncHandler(warehouseController.list));
+router.get('/', authorize(...warehouseReaders), asyncHandler(warehouseController.list));
 router.get(
   '/:warehouseId/zone-planning',
   authorize(...warehouseManagers, 'WH_STAFF'),
@@ -28,7 +29,7 @@ router.get(
 );
 router.get(
   '/:warehouseId',
-  authorize(...warehouseManagers, 'WH_STAFF'),
+  authorize(...warehouseReaders),
   asyncHandler(warehouseController.getById)
 );
 router.patch(

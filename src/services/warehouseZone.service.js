@@ -2,7 +2,11 @@ import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import { ZONE_STATUS, ZONE_TYPE } from '../constants/warehouseStructure.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
-import { REFERENCE_ZONE_AREA_M2 } from '../constants/warehouseCapacity.js';
+import {
+  REFERENCE_ZONE_AREA_M2,
+  computeZoneStorageCapacity,
+} from '../constants/warehouseCapacity.js';
+import { DEFAULT_BIN_MAX_LPN_COUNT } from '../constants/pricingDefaults.js';
 import { assertWarehouseAccess } from '../utils/warehouseAccess.js';
 import { getWarehouseById, getWarehouseZonePlanning } from './warehouse.service.js';
 
@@ -67,6 +71,35 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
+async function enrichZonesWithLayoutStats(zones) {
+  if (!zones.length) return [];
+
+  const zoneIds = zones.map((z) => z.zoneId);
+  const rackRows = await WarehouseZone.query(
+    `SELECT zone_id, COUNT(*)::int AS rack_count
+     FROM racks
+     WHERE zone_id = ANY($1::uuid[])
+       AND status = 'ACTIVE'
+     GROUP BY zone_id`,
+    [zoneIds]
+  );
+  const rackCountByZone = new Map(
+    rackRows.map((row) => [row.zone_id, Number(row.rack_count) || 0])
+  );
+
+  return zones.map((zone) => {
+    const cap = computeZoneStorageCapacity(zone.areaM2);
+    const rackCount = rackCountByZone.get(zone.zoneId) ?? 0;
+    return {
+      ...zone,
+      rackCount,
+      maxRacks: cap.maxRacks,
+      totalBinSlots: cap.totalBinSlots,
+      estimatedLpnCapacity: cap.totalBinSlots * DEFAULT_BIN_MAX_LPN_COUNT,
+    };
+  });
+}
+
 async function assertZoneAreaWithinWarehouse(warehouseId, areaM2, excludeZoneId = null) {
   const warehouse = await getWarehouseById(warehouseId);
   const usable = warehouse.usableAreaM2 != null ? Number(warehouse.usableAreaM2) : null;
@@ -119,8 +152,10 @@ export async function listZones(warehouseId, { status, zoneType, page, limit, of
     WarehouseZone.count(filters),
   ]);
 
+  const enrichedItems = await enrichZonesWithLayoutStats(items);
+
   return {
-    items,
+    items: enrichedItems,
     meta: {
       page,
       limit,
