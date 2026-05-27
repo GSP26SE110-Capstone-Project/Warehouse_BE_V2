@@ -6,6 +6,7 @@ import { resolveCityDistrict } from './location.service.js';
 import { ZONE_TYPE, RACK_TYPE } from '../constants/warehouseStructure.js';
 import {
   BILLING_CYCLE,
+  BILLABLE_CONTRACT_TYPE,
   CONTRACT_TYPE,
   PRICING_MODEL,
   RENTAL_REQUEST_STATUS,
@@ -165,6 +166,13 @@ function normalizeNumericFields(data) {
     data.expectedEndDate = parseDate(data.expectedEndDate, 'expectedEndDate');
 }
 
+function estimateRentalMonthCount(startDate, endDate) {
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (diffMs <= 0) return 0;
+  const days = Math.max(1, Math.ceil(diffMs / 86400000));
+  return Math.max(1, Math.ceil(days / 30));
+}
+
 function assertExpectedRentalDates(data) {
   if (data.expectedStartDate == null) {
     throw new AppError('expectedStartDate is required', 400, 'VALIDATION_ERROR');
@@ -175,6 +183,27 @@ function assertExpectedRentalDates(data) {
   if (data.expectedStartDate >= data.expectedEndDate) {
     throw new AppError(
       'expectedEndDate must be after expectedStartDate',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+  if (estimateRentalMonthCount(data.expectedStartDate, data.expectedEndDate) < 1) {
+    throw new AppError(
+      'Thời hạn thuê tối thiểu 1 tháng (ngày kết thúc phải sau ngày bắt đầu ít nhất 30 ngày)',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+}
+
+function assertGuestCapacityEstimate(data) {
+  const hasArea =
+    data.requestedAreaM2 != null && Number(data.requestedAreaM2) > 0;
+  const hasBoxes =
+    data.estimatedBoxCount != null && Number(data.estimatedBoxCount) > 0;
+  if (!hasArea && !hasBoxes) {
+    throw new AppError(
+      'Cần nhập diện tích mong muốn (m²) hoặc quy mô hàng (số cái/tháng hoặc số thùng/tháng)',
       400,
       'VALIDATION_ERROR'
     );
@@ -233,6 +262,7 @@ function normalizeCreatePayload(body) {
   normalizeNumericFields(data);
   validateEnums(data);
   assertExpectedRentalDates(data);
+  assertGuestCapacityEstimate(data);
 
   return data;
 }
@@ -479,6 +509,35 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
   const reviewedAt =
     body.reviewedAt !== undefined ? parseDate(body.reviewedAt, 'reviewedAt') : new Date();
 
+  // Allow WH_ADMIN to adjust contractType/pricingModel before activation.
+  // Note: assertEnum ignores null/undefined, so it's safe to keep them optional.
+  assertEnum(body.contractType, CONTRACT_TYPE, 'contractType');
+  assertEnum(body.pricingModel, PRICING_MODEL, 'pricingModel');
+  if (body.contractType === 'NEEDS_CONSULTATION') {
+    throw new AppError(
+      'Khi duyệt yêu cầu, warehouse admin phải chọn loại thuê cụ thể (không dùng NEEDS_CONSULTATION)',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+  if (
+    body.contractType != null &&
+    !BILLABLE_CONTRACT_TYPE.includes(body.contractType)
+  ) {
+    throw new AppError('contractType is not billable', 400, 'VALIDATION_ERROR');
+  }
+  if (
+    existing.contractType === 'NEEDS_CONSULTATION' &&
+    !body.contractType &&
+    existing.status !== 'APPROVED'
+  ) {
+    throw new AppError(
+      'Yêu cầu đang chờ tư vấn — chọn loại thuê (SHARED / RESERVED / ZONE / WAREHOUSE) khi duyệt',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
   const row = await RentalRequest.queryOne(
     `UPDATE rental_requests
      SET warehouse_id = $1,
@@ -487,18 +546,22 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
          reviewed_at = COALESCE($3, reviewed_at),
          review_note = COALESCE($4, review_note),
          rejection_reason = NULL,
+         contract_type = COALESCE($5, contract_type),
+         pricing_model = COALESCE($6, pricing_model),
          updated_at = NOW()
-     WHERE rental_request_id = $5
+     WHERE rental_request_id = $7
        AND warehouse_id IS NULL
-       AND status = ANY($6::rental_request_status_enum[])
-       AND LOWER(TRIM(city)) = LOWER(TRIM($7))
-       AND LOWER(TRIM(district)) = LOWER(TRIM($8))
+       AND status = ANY($8::rental_request_status_enum[])
+       AND LOWER(TRIM(city)) = LOWER(TRIM($9))
+       AND LOWER(TRIM(district)) = LOWER(TRIM($10))
      RETURNING *`,
     [
       whId,
       reviewedBy ?? null,
       reviewedAt,
       body.reviewNote ?? null,
+      body.contractType ?? null,
+      body.pricingModel ?? null,
       id,
       CLAIMABLE_STATUSES,
       warehouse.city,

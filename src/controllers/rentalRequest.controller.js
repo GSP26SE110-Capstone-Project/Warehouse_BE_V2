@@ -1,4 +1,5 @@
 import * as rentalRequestService from '../services/rentalRequest.service.js';
+import * as contractPriceEstimateService from '../services/contractPriceEstimate.service.js';
 import AppError from '../utils/AppError.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
@@ -32,6 +33,17 @@ export async function getById(req, res) {
   }
   const item = await rentalRequestService.getRentalRequest(rentalRequestId);
   success(res, item);
+}
+
+export async function getPriceEstimate(req, res) {
+  const { rentalRequestId } = req.params;
+  const { warehouseId } = req.query;
+  const estimate = await contractPriceEstimateService.estimateContractPrice(
+    rentalRequestId,
+    warehouseId,
+    req.user
+  );
+  success(res, estimate);
 }
 
 export async function lookupByCode(req, res) {

@@ -84,6 +84,14 @@ const LEVEL_REQUIRED_FK = {
   BIN: ['warehouseId', 'binId'],
 };
 
+const LEVEL_TARGET_FIELD = {
+  WAREHOUSE: 'warehouse_id',
+  ZONE: 'zone_id',
+  RACK: 'rack_id',
+  RACK_LEVEL: 'rack_level_id',
+  BIN: 'bin_id',
+};
+
 async function validateStorageTarget(data) {
   const required = LEVEL_REQUIRED_FK[data.storageLevel];
   for (const field of required) {
@@ -154,6 +162,41 @@ async function normalizeCreatePayload(body, contractId, tenantId) {
   data.contractId = contractId;
   data.tenantId = tenantId;
   return data;
+}
+
+async function assertNoOverlappingReservation(data) {
+  const targetField = LEVEL_TARGET_FIELD[data.storageLevel];
+  if (!targetField) return;
+
+  const targetId =
+    data.storageLevel === 'WAREHOUSE'
+      ? data.warehouseId
+      : data.storageLevel === 'ZONE'
+        ? data.zoneId
+        : data.storageLevel === 'RACK'
+          ? data.rackId
+          : data.storageLevel === 'RACK_LEVEL'
+            ? data.rackLevelId
+            : data.binId;
+  if (!targetId) return;
+
+  const conflicting = await StorageReservation.queryOne(
+    `SELECT reservation_id, contract_id, tenant_id, start_date, end_date
+     FROM storage_reservations
+     WHERE status = 'ACTIVE'
+       AND ${targetField} = $1
+       AND daterange(start_date, end_date, '[)') && daterange($2::date, $3::date, '[)')
+     LIMIT 1`,
+    [targetId, data.startDate, data.endDate]
+  );
+
+  if (conflicting) {
+    throw new AppError(
+      'Vị trí lưu trữ đã được cấp cho tenant khác trong khoảng thời gian này',
+      409,
+      'RESERVATION_CONFLICT'
+    );
+  }
 }
 
 function normalizeUpdatePayload(body) {
@@ -242,6 +285,7 @@ export async function createStorageReservation(contractId, body) {
   const contract = await getContract(cId);
 
   const data = await normalizeCreatePayload(body, cId, contract.tenantId);
+  await assertNoOverlappingReservation(data);
   return StorageReservation.create(data);
 }
 

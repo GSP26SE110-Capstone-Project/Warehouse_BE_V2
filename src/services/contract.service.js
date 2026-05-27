@@ -4,6 +4,7 @@ import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import {
   BILLING_CYCLE,
+  BILLABLE_CONTRACT_TYPE,
   CONTRACT_STATUS,
   CONTRACT_TYPE,
   PRICING_MODEL,
@@ -104,8 +105,20 @@ function generateContractCode() {
   return `CTR-${ts}-${rand}`;
 }
 
+function assertBillableContractType(contractType) {
+  if (contractType == null) return;
+  assertEnum(contractType, CONTRACT_TYPE, 'contractType');
+  if (!BILLABLE_CONTRACT_TYPE.includes(contractType)) {
+    throw new AppError(
+      'NEEDS_CONSULTATION chỉ dùng trên yêu cầu thuê — chọn loại thuê cụ thể khi tạo hợp đồng',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+}
+
 function validateEnums(data) {
-  assertEnum(data.contractType, CONTRACT_TYPE, 'contractType');
+  assertBillableContractType(data.contractType);
   assertEnum(data.pricingModel, PRICING_MODEL, 'pricingModel');
   assertEnum(data.billingCycle, BILLING_CYCLE, 'billingCycle');
   assertEnum(data.status, CONTRACT_STATUS, 'status');

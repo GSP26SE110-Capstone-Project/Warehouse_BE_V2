@@ -2,7 +2,9 @@ import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import { ZONE_STATUS, ZONE_TYPE } from '../constants/warehouseStructure.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
-import { getWarehouseById } from './warehouse.service.js';
+import { REFERENCE_ZONE_AREA_M2 } from '../constants/warehouseCapacity.js';
+import { assertWarehouseAccess } from '../utils/warehouseAccess.js';
+import { getWarehouseById, getWarehouseZonePlanning } from './warehouse.service.js';
 
 const CREATE_FIELDS = [
   'zoneCode',
@@ -80,7 +82,7 @@ async function assertZoneAreaWithinWarehouse(warehouseId, areaM2, excludeZoneId 
 
   if (sum > usable) {
     throw new AppError(
-      `Total zone area (${sum} m²) exceeds warehouse usable area (${usable} m²)`,
+      `Tổng diện tích zone (${sum} m²) vượt diện tích sử dụng kho (${usable} m²)`,
       400,
       'CAPACITY_EXCEEDED'
     );
@@ -96,8 +98,9 @@ export async function getZone(zoneId) {
   return zone;
 }
 
-export async function listZones(warehouseId, { status, zoneType, page, limit, offset }) {
+export async function listZones(warehouseId, { status, zoneType, page, limit, offset }, user) {
   const whId = parseUuid(warehouseId, 'warehouseId');
+  assertWarehouseAccess(user, whId);
   await getWarehouseById(whId);
 
   assertEnum(status, ZONE_STATUS, 'status');
@@ -127,8 +130,9 @@ export async function listZones(warehouseId, { status, zoneType, page, limit, of
   };
 }
 
-export async function createZone(warehouseId, body) {
+export async function createZone(warehouseId, body, user) {
   const whId = parseUuid(warehouseId, 'warehouseId');
+  assertWarehouseAccess(user, whId);
   await getWarehouseById(whId);
 
   const data = normalizeCreatePayload(body, whId);
@@ -138,9 +142,79 @@ export async function createZone(warehouseId, body) {
   return WarehouseZone.create(data);
 }
 
-export async function updateZone(zoneId, body) {
+export async function createZonesBulk(warehouseId, body, user) {
+  const whId = parseUuid(warehouseId, 'warehouseId');
+  assertWarehouseAccess(user, whId);
+  await getWarehouseById(whId);
+
+  const zoneType = body.zoneType ?? 'SHARED';
+  const isDedicated = body.isDedicated ?? false;
+  const status = body.status ?? 'ACTIVE';
+  const codePrefix = (body.zoneCodePrefix ?? 'Z').trim() || 'Z';
+
+  let zonesToCreate = [];
+
+  if (Array.isArray(body.zones) && body.zones.length > 0) {
+    zonesToCreate = body.zones.map((z, i) => ({
+      zoneCode: String(z.zoneCode ?? `${codePrefix}-${String(i + 1).padStart(2, '0')}`).trim(),
+      zoneName: z.zoneName != null ? String(z.zoneName).trim() : undefined,
+      areaM2: z.areaM2 != null ? Number(z.areaM2) : null,
+    }));
+  } else {
+    const count = Number(body.count);
+    if (!Number.isInteger(count) || count < 1 || count > 50) {
+      throw new AppError('count must be between 1 and 50', 400, 'VALIDATION_ERROR');
+    }
+    const planning = await getWarehouseZonePlanning(whId);
+    const areaEach =
+      body.areaM2PerZone != null
+        ? Number(body.areaM2PerZone)
+        : planning.suggestedAreaPerZoneForEvenSplit ?? REFERENCE_ZONE_AREA_M2;
+
+    if (!Number.isFinite(areaEach) || areaEach <= 0) {
+      throw new AppError('areaM2PerZone must be a positive number', 400, 'VALIDATION_ERROR');
+    }
+
+    const existing = await WarehouseZone.findAll({ warehouseId: whId });
+    const startIndex = existing.length + 1;
+    zonesToCreate = Array.from({ length: count }, (_, i) => ({
+      zoneCode: `${codePrefix}-${String(startIndex + i).padStart(2, '0')}`,
+      zoneName: body.zoneNamePrefix
+        ? `${String(body.zoneNamePrefix).trim()} ${startIndex + i}`
+        : undefined,
+      areaM2: areaEach,
+    }));
+  }
+
+  const created = [];
+  for (const z of zonesToCreate) {
+    if (!z.zoneCode) {
+      throw new AppError('zoneCode is required for each zone', 400, 'VALIDATION_ERROR');
+    }
+    const payload = normalizeCreatePayload(
+      {
+        zoneCode: z.zoneCode,
+        zoneName: z.zoneName,
+        zoneType,
+        areaM2: z.areaM2,
+        isDedicated,
+        status,
+      },
+      whId
+    );
+    if (payload.areaM2 != null) {
+      await assertZoneAreaWithinWarehouse(whId, payload.areaM2);
+    }
+    created.push(await WarehouseZone.create(payload));
+  }
+
+  return { items: created, count: created.length };
+}
+
+export async function updateZone(zoneId, body, user) {
   const id = parseUuid(zoneId, 'zoneId');
   const zone = await getZone(id);
+  assertWarehouseAccess(user, zone.warehouseId);
 
   const data = normalizeUpdatePayload(body);
   const nextArea = data.areaM2 !== undefined ? data.areaM2 : zone.areaM2;
@@ -150,9 +224,16 @@ export async function updateZone(zoneId, body) {
   return WarehouseZone.updateById(id, data);
 }
 
-export async function deleteZone(zoneId) {
+export async function getZoneForUser(zoneId, user) {
+  const zone = await getZone(zoneId);
+  assertWarehouseAccess(user, zone.warehouseId);
+  return zone;
+}
+
+export async function deleteZone(zoneId, user) {
   const id = parseUuid(zoneId, 'zoneId');
-  await getZone(id);
+  const zone = await getZone(id);
+  assertWarehouseAccess(user, zone.warehouseId);
 
   const deleted = await WarehouseZone.deleteById(id);
   if (!deleted) {

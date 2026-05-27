@@ -13,6 +13,9 @@ export const BIN_SLOT_FOOTPRINT_M2 = 0.25;
  */
 export const ZONE_AISLE_RATIO = 0.3;
 
+/** Diện tích zone tham chiếu để gợi ý số zone tối thiểu (capstone). */
+export const REFERENCE_ZONE_AREA_M2 = 50;
+
 export function computeZoneStorageCapacity(areaM2) {
   const area = Number(areaM2);
   if (!Number.isFinite(area) || area <= 0) {

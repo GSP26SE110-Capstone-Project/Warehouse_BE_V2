@@ -1,15 +1,45 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
+import authenticate from '../middleware/authenticate.js';
+import { authorize } from '../middleware/authorize.js';
 import * as warehouseController from '../controllers/warehouse.controller.js';
 
 const router = Router();
+const warehouseManagers = ['SYSTEM_ADMIN', 'WH_ADMIN'];
 
-router.post('/', asyncHandler(warehouseController.create));
-router.get('/', asyncHandler(warehouseController.list));
-router.get('/:warehouseId/rental-requests', asyncHandler(warehouseController.listRentalRequests));
-router.get('/:warehouseId/inbound-requests', asyncHandler(warehouseController.listInboundRequests));
-router.get('/:warehouseId', asyncHandler(warehouseController.getById));
-router.patch('/:warehouseId', asyncHandler(warehouseController.update));
-router.delete('/:warehouseId', asyncHandler(warehouseController.remove));
+router.use(authenticate);
+
+router.post('/', authorize('SYSTEM_ADMIN'), asyncHandler(warehouseController.create));
+router.get('/', authorize(...warehouseManagers, 'WH_STAFF'), asyncHandler(warehouseController.list));
+router.get(
+  '/:warehouseId/zone-planning',
+  authorize(...warehouseManagers, 'WH_STAFF'),
+  asyncHandler(warehouseController.getZonePlanning)
+);
+router.get(
+  '/:warehouseId/rental-requests',
+  authorize(...warehouseManagers),
+  asyncHandler(warehouseController.listRentalRequests)
+);
+router.get(
+  '/:warehouseId/inbound-requests',
+  authorize(...warehouseManagers, 'WH_STAFF'),
+  asyncHandler(warehouseController.listInboundRequests)
+);
+router.get(
+  '/:warehouseId',
+  authorize(...warehouseManagers, 'WH_STAFF'),
+  asyncHandler(warehouseController.getById)
+);
+router.patch(
+  '/:warehouseId',
+  authorize(...warehouseManagers),
+  asyncHandler(warehouseController.update)
+);
+router.delete(
+  '/:warehouseId',
+  authorize('SYSTEM_ADMIN'),
+  asyncHandler(warehouseController.remove)
+);
 
 export default router;
