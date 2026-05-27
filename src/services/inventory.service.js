@@ -33,6 +33,7 @@ function mapInventoryRow(row) {
       : undefined,
     lpnCode: row.lpn_code,
     binCode: row.bin_code,
+    batchCode: row.batch_code,
   };
 }
 
@@ -68,12 +69,14 @@ export async function listInventories({
   batchId,
   lpnId,
   binId,
+  inboundRequestId,
+  warehouseId,
   status,
   page,
   limit,
   offset,
 }) {
-  assertEnum(status, INVENTORY_STATUS, 'status');
+  if (status) assertEnum(status, INVENTORY_STATUS, 'status');
 
   const conditions = [];
   const values = [];
@@ -104,6 +107,22 @@ export async function listInventories({
     conditions.push(`i.status = $${idx++}`);
     values.push(status);
   }
+  if (inboundRequestId) {
+    conditions.push(
+      `i.batch_id IN (SELECT batch_id FROM batches WHERE inbound_request_id = $${idx++})`
+    );
+    values.push(parseUuid(inboundRequestId, 'inboundRequestId'));
+  }
+  if (warehouseId) {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM bins bx
+      INNER JOIN rack_levels rl ON rl.rack_level_id = bx.rack_level_id
+      INNER JOIN racks r ON r.rack_id = rl.rack_id
+      INNER JOIN warehouse_zones z ON z.zone_id = r.zone_id
+      WHERE bx.bin_id = i.bin_id AND z.warehouse_id = $${idx++}
+    )`);
+    values.push(parseUuid(warehouseId, 'warehouseId'));
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -115,11 +134,12 @@ export async function listInventories({
 
   const listValues = [...values, limit, offset];
   const rowsResult = await pool.query(
-    `SELECT i.*, s.sku_code, s.product_name, l.lpn_code, b.bin_code
+    `SELECT i.*, s.sku_code, s.product_name, l.lpn_code, b.bin_code, bat.batch_code
      FROM inventories i
      INNER JOIN skus s ON s.sku_id = i.sku_id
      INNER JOIN lpns l ON l.lpn_id = i.lpn_id
      INNER JOIN bins b ON b.bin_id = i.bin_id
+     INNER JOIN batches bat ON bat.batch_id = i.batch_id
      ${where}
      ORDER BY i.received_at DESC NULLS LAST, i.created_at DESC
      LIMIT $${idx++} OFFSET $${idx}`,

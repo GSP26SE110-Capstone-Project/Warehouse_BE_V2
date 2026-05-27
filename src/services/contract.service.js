@@ -10,6 +10,7 @@ import {
 } from '../constants/tenantOnboarding.js';
 import { getWarehouseById } from './warehouse.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
+import { seedDefaultContractItems } from './contractDefaultItems.service.js';
 
 const CREATE_FIELDS = [
   'contractCode',
@@ -275,7 +276,9 @@ export async function createContract(tenantId, warehouseId, body) {
   const data = await normalizeCreatePayload(body, tId, wId);
   await attachRentalRequest(data, body.rentalRequestId);
 
-  return Contract.create(data);
+  const contract = await Contract.create(data);
+  await seedDefaultContractItems(contract.contractId);
+  return contract;
 }
 
 export async function updateContract(contractId, body) {

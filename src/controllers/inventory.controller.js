@@ -4,7 +4,8 @@ import { parsePagination } from '../utils/validate.js';
 
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
-  const { tenantId, skuId, batchId, lpnId, binId, status } = req.query;
+  const { tenantId, skuId, batchId, lpnId, binId, inboundRequestId, warehouseId, status } =
+    req.query;
 
   const result = await inventoryService.listInventories({
     tenantId,
@@ -12,6 +13,8 @@ export async function list(req, res) {
     batchId,
     lpnId,
     binId,
+    inboundRequestId,
+    warehouseId,
     status,
     page,
     limit,

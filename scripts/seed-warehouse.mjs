@@ -291,7 +291,7 @@ async function upsertBin(rackLevelId, rackCode, levelNumber, binIndex) {
         reservation_type, status)
      VALUES ($1, $2, $3, $4, $5, $6, 'SHARED', 'EMPTY')
      RETURNING bin_id`,
-    [rackLevelId, binCode, boxType, 4, 8, 3]
+    [rackLevelId, binCode, boxType, 4, 16, 3]
   );
   stats.bins.inserted++;
   return result.rows[0].bin_id;
