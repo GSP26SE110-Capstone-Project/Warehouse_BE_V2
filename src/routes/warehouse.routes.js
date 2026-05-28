@@ -18,6 +18,11 @@ router.get(
   asyncHandler(warehouseController.getZonePlanning)
 );
 router.get(
+  '/:warehouseId/capacity-snapshot',
+  authorize(...warehouseReaders),
+  asyncHandler(warehouseController.getCapacitySnapshot)
+);
+router.get(
   '/:warehouseId/rental-requests',
   authorize(...warehouseManagers),
   asyncHandler(warehouseController.listRentalRequests)

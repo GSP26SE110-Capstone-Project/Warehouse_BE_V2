@@ -166,11 +166,11 @@ function normalizeNumericFields(data) {
     data.expectedEndDate = parseDate(data.expectedEndDate, 'expectedEndDate');
 }
 
-function estimateRentalMonthCount(startDate, endDate) {
+function hasMinimumRentalDuration(startDate, endDate) {
   const diffMs = endDate.getTime() - startDate.getTime();
-  if (diffMs <= 0) return 0;
-  const days = Math.max(1, Math.ceil(diffMs / 86400000));
-  return Math.max(1, Math.ceil(days / 30));
+  if (diffMs <= 0) return false;
+  const diffDays = Math.ceil(diffMs / 86400000);
+  return diffDays >= 30;
 }
 
 function assertExpectedRentalDates(data) {
@@ -187,7 +187,7 @@ function assertExpectedRentalDates(data) {
       'VALIDATION_ERROR'
     );
   }
-  if (estimateRentalMonthCount(data.expectedStartDate, data.expectedEndDate) < 1) {
+  if (!hasMinimumRentalDuration(data.expectedStartDate, data.expectedEndDate)) {
     throw new AppError(
       'Thời hạn thuê tối thiểu 1 tháng (ngày kết thúc phải sau ngày bắt đầu ít nhất 30 ngày)',
       400,
@@ -588,8 +588,15 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
   return mapRentalRow(row);
 }
 
-export async function updateRentalRequest(rentalRequestId, body) {
+export async function updateRentalRequest(rentalRequestId, body, actor = null) {
   const claimStatus = body.status === 'APPROVED';
+  if (claimStatus && actor?.role !== 'WH_ADMIN') {
+    throw new AppError(
+      'Chỉ Warehouse Admin mới được duyệt rental request',
+      403,
+      'FORBIDDEN'
+    );
+  }
   if (claimStatus && body.warehouseId) {
     return claimRentalRequest(rentalRequestId, body.warehouseId, body);
   }

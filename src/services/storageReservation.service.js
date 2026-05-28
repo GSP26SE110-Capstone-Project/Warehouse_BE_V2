@@ -197,6 +197,28 @@ async function assertNoOverlappingReservation(data) {
       'RESERVATION_CONFLICT'
     );
   }
+
+  // Dedicated zone must stay exclusive for the whole date range.
+  if (data.storageLevel === 'ZONE' && data.zoneId) {
+    const dedicatedConflict = await StorageReservation.queryOne(
+      `SELECT reservation_id, tenant_id, reservation_type
+       FROM storage_reservations
+       WHERE status = 'ACTIVE'
+         AND zone_id = $1
+         AND tenant_id != $2
+         AND daterange(start_date, end_date, '[)') && daterange($3::date, $4::date, '[)')
+         AND (reservation_type = 'DEDICATED' OR $5::reservation_type_enum = 'DEDICATED')
+       LIMIT 1`,
+      [data.zoneId, data.tenantId, data.startDate, data.endDate, data.reservationType]
+    );
+    if (dedicatedConflict) {
+      throw new AppError(
+        'Zone này đã được cấp cho tenant khác trong khoảng thời gian này',
+        409,
+        'ZONE_ALREADY_ASSIGNED'
+      );
+    }
+  }
 }
 
 function normalizeUpdatePayload(body) {
@@ -249,25 +271,57 @@ export async function listStorageReservations({
   assertEnum(storageLevel, STORAGE_LEVEL, 'storageLevel');
   assertEnum(status, RESERVATION_STATUS, 'status');
 
-  const filters = {};
-  if (contractId) filters.contractId = parseUuid(contractId, 'contractId');
-  if (tenantId) filters.tenantId = parseUuid(tenantId, 'tenantId');
-  if (warehouseId) filters.warehouseId = parseUuid(warehouseId, 'warehouseId');
-  if (zoneId) filters.zoneId = parseUuid(zoneId, 'zoneId');
-  if (rackId) filters.rackId = parseUuid(rackId, 'rackId');
-  if (rackLevelId) filters.rackLevelId = parseUuid(rackLevelId, 'rackLevelId');
-  if (binId) filters.binId = parseUuid(binId, 'binId');
-  if (storageLevel) filters.storageLevel = storageLevel;
-  if (status) filters.status = status;
+  const clauses = [];
+  const values = [];
+  const addClause = (sql, value) => {
+    values.push(value);
+    clauses.push(`${sql} = $${values.length}`);
+  };
+  if (contractId) addClause('sr.contract_id', parseUuid(contractId, 'contractId'));
+  if (tenantId) addClause('sr.tenant_id', parseUuid(tenantId, 'tenantId'));
+  if (warehouseId) addClause('sr.warehouse_id', parseUuid(warehouseId, 'warehouseId'));
+  if (zoneId) addClause('sr.zone_id', parseUuid(zoneId, 'zoneId'));
+  if (rackId) addClause('sr.rack_id', parseUuid(rackId, 'rackId'));
+  if (rackLevelId) addClause('sr.rack_level_id', parseUuid(rackLevelId, 'rackLevelId'));
+  if (binId) addClause('sr.bin_id', parseUuid(binId, 'binId'));
+  if (storageLevel) addClause('sr.storage_level', storageLevel);
+  if (status) addClause('sr.status', status);
 
-  const [items, total] = await Promise.all([
-    StorageReservation.findAll(filters, {
-      orderBy: 'created_at DESC',
-      limit,
-      offset,
-    }),
-    StorageReservation.count(filters),
-  ]);
+  const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const paginationValues = [...values];
+  const limitVal = limit ?? 100;
+  const offsetVal = offset ?? 0;
+  paginationValues.push(limitVal, offsetVal);
+
+  const items = await StorageReservation.query(
+    `SELECT sr.*,
+            w.warehouse_code,
+            w.warehouse_name,
+            z.zone_code,
+            z.zone_name,
+            r.rack_code,
+            rl.level_number,
+            b.bin_code
+     FROM storage_reservations sr
+     LEFT JOIN warehouses w ON w.warehouse_id = sr.warehouse_id
+     LEFT JOIN warehouse_zones z ON z.zone_id = sr.zone_id
+     LEFT JOIN racks r ON r.rack_id = sr.rack_id
+     LEFT JOIN rack_levels rl ON rl.rack_level_id = sr.rack_level_id
+     LEFT JOIN bins b ON b.bin_id = sr.bin_id
+     ${whereSql}
+     ORDER BY sr.created_at DESC
+     LIMIT $${paginationValues.length - 1}
+     OFFSET $${paginationValues.length}`,
+    paginationValues
+  );
+  const totalRow = await StorageReservation.queryOne(
+    `SELECT COUNT(*)::int AS count
+     FROM storage_reservations sr
+     ${whereSql}`,
+    values
+  );
+  const total = totalRow?.count ?? 0;
 
   return {
     items,

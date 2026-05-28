@@ -19,26 +19,159 @@ import { getInboundRequest } from './inboundRequest.service.js';
 export const DEFAULT_PIECES_PER_LPN = 25;
 export const DEFAULT_VOLUME_UNITS_PER_LPN = 2;
 
-function pickRecommendedBoxType(capacityByType) {
-  return [...BOX_TYPE]
-    .map((type) => ({ type, ...(capacityByType[type] ?? {}) }))
-    .sort((a, b) => {
-      if ((b.candidateBins ?? 0) !== (a.candidateBins ?? 0)) {
-        return (b.candidateBins ?? 0) - (a.candidateBins ?? 0);
+const BOX_TYPE_PRIORITY = ['EXTRA', 'LARGE', 'MEDIUM', 'SMALL'];
+
+function buildProjectedBoxTypeCapacity(projectedBinSlots) {
+  const byType = {};
+  for (const boxType of BOX_TYPE) {
+    const volumeUnits = BOX_VOLUME_UNITS[boxType];
+    const maxLpnPerBin = Math.min(
+      DEFAULT_BIN_MAX_LPN_COUNT,
+      Math.floor(DEFAULT_BIN_MAX_VOLUME_UNITS / volumeUnits)
+    );
+    const boxesByVolume = projectedBinSlots * Math.floor(DEFAULT_BIN_MAX_VOLUME_UNITS / volumeUnits);
+    byType[boxType] = {
+      candidateBins: projectedBinSlots,
+      estimatedBoxCapacity: boxesByVolume,
+      totalFreeLpnSlots: projectedBinSlots * maxLpnPerBin,
+      totalFreeVolumeUnits: projectedBinSlots * DEFAULT_BIN_MAX_VOLUME_UNITS,
+      volumeUnits,
+    };
+  }
+  return byType;
+}
+
+/** Đếm trên bin PARTIAL: còn nhận thêm bao nhiêu LPN theo từng box type. */
+async function queryPartialBinFitByType(warehouseId) {
+  const result = await pool.query(
+    `SELECT
+       GREATEST(0, b.max_lpn_count - COALESCE(b.current_lpn_count, 0))::int AS free_lpn,
+       GREATEST(0, b.max_volume_units - COALESCE(b.used_volume_units, 0))::int AS free_vol
+     FROM bins b
+     INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
+     INNER JOIN racks r ON r.rack_id = rl.rack_id
+     INNER JOIN warehouse_zones z ON z.zone_id = r.zone_id
+     WHERE z.warehouse_id = $1
+       AND z.status = 'ACTIVE'
+       AND r.status = 'ACTIVE'
+       AND b.status = 'PARTIAL'
+       AND b.status NOT IN ('BLOCKED', 'RESERVED')`,
+    [warehouseId]
+  );
+
+  const byType = {};
+  for (const boxType of BOX_TYPE) {
+    byType[boxType] = { binsCanAcceptOneMore: 0, additionalLpnCapacity: 0 };
+  }
+
+  for (const row of result.rows) {
+    const freeLpn = row.free_lpn ?? 0;
+    const freeVol = row.free_vol ?? 0;
+    for (const boxType of BOX_TYPE) {
+      const volumeUnits = BOX_VOLUME_UNITS[boxType];
+      if (freeLpn >= 1 && freeVol >= volumeUnits) {
+        byType[boxType].binsCanAcceptOneMore += 1;
+        byType[boxType].additionalLpnCapacity += Math.min(
+          freeLpn,
+          Math.floor(freeVol / volumeUnits)
+        );
       }
-      return (b.totalFreeVolumeUnits ?? 0) - (a.totalFreeVolumeUnits ?? 0);
-    })[0]?.type;
+    }
+  }
+
+  return byType;
+}
+
+function formatPartialAlternateNotes(partialFitByType, excludeType = null) {
+  const parts = [];
+  for (const boxType of BOX_TYPE_PRIORITY) {
+    if (boxType === excludeType) continue;
+    const fit = partialFitByType[boxType];
+    if ((fit?.additionalLpnCapacity ?? 0) > 0) {
+      parts.push(
+        `~${fit.additionalLpnCapacity} ${boxType} (${fit.binsCanAcceptOneMore} bin đang dở)`
+      );
+    }
+  }
+  if (!parts.length) return [];
+  return [`Trên bin đang dở còn nhận thêm: ${parts.join('; ')}.`];
+}
+
+function buildBoxTypeSuggestion(capacityByType, partialFitByType) {
+  const extra = capacityByType.EXTRA ?? {};
+  const extraPartial = partialFitByType.EXTRA ?? {};
+
+  const extraBoxes = extra.estimatedBoxCapacity ?? extra.totalFreeLpnSlots ?? 0;
+  if ((extra.candidateBins ?? 0) > 0) {
+    return {
+      recommendedBoxType: 'EXTRA',
+      reason: `Ưu tiên EXTRA: ${extra.candidateBins} bin trống/đủ chỗ đặt thêm EXTRA (~${extraBoxes} thùng).`,
+      alternateNotes: formatPartialAlternateNotes(partialFitByType, 'EXTRA'),
+    };
+  }
+
+  if ((extraPartial.binsCanAcceptOneMore ?? 0) > 0) {
+    return {
+      recommendedBoxType: 'EXTRA',
+      reason: `Ưu tiên EXTRA: ${extraPartial.binsCanAcceptOneMore} bin đang dở còn đủ volume/slot cho thêm EXTRA.`,
+      alternateNotes: formatPartialAlternateNotes(partialFitByType, 'EXTRA'),
+    };
+  }
+
+  for (const boxType of ['LARGE', 'MEDIUM', 'SMALL']) {
+    const cap = capacityByType[boxType] ?? {};
+    if ((cap.candidateBins ?? 0) > 0) {
+      return {
+        recommendedBoxType: boxType,
+        reason: `Không còn bin đủ chỗ cho EXTRA; gợi ý ${boxType} (${cap.candidateBins} bin, ~${cap.estimatedBoxCapacity ?? cap.totalFreeLpnSlots ?? 0} thùng).`,
+        alternateNotes: formatPartialAlternateNotes(partialFitByType, boxType),
+      };
+    }
+  }
+
+  for (const boxType of ['LARGE', 'MEDIUM', 'SMALL']) {
+    const fit = partialFitByType[boxType] ?? {};
+    if ((fit.binsCanAcceptOneMore ?? 0) > 0) {
+      return {
+        recommendedBoxType: boxType,
+        reason: `Không đủ chỗ EXTRA; bin đang dở phù hợp nhất với ${boxType} (~${fit.additionalLpnCapacity} thùng thêm).`,
+        alternateNotes: formatPartialAlternateNotes(partialFitByType, boxType),
+      };
+    }
+  }
+
+  return {
+    recommendedBoxType: 'EXTRA',
+    reason:
+      'Ưu tiên EXTRA khi putaway; hiện chưa có bin khả dụng (hoặc chưa tạo rack/bin — xem số ước tính bên dưới).',
+    alternateNotes: [],
+  };
 }
 
 async function queryBoxTypeCapacity(warehouseId) {
   const byType = {};
+  const partialFitByType = await queryPartialBinFitByType(warehouseId);
 
   for (const boxType of BOX_TYPE) {
     const volumeUnits = BOX_VOLUME_UNITS[boxType];
     const result = await pool.query(
       `SELECT
          COUNT(*)::int AS candidate_bins,
-         COALESCE(SUM(GREATEST(0, b.max_lpn_count - COALESCE(b.current_lpn_count, 0))), 0)::int AS total_free_lpn_slots,
+         COALESCE(SUM(
+           FLOOR(
+             GREATEST(0, b.max_volume_units - COALESCE(b.used_volume_units, 0))::numeric
+             / $3::numeric
+           )::int
+         ), 0)::int AS volume_based_boxes,
+         COALESCE(SUM(
+           LEAST(
+             GREATEST(0, b.max_lpn_count - COALESCE(b.current_lpn_count, 0)),
+             FLOOR(
+               GREATEST(0, b.max_volume_units - COALESCE(b.used_volume_units, 0))::numeric
+               / $3::numeric
+             )::int
+           )
+         ), 0)::int AS total_free_lpn_slots,
          COALESCE(SUM(GREATEST(0, b.max_volume_units - COALESCE(b.used_volume_units, 0))), 0)::int AS total_free_volume_units
        FROM bins b
        INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
@@ -48,6 +181,7 @@ async function queryBoxTypeCapacity(warehouseId) {
          AND z.status = 'ACTIVE'
          AND r.status = 'ACTIVE'
          AND b.status IN ('EMPTY', 'PARTIAL')
+         AND b.status NOT IN ('BLOCKED', 'RESERVED')
          AND (b.supported_box_type IS NULL OR b.supported_box_type = $2)
          AND GREATEST(0, b.max_lpn_count - COALESCE(b.current_lpn_count, 0)) >= 1
          AND GREATEST(0, b.max_volume_units - COALESCE(b.used_volume_units, 0)) >= $3`,
@@ -55,20 +189,46 @@ async function queryBoxTypeCapacity(warehouseId) {
     );
 
     const row = result.rows[0] ?? {};
+    const volumeBased = row.volume_based_boxes ?? 0;
+    const lpnLimited = row.total_free_lpn_slots ?? 0;
     byType[boxType] = {
       candidateBins: row.candidate_bins ?? 0,
-      totalFreeLpnSlots: row.total_free_lpn_slots ?? 0,
+      estimatedBoxCapacity: volumeBased,
+      totalFreeLpnSlots: lpnLimited,
       totalFreeVolumeUnits: row.total_free_volume_units ?? 0,
       volumeUnits,
+      partialBinsCanAccept: partialFitByType[boxType]?.binsCanAcceptOneMore ?? 0,
+      partialAdditionalLpn: partialFitByType[boxType]?.additionalLpnCapacity ?? 0,
     };
   }
 
-  const recommendedBoxType = pickRecommendedBoxType(byType) ?? 'MEDIUM';
+  const suggestion = buildBoxTypeSuggestion(byType, partialFitByType);
   return {
     byType,
-    recommendedBoxType,
-    recommendedVolumeUnits: BOX_VOLUME_UNITS[recommendedBoxType] ?? DEFAULT_VOLUME_UNITS_PER_LPN,
+    partialFitByType,
+    recommendedBoxType: suggestion.recommendedBoxType,
+    recommendationReason: suggestion.reason,
+    alternateNotes: suggestion.alternateNotes,
+    recommendedVolumeUnits:
+      BOX_VOLUME_UNITS[suggestion.recommendedBoxType] ?? DEFAULT_VOLUME_UNITS_PER_LPN,
   };
+}
+
+async function queryBinDiagnostics(warehouseId) {
+  const result = await pool.query(
+    `SELECT
+       COUNT(*)::int AS bins_total,
+       COUNT(*) FILTER (WHERE b.status IN ('EMPTY', 'PARTIAL'))::int AS bins_putaway_eligible,
+       COUNT(*) FILTER (WHERE z.status = 'ACTIVE' AND r.status = 'ACTIVE')::int AS bins_active_layout,
+       COUNT(*) FILTER (WHERE b.max_volume_units < $2)::int AS bins_below_standard_volume
+     FROM bins b
+     INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
+     INNER JOIN racks r ON r.rack_id = rl.rack_id
+     INNER JOIN warehouse_zones z ON z.zone_id = r.zone_id
+     WHERE z.warehouse_id = $1`,
+    [warehouseId, DEFAULT_BIN_MAX_VOLUME_UNITS]
+  );
+  return result.rows[0] ?? {};
 }
 
 function parsePrice(value) {
@@ -369,6 +529,78 @@ export async function getInboundApprovalReadiness(inboundRequestId) {
     canRevokeApproval: status === 'APPROVED' && batchCount === 0,
     canWarehouseCancel: ['PENDING', 'APPROVED', 'ARRIVED'].includes(status),
     canWarehouseReject: status === 'PENDING',
+  };
+}
+
+/** Snapshot nhanh sức chứa putaway theo warehouse để hỗ trợ duyệt rental request. */
+export async function getWarehouseCapacitySnapshot(warehouseId) {
+  const whId = parseUuid(warehouseId, 'warehouseId');
+  const [warehouseStorage, boxTypeCapacity, warehouseRow, binDiagnostics] = await Promise.all([
+    queryWarehousePutawayCapacity(whId),
+    queryBoxTypeCapacity(whId),
+    pool.query(
+      `SELECT usable_area_m2, total_area_m2 FROM warehouses WHERE warehouse_id = $1 LIMIT 1`,
+      [whId]
+    ),
+    queryBinDiagnostics(whId),
+  ]);
+  const warehouse = warehouseRow.rows[0] ?? {};
+  const usableAreaM2 = Number(warehouse.usable_area_m2 ?? warehouse.total_area_m2 ?? 0) || 0;
+  const projectedStorageAreaM2 = usableAreaM2 > 0 ? usableAreaM2 * 0.7 : 0;
+  const projectedRackCount = Math.floor(projectedStorageAreaM2 / 3);
+  const projectedBinSlots = Math.floor(projectedStorageAreaM2 / 0.25);
+  const projectedLpnCapacity = projectedBinSlots * DEFAULT_BIN_MAX_LPN_COUNT;
+
+  let storage = { ...warehouseStorage };
+  let boxByType = boxTypeCapacity.byType;
+  let dataSource = 'actual';
+
+  if ((storage.totalBins ?? 0) === 0 && projectedBinSlots > 0) {
+    dataSource = 'projected';
+    storage = {
+      ...storage,
+      isProjected: true,
+      putawayEligibleBins: projectedBinSlots,
+      emptyBins: projectedBinSlots,
+      freeLpnSlots: projectedLpnCapacity,
+      freeVolumeUnits: projectedBinSlots * DEFAULT_BIN_MAX_VOLUME_UNITS,
+    };
+    boxByType = buildProjectedBoxTypeCapacity(projectedBinSlots);
+  }
+
+  const suggestion = buildBoxTypeSuggestion(boxByType, boxTypeCapacity.partialFitByType ?? {});
+
+  return {
+    warehouseId: whId,
+    usableAreaM2,
+    dataSource,
+    warehouseStorage: storage,
+    boxTypeCapacity: boxByType,
+    partialBinFitByType: boxTypeCapacity.partialFitByType,
+    boxTypeSuggestion: {
+      recommendedBoxType: suggestion.recommendedBoxType,
+      reason: suggestion.reason,
+      alternateNotes: suggestion.alternateNotes,
+    },
+    assumptions: {
+      binMaxLpnCount: DEFAULT_BIN_MAX_LPN_COUNT,
+      binMaxVolumeUnits: DEFAULT_BIN_MAX_VOLUME_UNITS,
+    },
+    projectedCapacity: {
+      rackFootprintM2: 3,
+      binFootprintM2: 0.25,
+      aisleRatio: 0.3,
+      projectedStorageAreaM2,
+      projectedRackCount,
+      projectedBinSlots,
+      projectedLpnCapacity,
+    },
+    diagnostics: {
+      binsTotal: binDiagnostics.bins_total ?? 0,
+      binsPutawayEligible: binDiagnostics.bins_putaway_eligible ?? 0,
+      binsActiveLayout: binDiagnostics.bins_active_layout ?? 0,
+      binsBelowStandardVolume: binDiagnostics.bins_below_standard_volume ?? 0,
+    },
   };
 }
 

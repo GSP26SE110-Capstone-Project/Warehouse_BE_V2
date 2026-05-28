@@ -58,6 +58,31 @@ async function assertTenantExists(tenantId) {
   return id;
 }
 
+/** Mỗi tenant chỉ được có một tài khoản TENANT_ADMIN */
+async function assertUniqueTenantAdminForTenant(tenantId, excludeUserId = null) {
+  const tId = parseUuid(tenantId, 'tenantId');
+  const values = [tId];
+  let sql = `
+    SELECT user_id, full_name, email
+    FROM users
+    WHERE tenant_id = $1
+      AND role = 'TENANT_ADMIN'::role_enum
+  `;
+  if (excludeUserId) {
+    values.push(parseUuid(excludeUserId, 'userId'));
+    sql += ` AND user_id != $2`;
+  }
+  const result = await pool.query(sql, values);
+  if (result.rows.length > 0) {
+    const row = result.rows[0];
+    throw new AppError(
+      `Tenant đã có Tenant Admin (${row.full_name}, ${row.email}). Mỗi tenant chỉ được một Tenant Admin.`,
+      400,
+      'TENANT_ADMIN_EXISTS'
+    );
+  }
+}
+
 /** Mỗi kho chỉ được có một tài khoản WH_ADMIN */
 async function assertUniqueWhAdminForWarehouse(warehouseId, excludeUserId = null) {
   const whId = parseUuid(warehouseId, 'warehouseId');
@@ -185,6 +210,9 @@ async function normalizeCreatePayload(body, creator) {
   if (scope.tenantId) {
     data.tenantId = await assertTenantExists(scope.tenantId);
     data.warehouseId = null;
+    if (data.role === 'TENANT_ADMIN') {
+      await assertUniqueTenantAdminForTenant(data.tenantId);
+    }
   }
 
   data.passwordHash = await hashPassword(data.password);
@@ -296,6 +324,9 @@ async function applySystemAdminScopePatch(creator, existing, body, data) {
     }
     data.tenantId = await assertTenantExists(body.tenantId);
     data.warehouseId = null;
+    if (existing.role === 'TENANT_ADMIN') {
+      await assertUniqueTenantAdminForTenant(data.tenantId, existing.userId);
+    }
   }
 }
 

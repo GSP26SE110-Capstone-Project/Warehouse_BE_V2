@@ -1,6 +1,7 @@
 import * as warehouseService from '../services/warehouse.service.js';
 import * as rentalRequestService from '../services/rentalRequest.service.js';
 import * as inboundRequestService from '../services/inboundRequest.service.js';
+import * as inboundApprovalReadinessService from '../services/inboundApprovalReadiness.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import {
   assertTenantWarehouseAccess,
@@ -38,6 +39,15 @@ export async function getZonePlanning(req, res) {
   await assertTenantWarehouseAccess(req.user, req.params.warehouseId);
   const planning = await warehouseService.getWarehouseZonePlanning(req.params.warehouseId);
   success(res, planning);
+}
+
+export async function getCapacitySnapshot(req, res) {
+  assertWarehouseAccess(req.user, req.params.warehouseId);
+  await assertTenantWarehouseAccess(req.user, req.params.warehouseId);
+  const snapshot = await inboundApprovalReadinessService.getWarehouseCapacitySnapshot(
+    req.params.warehouseId
+  );
+  success(res, snapshot);
 }
 
 export async function listRentalRequests(req, res) {

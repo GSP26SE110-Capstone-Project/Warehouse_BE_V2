@@ -1,6 +1,6 @@
 // ======================================================
 // PUBLIC FASHION WAREHOUSE MANAGEMENT SYSTEM
-// CLEAN FINAL DBML
+// CLEAN FINAL DBML (synced with init-scripts/01-db4-schema.sql)
 // Multi-tenant | Contract-based | FIFO | LPN | Daily Usage Billing
 // ======================================================
 
@@ -69,6 +69,7 @@ Enum contract_type_enum {
   RESERVED_STORAGE
   DEDICATED_ZONE
   DEDICATED_WAREHOUSE
+  NEEDS_CONSULTATION
 }
 
 Enum pricing_model_enum {
@@ -158,6 +159,11 @@ Enum inbound_status_enum {
   RECEIVING
   COMPLETED
   CANCELLED
+}
+
+Enum delivery_mode_enum {
+  TENANT_SELF
+  WAREHOUSE_TRANSPORT
 }
 
 Enum lpn_status_enum {
@@ -712,6 +718,8 @@ Table inbound_requests {
 
   inbound_code varchar [unique, not null]
 
+  delivery_mode delivery_mode_enum [default: 'TENANT_SELF', note: 'Tenant delivers vs warehouse arranges transport']
+
   expected_arrival_date timestamp
   actual_arrival_at timestamp
 
@@ -729,6 +737,32 @@ Table inbound_requests {
     contract_id
     warehouse_id
     status
+  }
+}
+
+// One inbound request has at most one delivery trip (vehicle/driver to warehouse)
+Table inbound_deliveries {
+  inbound_delivery_id uuid [pk]
+
+  inbound_request_id uuid [unique, not null, ref: > inbound_requests.inbound_request_id]
+  tenant_id uuid [not null, ref: > tenant_companies.tenant_id]
+
+  vehicle_plate varchar [not null]
+  driver_name varchar
+  driver_phone varchar
+  driver_id_number varchar
+  carrier_name varchar
+
+  scheduled_at timestamp
+  notes text
+
+  created_at timestamp
+  updated_at timestamp
+
+  indexes {
+    tenant_id
+    inbound_request_id
+    vehicle_plate
   }
 }
 
@@ -974,6 +1008,11 @@ Table shipments {
   shipment_code varchar [unique]
   carrier_name varchar
   tracking_number varchar
+
+  vehicle_plate varchar [note: 'Outbound delivery vehicle']
+  driver_name varchar
+  driver_phone varchar
+  driver_id_number varchar
 
   status shipment_status_enum [default: 'READY']
 

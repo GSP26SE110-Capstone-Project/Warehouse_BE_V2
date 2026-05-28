@@ -62,7 +62,8 @@ export async function create(req, res) {
 export async function update(req, res) {
   const item = await rentalRequestService.updateRentalRequest(
     req.params.rentalRequestId,
-    req.body
+    req.body,
+    req.user
   );
   success(res, item, 'Updated successfully');
 }
