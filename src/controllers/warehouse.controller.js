@@ -1,7 +1,14 @@
 import * as warehouseService from '../services/warehouse.service.js';
 import * as rentalRequestService from '../services/rentalRequest.service.js';
 import * as inboundRequestService from '../services/inboundRequest.service.js';
+import * as inboundApprovalReadinessService from '../services/inboundApprovalReadiness.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
+import {
+  assertTenantWarehouseAccess,
+  assertWarehouseAccess,
+  getScopedTenantId,
+  getScopedWarehouseId,
+} from '../utils/warehouseAccess.js';
 import { parsePagination } from '../utils/validate.js';
 
 export async function list(req, res) {
@@ -13,17 +20,38 @@ export async function list(req, res) {
     page,
     limit,
     offset,
+    scopedWarehouseId: getScopedWarehouseId(req.user),
+    scopedTenantId: getScopedTenantId(req.user),
   });
 
   paginated(res, result.items, result.meta);
 }
 
 export async function getById(req, res) {
+  assertWarehouseAccess(req.user, req.params.warehouseId);
+  await assertTenantWarehouseAccess(req.user, req.params.warehouseId);
   const warehouse = await warehouseService.getWarehouseById(req.params.warehouseId);
   success(res, warehouse);
 }
 
+export async function getZonePlanning(req, res) {
+  assertWarehouseAccess(req.user, req.params.warehouseId);
+  await assertTenantWarehouseAccess(req.user, req.params.warehouseId);
+  const planning = await warehouseService.getWarehouseZonePlanning(req.params.warehouseId);
+  success(res, planning);
+}
+
+export async function getCapacitySnapshot(req, res) {
+  assertWarehouseAccess(req.user, req.params.warehouseId);
+  await assertTenantWarehouseAccess(req.user, req.params.warehouseId);
+  const snapshot = await inboundApprovalReadinessService.getWarehouseCapacitySnapshot(
+    req.params.warehouseId
+  );
+  success(res, snapshot);
+}
+
 export async function listRentalRequests(req, res) {
+  assertWarehouseAccess(req.user, req.params.warehouseId);
   const { page, limit, offset } = parsePagination(req.query);
   const { tenantId, regionMatch, status, contractType, pricingModel } = req.query;
 
@@ -43,6 +71,7 @@ export async function listRentalRequests(req, res) {
 }
 
 export async function listInboundRequests(req, res) {
+  assertWarehouseAccess(req.user, req.params.warehouseId);
   const { page, limit, offset } = parsePagination(req.query);
   const { tenantId, contractId, status } = req.query;
 
@@ -60,19 +89,20 @@ export async function listInboundRequests(req, res) {
 }
 
 export async function create(req, res) {
-  const warehouse = await warehouseService.createWarehouse(req.body);
+  const warehouse = await warehouseService.createWarehouse(req.body, req.user);
   created(res, warehouse);
 }
 
 export async function update(req, res) {
   const warehouse = await warehouseService.updateWarehouse(
     req.params.warehouseId,
-    req.body
+    req.body,
+    req.user
   );
   success(res, warehouse, 'Updated successfully');
 }
 
 export async function remove(req, res) {
-  const warehouse = await warehouseService.deleteWarehouse(req.params.warehouseId);
+  const warehouse = await warehouseService.deleteWarehouse(req.params.warehouseId, req.user);
   success(res, warehouse, 'Deleted successfully');
 }

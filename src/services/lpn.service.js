@@ -6,7 +6,8 @@ import {
   LPN_STATUS,
 } from '../constants/warehouseStructure.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
-import { getBatchContext } from './batch.service.js';
+import { getBatch, getBatchContext } from './batch.service.js';
+import { assertInboundAllowsReceivingOps } from '../utils/inboundGuards.js';
 import { getBin } from './bin.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 
@@ -264,6 +265,8 @@ export async function listLpns({
 
 export async function createLpn(body) {
   const data = await normalizeCreatePayload(body);
+  const batch = await getBatch(data.batchId);
+  await assertInboundAllowsReceivingOps(batch.inboundRequestId);
   return Lpn.create(data);
 }
 

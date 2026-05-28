@@ -11,6 +11,10 @@ Account List:
 tenant1admin@brand.local
 Tenant1@12345
 
+- Tenant Admin 2:
+gucci@company.com
+12345678
+
 - Warehouse Admin:
 whadmin@warehouse.local
 WhAdmin@12345

@@ -11,7 +11,14 @@ export const CONTRACT_TYPE = Object.freeze([
   'RESERVED_STORAGE',
   'DEDICATED_ZONE',
   'DEDICATED_WAREHOUSE',
+  /** Khách chưa chọn hình thức — WH gán loại thuê khi duyệt */
+  'NEEDS_CONSULTATION',
 ]);
+
+/** Loại thuê có thể ghi trên hợp đồng / billing */
+export const BILLABLE_CONTRACT_TYPE = Object.freeze(
+  CONTRACT_TYPE.filter((t) => t !== 'NEEDS_CONSULTATION')
+);
 
 export const PRICING_MODEL = Object.freeze(['USAGE_BASED', 'FIXED', 'HYBRID']);
 

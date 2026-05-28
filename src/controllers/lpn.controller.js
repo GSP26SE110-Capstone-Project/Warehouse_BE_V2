@@ -1,6 +1,7 @@
 import * as lpnService from '../services/lpn.service.js';
 import * as lpnDetailService from '../services/lpnDetail.service.js';
 import * as lpnRackSuggestionService from '../services/lpnRackSuggestion.service.js';
+import * as inboundWorkflowService from '../services/inboundWorkflow.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -48,6 +49,11 @@ export async function create(req, res) {
 export async function update(req, res) {
   const lpn = await lpnService.updateLpn(req.params.lpnId, req.body);
   success(res, lpn, 'Updated successfully');
+}
+
+export async function putaway(req, res) {
+  const result = await inboundWorkflowService.putawayLpn(req.params.lpnId, req.body);
+  success(res, result, 'Putaway completed');
 }
 
 export async function remove(req, res) {

@@ -26,6 +26,14 @@ const errorResponse = {
         'OLLAMA_DISABLED',
         'ALREADY_CLAIMED',
         'CLAIM_FAILED',
+        'INVALID_STATUS_TRANSITION',
+        'INVALID_INBOUND_STATUS',
+        'RECEIVING_INCOMPLETE',
+        'LPN_PUTAWAY_INCOMPLETE',
+        'LPN_ALREADY_PUTAWAY',
+        'INVALID_LPN_STATUS',
+        'BIN_CAPACITY_EXCEEDED',
+        'BIN_BLOCKED',
       ],
     },
     errors: { type: 'object', nullable: true },
@@ -156,7 +164,9 @@ const spec = {
     { name: 'Season', description: 'Fashion seasons' },
     { name: 'Collection', description: 'Tenant product collections' },
     { name: 'SKU', description: 'Tenant product SKUs' },
-    { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 3)' },
+    { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 4)' },
+    { name: 'InboundRequestItem', description: 'SKU lines on an inbound request' },
+    { name: 'Inventory', description: 'Stock on hand (SKU + batch + LPN + bin)' },
     { name: 'OutboundRequest', description: 'Tenant outbound / shipping requests (Flow 7)' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
@@ -672,6 +682,174 @@ const spec = {
           },
           approvedBy: { ...uuid, nullable: true },
           receivedBy: { ...uuid, nullable: true },
+        },
+      },
+      InboundRequestWithItems: {
+        allOf: [
+          { $ref: '#/components/schemas/InboundRequest' },
+          {
+            type: 'object',
+            properties: {
+              items: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/InboundRequestItem' },
+              },
+            },
+          },
+        ],
+      },
+      InboundRequestItem: {
+        type: 'object',
+        properties: {
+          inboundRequestItemId: uuid,
+          inboundRequestId: uuid,
+          skuId: uuid,
+          expectedQuantity: { type: 'integer', minimum: 1 },
+          receivedQuantity: { type: 'integer', minimum: 0, default: 0 },
+          discrepancyQuantity: { type: 'integer', default: 0 },
+          createdAt: { type: 'string', format: 'date-time' },
+          sku: {
+            type: 'object',
+            properties: {
+              skuId: uuid,
+              skuCode: { type: 'string' },
+              productName: { type: 'string' },
+              color: { type: 'string', nullable: true },
+              size: { type: 'string', nullable: true },
+            },
+          },
+        },
+      },
+      InboundRequestItemCreate: {
+        type: 'object',
+        required: ['skuId', 'expectedQuantity'],
+        properties: {
+          inboundRequestId: {
+            ...uuid,
+            description: 'Required on POST /inbound-request-items; omitted when nested under inbound',
+          },
+          skuId: uuid,
+          expectedQuantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      InboundRequestItemUpdate: {
+        type: 'object',
+        properties: {
+          expectedQuantity: { type: 'integer', minimum: 1 },
+          receivedQuantity: { type: 'integer', minimum: 0 },
+          discrepancyQuantity: { type: 'integer', minimum: 0 },
+        },
+      },
+      InboundStartReceiving: {
+        type: 'object',
+        properties: {
+          receivedBy: uuid,
+        },
+      },
+      InboundCompleteReceiving: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['inboundRequestItemId', 'receivedQuantity'],
+              properties: {
+                inboundRequestItemId: uuid,
+                receivedQuantity: { type: 'integer', minimum: 0 },
+              },
+            },
+            description:
+              'Optional if every line already has receivedQuantity via PATCH; otherwise required',
+          },
+        },
+      },
+      InboundCompleteReceivingResult: {
+        type: 'object',
+        properties: {
+          inboundRequestId: uuid,
+          status: { type: 'string', example: 'RECEIVING' },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/InboundRequestItem' },
+          },
+          message: { type: 'string' },
+        },
+      },
+      LpnPutawayRequest: {
+        type: 'object',
+        required: ['binId'],
+        properties: {
+          binId: uuid,
+          recommendationId: {
+            ...uuid,
+            description: 'Optional ai_slot_recommendations id to mark isApplied',
+          },
+          movedBy: uuid,
+        },
+      },
+      LpnPutawayResult: {
+        type: 'object',
+        properties: {
+          lpn: { $ref: '#/components/schemas/LpnWithDetails' },
+          inboundRequestId: uuid,
+          inboundStatus: { type: 'string' },
+        },
+      },
+      Inventory: {
+        type: 'object',
+        properties: {
+          inventoryId: uuid,
+          tenantId: uuid,
+          skuId: uuid,
+          batchId: uuid,
+          lpnId: uuid,
+          binId: uuid,
+          quantity: { type: 'integer' },
+          reservedQuantity: { type: 'integer' },
+          availableQuantity: { type: 'integer' },
+          status: {
+            type: 'string',
+            enum: ['AVAILABLE', 'RESERVED', 'PICKED', 'DAMAGED', 'IN_TRANSIT', 'SHIPPED'],
+          },
+          receivedAt: { type: 'string', format: 'date-time', nullable: true },
+          sku: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              skuId: uuid,
+              skuCode: { type: 'string' },
+              productName: { type: 'string' },
+            },
+          },
+          lpnCode: { type: 'string', nullable: true },
+          binCode: { type: 'string', nullable: true },
+          ...timestamps,
+        },
+      },
+      InventoryMovement: {
+        type: 'object',
+        properties: {
+          movementId: uuid,
+          inventoryId: uuid,
+          movementType: {
+            type: 'string',
+            enum: [
+              'INBOUND',
+              'PUTAWAY',
+              'RELOCATION',
+              'PICKING',
+              'OUTBOUND',
+              'SHIPPING',
+              'ADJUSTMENT',
+            ],
+          },
+          fromBinId: { ...uuid, nullable: true },
+          toBinId: { ...uuid, nullable: true },
+          quantity: { type: 'integer' },
+          movedBy: { ...uuid, nullable: true },
+          movedAt: { type: 'string', format: 'date-time', nullable: true },
+          note: { type: 'string', nullable: true },
         },
       },
 
@@ -2935,15 +3113,280 @@ const spec = {
         },
       },
     },
+    '/api/inbound-requests/{inboundRequestId}/items': {
+      get: {
+        tags: ['InboundRequest', 'InboundRequestItem'],
+        summary: 'List line items on an inbound request',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/InboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['InboundRequest', 'InboundRequestItem'],
+        summary: 'Add SKU line to inbound request',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundRequestItemCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequestItem' },
+            'Inbound request item created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}/start-receiving': {
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Start receiving (ARRIVED → RECEIVING)',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundStartReceiving' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Receiving started'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}/complete-receiving': {
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Record received quantities (QC / count)',
+        description:
+          'Send items[] with receivedQuantity, or PATCH each item first then call with empty body.',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundCompleteReceiving' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundCompleteReceivingResult' },
+            'Receiving quantities recorded'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}/complete': {
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Complete inbound (all LPNs must be STORED)',
+        parameters: [
+          { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundStartReceiving' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequest' },
+            'Inbound completed'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/inbound-request-items': {
+      get: {
+        tags: ['InboundRequestItem'],
+        summary: 'List inbound request items',
+        parameters: [
+          { in: 'query', name: 'inboundRequestId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/InboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['InboundRequestItem'],
+        summary: 'Create inbound request item',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundRequestItemCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequestItem' },
+            'Inbound request item created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/inbound-request-items/{inboundRequestItemId}': {
+      get: {
+        tags: ['InboundRequestItem'],
+        summary: 'Get inbound request item',
+        parameters: [
+          { in: 'path', name: 'inboundRequestItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/InboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['InboundRequestItem'],
+        summary: 'Update inbound request item (e.g. receivedQuantity)',
+        parameters: [
+          { in: 'path', name: 'inboundRequestItemId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/InboundRequestItemUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequestItem' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['InboundRequestItem'],
+        summary: 'Delete inbound request item',
+        parameters: [
+          { in: 'path', name: 'inboundRequestItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/InboundRequestItem' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/inventories': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'List inventory records',
+        parameters: [
+          { in: 'query', name: 'tenantId', schema: uuid },
+          { in: 'query', name: 'skuId', schema: uuid },
+          { in: 'query', name: 'batchId', schema: uuid },
+          { in: 'query', name: 'lpnId', schema: uuid },
+          { in: 'query', name: 'binId', schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: ['AVAILABLE', 'RESERVED', 'PICKED', 'DAMAGED', 'IN_TRANSIT', 'SHIPPED'],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/Inventory' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/inventories/{inventoryId}': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'Get inventory by ID',
+        parameters: [{ in: 'path', name: 'inventoryId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/Inventory' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/inventories/{inventoryId}/movements': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'List movements for an inventory record',
+        parameters: [
+          { in: 'path', name: 'inventoryId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/InventoryMovement' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/inbound-requests/{inboundRequestId}': {
       get: {
         tags: ['InboundRequest'],
         summary: 'Get inbound request by ID',
         parameters: [
           { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'includeItems',
+            schema: { type: 'boolean' },
+            description: 'If true, embed items[] with SKU info',
+          },
         ],
         responses: {
-          200: successEnvelope({ $ref: '#/components/schemas/InboundRequest' }),
+          200: successEnvelope({ $ref: '#/components/schemas/InboundRequestWithItems' }),
           400: stdErrors[400],
           404: stdErrors[404],
         },
@@ -3345,6 +3788,32 @@ const spec = {
           200: successEnvelope(
             { $ref: '#/components/schemas/AiSlotRecommendation' },
             'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/lpns/{lpnId}/putaway': {
+      post: {
+        tags: ['LPN', 'Inventory'],
+        summary: 'Putaway LPN to bin (creates inventory + PUTAWAY movement)',
+        description:
+          'Transaction: inventories, inventory_movements (PUTAWAY), LPN → STORED, bin occupancy. ' +
+          'Prefer this over PATCH currentBinId for inbound flow.',
+        parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LpnPutawayRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/LpnPutawayResult' },
+            'Putaway completed'
           ),
           400: stdErrors[400],
           404: stdErrors[404],

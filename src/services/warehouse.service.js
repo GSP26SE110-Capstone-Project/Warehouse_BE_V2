@@ -1,6 +1,11 @@
 import Warehouse from '../models/Warehouse.js';
+import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
+import { REFERENCE_ZONE_AREA_M2 } from '../constants/warehouseCapacity.js';
 import { WAREHOUSE_STATUS } from '../constants/warehouseStructure.js';
+import { fromDbRecord } from '../models/utils/fieldMapper.js';
+import { warehouseSchema } from '../models/Warehouse.js';
+import { getScopedWarehouseId } from '../utils/warehouseAccess.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 
 const CREATE_FIELDS = [
@@ -52,6 +57,7 @@ function normalizeCreatePayload(body) {
   if (data.status == null) data.status = 'ACTIVE';
 
   assertEnum(data.status, WAREHOUSE_STATUS, 'status');
+  assertWarehouseAreas(data);
   return data;
 }
 
@@ -76,11 +82,147 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
-export async function listWarehouses({ status, page, limit, offset }) {
+function parseArea(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function assertWarehouseAreas(data, existing = null) {
+  const total = parseArea(
+    data.totalAreaM2 !== undefined ? data.totalAreaM2 : existing?.totalAreaM2
+  );
+  const usable = parseArea(
+    data.usableAreaM2 !== undefined ? data.usableAreaM2 : existing?.usableAreaM2
+  );
+
+  if (total != null && usable != null && usable > total) {
+    throw new AppError(
+      `Diện tích sử dụng (${usable} m²) không được lớn hơn tổng diện tích (${total} m²)`,
+      400,
+      'AREA_EXCEEDS_TOTAL'
+    );
+  }
+}
+
+export async function sumZoneAreaM2(warehouseId) {
+  const zones = await WarehouseZone.findAll({ warehouseId });
+  return zones.reduce((sum, z) => sum + (Number(z.areaM2) || 0), 0);
+}
+
+export async function getWarehouseZonePlanning(warehouseId) {
+  const warehouse = await getWarehouseById(warehouseId);
+  const usedZoneAreaM2 = await sumZoneAreaM2(warehouseId);
+  const totalAreaM2 = parseArea(warehouse.totalAreaM2);
+  const usableAreaM2 = parseArea(warehouse.usableAreaM2);
+  const remainingZoneAreaM2 =
+    usableAreaM2 != null ? Math.max(0, usableAreaM2 - usedZoneAreaM2) : null;
+
+  const suggestedReferenceZoneAreaM2 = REFERENCE_ZONE_AREA_M2;
+  const suggestedMinZoneCount =
+    usableAreaM2 != null && usableAreaM2 > 0
+      ? Math.max(1, Math.ceil(usableAreaM2 / REFERENCE_ZONE_AREA_M2))
+      : null;
+
+  const zones = await WarehouseZone.findAll({ warehouseId });
+  const zoneCount = zones.length;
+  const missingZoneCount =
+    suggestedMinZoneCount != null ? Math.max(0, suggestedMinZoneCount - zoneCount) : null;
+
+  const suggestedAreaPerZoneForEvenSplit =
+    missingZoneCount != null && missingZoneCount > 0 && remainingZoneAreaM2 != null
+      ? Math.round((remainingZoneAreaM2 / missingZoneCount) * 100) / 100
+      : suggestedReferenceZoneAreaM2;
+
+  return {
+    warehouseId,
+    totalAreaM2,
+    usableAreaM2,
+    usedZoneAreaM2,
+    remainingZoneAreaM2,
+    zoneCount,
+    suggestedReferenceZoneAreaM2,
+    suggestedMinZoneCount,
+    missingZoneCount,
+    suggestedAreaPerZoneForEvenSplit,
+    areaValid:
+      totalAreaM2 == null ||
+      usableAreaM2 == null ||
+      (usableAreaM2 <= totalAreaM2 &&
+        (usableAreaM2 == null || usedZoneAreaM2 <= usableAreaM2)),
+  };
+}
+
+function mapWarehouseRows(rows) {
+  return rows.map((row) => fromDbRecord(warehouseSchema, row));
+}
+
+async function listWarehousesForTenant(tenantId, { status, limit, offset }) {
+  const tid = parseUuid(tenantId, 'tenantId');
+  const params = [tid];
+  let statusClause = '';
+  if (status) {
+    params.push(status);
+    statusClause = `AND w.status = $${params.length}`;
+  }
+
+  const limitVal = limit ?? 100;
+  const offsetVal = offset ?? 0;
+  params.push(limitVal, offsetVal);
+
+  const rows = await Warehouse.query(
+    `SELECT DISTINCT w.*
+     FROM warehouses w
+     INNER JOIN contracts c ON c.warehouse_id = w.warehouse_id
+     WHERE c.tenant_id = $1
+       AND c.status IN ('DRAFT', 'PENDING_APPROVAL', 'ACTIVE')
+       ${statusClause}
+     ORDER BY w.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+
+  const countParams = status ? [tid, status] : [tid];
+  const countStatusClause = status ? 'AND w.status = $2' : '';
+  const countRow = await Warehouse.queryOne(
+    `SELECT COUNT(DISTINCT w.warehouse_id)::int AS count
+     FROM warehouses w
+     INNER JOIN contracts c ON c.warehouse_id = w.warehouse_id
+     WHERE c.tenant_id = $1
+       AND c.status IN ('DRAFT', 'PENDING_APPROVAL', 'ACTIVE')
+       ${countStatusClause}`,
+    countParams
+  );
+  const total = countRow?.count ?? 0;
+
+  return {
+    items: mapWarehouseRows(rows),
+    meta: {
+      page: Math.floor(offsetVal / limitVal) + 1,
+      limit: limitVal,
+      total,
+      totalPages: Math.ceil(total / limitVal) || 0,
+    },
+  };
+}
+
+export async function listWarehouses({
+  status,
+  page,
+  limit,
+  offset,
+  scopedWarehouseId,
+  scopedTenantId,
+}) {
   assertEnum(status, WAREHOUSE_STATUS, 'status');
+
+  if (scopedTenantId) {
+    return listWarehousesForTenant(scopedTenantId, { status, limit, offset });
+  }
 
   const filters = {};
   if (status) filters.status = status;
+  if (scopedWarehouseId) filters.warehouseId = scopedWarehouseId;
 
   const [items, total] = await Promise.all([
     Warehouse.findAll(filters, {
@@ -111,12 +253,15 @@ export async function getWarehouseById(warehouseId) {
   return warehouse;
 }
 
-export async function createWarehouse(body) {
+export async function createWarehouse(body, user) {
+  if (user?.role !== 'SYSTEM_ADMIN') {
+    throw new AppError('SYSTEM_ADMIN only', 403, 'FORBIDDEN');
+  }
   const data = normalizeCreatePayload(body);
   return Warehouse.create(data);
 }
 
-export async function updateWarehouse(warehouseId, body) {
+export async function updateWarehouse(warehouseId, body, user) {
   const id = parseUuid(warehouseId, 'warehouseId');
   const data = normalizeUpdatePayload(body);
 
@@ -125,10 +270,41 @@ export async function updateWarehouse(warehouseId, body) {
     throw new AppError('Warehouse not found', 404, 'NOT_FOUND');
   }
 
+  const scoped = getScopedWarehouseId(user);
+  if (scoped && scoped !== id) {
+    throw new AppError('Forbidden: warehouse out of scope', 403, 'FORBIDDEN');
+  }
+  if (user?.role === 'WH_ADMIN' && scoped !== id) {
+    throw new AppError('Forbidden: warehouse out of scope', 403, 'FORBIDDEN');
+  }
+
+  assertWarehouseAreas(data, existing);
+
+  const nextUsable =
+    data.usableAreaM2 !== undefined ? parseArea(data.usableAreaM2) : parseArea(existing.usableAreaM2);
+  if (nextUsable != null) {
+    const used = await sumZoneAreaM2(id);
+    if (used > nextUsable) {
+      throw new AppError(
+        `Tổng diện tích zone (${used} m²) vượt diện tích sử dụng mới (${nextUsable} m²)`,
+        400,
+        'ZONE_AREA_EXCEEDS_USABLE'
+      );
+    }
+  }
+
   return Warehouse.updateById(id, data);
 }
 
-export async function deleteWarehouse(warehouseId) {
+export async function deleteWarehouse(warehouseId, user) {
+  if (user?.role !== 'SYSTEM_ADMIN') {
+    throw new AppError('SYSTEM_ADMIN only', 403, 'FORBIDDEN');
+  }
+  return deleteWarehouseInternal(warehouseId);
+}
+
+async function deleteWarehouseInternal(warehouseId) {
+
   const id = parseUuid(warehouseId, 'warehouseId');
   const deleted = await Warehouse.deleteById(id);
   if (!deleted) {
