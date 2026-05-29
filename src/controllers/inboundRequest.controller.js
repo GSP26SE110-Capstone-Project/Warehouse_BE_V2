@@ -5,20 +5,38 @@ import * as inboundApprovalReadinessService from '../services/inboundApprovalRea
 import * as inboundDeliveryService from '../services/inboundDelivery.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
+import { applyInboundListScope, assertInboundReadable } from '../utils/inboundAccess.js';
+import AppError from '../utils/AppError.js';
+import { WH_TRANSPORT_ROLES } from '../constants/auth.js';
 
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
-  const { tenantId, warehouseId, contractId, status } = req.query;
+  const { tenantId, warehouseId, contractId, status, deliveryMode, assignedToMe } =
+    req.query;
 
-  const result = await inboundRequestService.listInboundRequests({
+  let assignedDriverUserId = req.query.assignedDriverUserId;
+  if (assignedToMe === 'true' || assignedToMe === '1') {
+    if (!req.user || !WH_TRANSPORT_ROLES.includes(req.user.role)) {
+      throw new AppError('assignedToMe requires WH_TRANSPORTER', 403, 'FORBIDDEN');
+    }
+    assignedDriverUserId = req.user.userId;
+  }
+
+  const scoped = applyInboundListScope(req.user, {
     tenantId,
     warehouseId,
     contractId,
     status,
+    deliveryMode,
+    assignedDriverUserId,
+    includeDelivery:
+      req.query.includeDelivery === 'true' || req.query.includeDelivery === '1',
     page,
     limit,
     offset,
   });
+
+  const result = await inboundRequestService.listInboundRequests(scoped);
 
   paginated(res, result.items, result.meta);
 }
@@ -31,6 +49,8 @@ export async function getApprovalReadiness(req, res) {
 }
 
 export async function getById(req, res) {
+  await assertInboundReadable(req.params.inboundRequestId, req.user);
+
   const includeItems =
     req.query.includeItems === 'true' || req.query.includeItems === '1';
   const includeDelivery =
@@ -106,4 +126,12 @@ export async function autoPutaway(req, res) {
     req.body
   );
   success(res, result, `Putaway tự động ${result.putawayCount} LPN`);
+}
+
+export async function reportArrival(req, res) {
+  const inbound = await inboundDeliveryService.reportInboundArrival(
+    req.params.inboundRequestId,
+    req.user
+  );
+  success(res, inbound, 'Arrival reported');
 }

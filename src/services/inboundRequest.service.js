@@ -1,4 +1,7 @@
-import InboundRequest from '../models/InboundRequest.js';
+import pool from '../config/db.js';
+import InboundRequest, { inboundRequestSchema } from '../models/InboundRequest.js';
+import { inboundDeliverySchema } from '../models/InboundDelivery.js';
+import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import AppError from '../utils/AppError.js';
 import { INBOUND_STATUS } from '../constants/inbound.js';
 import { DELIVERY_MODE } from '../constants/delivery.js';
@@ -208,16 +211,141 @@ export async function getInboundRequest(inboundRequestId) {
   return inbound;
 }
 
-export async function listInboundRequests({
-  tenantId,
+function mapInboundRow(row) {
+  const inbound = fromDbRecord(inboundRequestSchema, row);
+  if (row.delivery_inbound_delivery_id) {
+    inbound.delivery = fromDbRecord(inboundDeliverySchema, {
+      inbound_delivery_id: row.delivery_inbound_delivery_id,
+      inbound_request_id: row.delivery_inbound_request_id,
+      tenant_id: row.delivery_tenant_id,
+      vehicle_plate: row.delivery_vehicle_plate,
+      driver_name: row.delivery_driver_name,
+      driver_phone: row.delivery_driver_phone,
+      driver_id_number: row.delivery_driver_id_number,
+      carrier_name: row.delivery_carrier_name,
+      scheduled_at: row.delivery_scheduled_at,
+      notes: row.delivery_notes,
+      assigned_driver_user_id: row.delivery_assigned_driver_user_id,
+      created_at: row.delivery_created_at,
+      updated_at: row.delivery_updated_at,
+    });
+  }
+  return inbound;
+}
+
+async function listInboundRequestsWithAssignedDriver({
+  assignedDriverUserId,
   warehouseId,
   contractId,
   status,
+  deliveryMode,
+  includeDelivery,
   page,
   limit,
   offset,
 }) {
   assertEnum(status, INBOUND_STATUS, 'status');
+
+  const driverId = parseUuid(assignedDriverUserId, 'assignedDriverUserId');
+  const conditions = ['id.assigned_driver_user_id = $1'];
+  const values = [driverId];
+  let n = 2;
+
+  if (warehouseId) {
+    const wId = parseUuid(warehouseId, 'warehouseId');
+    await getWarehouseById(wId);
+    conditions.push(`ir.warehouse_id = $${n++}`);
+    values.push(wId);
+  }
+  if (contractId) {
+    conditions.push(`ir.contract_id = $${n++}`);
+    values.push(parseUuid(contractId, 'contractId'));
+  }
+  if (status) {
+    conditions.push(`ir.status = $${n++}::inbound_status_enum`);
+    values.push(status);
+  }
+  if (deliveryMode) {
+    assertEnum(deliveryMode, DELIVERY_MODE, 'deliveryMode');
+    conditions.push(`ir.delivery_mode = $${n++}::delivery_mode_enum`);
+    values.push(deliveryMode);
+  }
+
+  const where = conditions.join(' AND ');
+  const deliverySelect = includeDelivery
+    ? `,
+      id.inbound_delivery_id AS delivery_inbound_delivery_id,
+      id.inbound_request_id AS delivery_inbound_request_id,
+      id.tenant_id AS delivery_tenant_id,
+      id.vehicle_plate AS delivery_vehicle_plate,
+      id.driver_name AS delivery_driver_name,
+      id.driver_phone AS delivery_driver_phone,
+      id.driver_id_number AS delivery_driver_id_number,
+      id.carrier_name AS delivery_carrier_name,
+      id.scheduled_at AS delivery_scheduled_at,
+      id.notes AS delivery_notes,
+      id.assigned_driver_user_id AS delivery_assigned_driver_user_id,
+      id.created_at AS delivery_created_at,
+      id.updated_at AS delivery_updated_at`
+  : '';
+
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS count
+     FROM inbound_requests ir
+     INNER JOIN inbound_deliveries id ON id.inbound_request_id = ir.inbound_request_id
+     WHERE ${where}`,
+    values
+  );
+  const total = countResult.rows[0].count;
+
+  const listResult = await pool.query(
+    `SELECT ir.*${deliverySelect}
+     FROM inbound_requests ir
+     INNER JOIN inbound_deliveries id ON id.inbound_request_id = ir.inbound_request_id
+     WHERE ${where}
+     ORDER BY ir.created_at DESC
+     LIMIT $${n} OFFSET $${n + 1}`,
+    [...values, limit, offset]
+  );
+
+  return {
+    items: listResult.rows.map(mapInboundRow),
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 0,
+    },
+  };
+}
+
+export async function listInboundRequests({
+  tenantId,
+  warehouseId,
+  contractId,
+  status,
+  deliveryMode,
+  assignedDriverUserId,
+  includeDelivery,
+  page,
+  limit,
+  offset,
+}) {
+  assertEnum(status, INBOUND_STATUS, 'status');
+
+  if (assignedDriverUserId) {
+    return listInboundRequestsWithAssignedDriver({
+      assignedDriverUserId,
+      warehouseId,
+      contractId,
+      status,
+      deliveryMode,
+      includeDelivery: includeDelivery ?? true,
+      page,
+      limit,
+      offset,
+    });
+  }
 
   const filters = {};
   if (tenantId) {
@@ -234,6 +362,10 @@ export async function listInboundRequests({
     filters.contractId = parseUuid(contractId, 'contractId');
   }
   if (status) filters.status = status;
+  if (deliveryMode) {
+    assertEnum(deliveryMode, DELIVERY_MODE, 'deliveryMode');
+    filters.deliveryMode = deliveryMode;
+  }
 
   const [items, total] = await Promise.all([
     InboundRequest.findAll(filters, {

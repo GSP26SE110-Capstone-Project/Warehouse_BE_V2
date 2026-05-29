@@ -6,7 +6,13 @@ import * as warehouseController from '../controllers/warehouse.controller.js';
 
 const router = Router();
 const warehouseManagers = ['SYSTEM_ADMIN', 'WH_ADMIN'];
-const warehouseReaders = [...warehouseManagers, 'WH_STAFF', 'TENANT_ADMIN', 'TENANT_STAFF'];
+const warehouseReaders = [
+  ...warehouseManagers,
+  'WH_STAFF',
+  'WH_TRANSPORTER',
+  'TENANT_ADMIN',
+  'TENANT_STAFF',
+];
 
 router.use(authenticate);
 
@@ -29,7 +35,7 @@ router.get(
 );
 router.get(
   '/:warehouseId/inbound-requests',
-  authorize(...warehouseManagers, 'WH_STAFF'),
+  authorize(...warehouseManagers, 'WH_STAFF', 'WH_TRANSPORTER'),
   asyncHandler(warehouseController.listInboundRequests)
 );
 router.get(

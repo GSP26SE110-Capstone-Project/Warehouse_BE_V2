@@ -9,7 +9,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ---------- ENUMS ----------
-DO $do$ BEGIN CREATE TYPE role_enum AS ENUM ('SYSTEM_ADMIN','WH_ADMIN','WH_STAFF','TENANT_ADMIN','TENANT_STAFF'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
+DO $do$ BEGIN CREATE TYPE role_enum AS ENUM ('SYSTEM_ADMIN','WH_ADMIN','WH_STAFF','WH_TRANSPORTER','TENANT_ADMIN','TENANT_STAFF'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE user_status_enum AS ENUM ('ACTIVE','INACTIVE','SUSPENDED','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE tenant_status_enum AS ENUM ('ACTIVE','SUSPENDED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE warehouse_status_enum AS ENUM ('ACTIVE','INACTIVE','MAINTENANCE','CLOSED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
@@ -375,11 +375,13 @@ CREATE TABLE IF NOT EXISTS inbound_deliveries (
   carrier_name VARCHAR(255),
   scheduled_at TIMESTAMPTZ,
   notes TEXT,
+  assigned_driver_user_id UUID REFERENCES users (user_id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_inbound_deliveries_tenant_id ON inbound_deliveries (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_deliveries_assigned_driver ON inbound_deliveries (assigned_driver_user_id);
 CREATE INDEX IF NOT EXISTS idx_inbound_deliveries_vehicle_plate ON inbound_deliveries (vehicle_plate);
 
 CREATE TABLE IF NOT EXISTS inbound_request_items (

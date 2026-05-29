@@ -164,7 +164,7 @@ function userInCreatorScope(creator, target) {
   if (creator.role === 'WH_ADMIN') {
     return (
       target.warehouseId === creator.warehouseId &&
-      ['WH_ADMIN', 'WH_STAFF'].includes(target.role)
+      ['WH_ADMIN', 'WH_STAFF', 'WH_TRANSPORTER'].includes(target.role)
     );
   }
   if (creator.role === 'TENANT_ADMIN') {
@@ -303,7 +303,7 @@ export async function listUsers(creator, { role, status, page, limit, offset }) 
     conditions.push(`warehouse_id = $${n++}`);
     values.push(creator.warehouseId);
     conditions.push(`role = ANY($${n++}::role_enum[])`);
-    values.push(['WH_ADMIN', 'WH_STAFF']);
+    values.push(['WH_ADMIN', 'WH_STAFF', 'WH_TRANSPORTER']);
   } else if (creator.role === 'TENANT_ADMIN') {
     conditions.push(`tenant_id = $${n++}`);
     values.push(creator.tenantId);
