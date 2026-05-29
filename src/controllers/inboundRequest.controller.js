@@ -91,3 +91,19 @@ export async function complete(req, res) {
   );
   success(res, inbound, 'Inbound completed');
 }
+
+export async function bulkPutaway(req, res) {
+  const result = await inboundWorkflowService.bulkPutawayInbound(
+    req.params.inboundRequestId,
+    req.body
+  );
+  success(res, result, `Putaway ${result.putawayCount} LPN`);
+}
+
+export async function autoPutaway(req, res) {
+  const result = await inboundWorkflowService.autoPutawayInbound(
+    req.params.inboundRequestId,
+    req.body
+  );
+  success(res, result, `Putaway tự động ${result.putawayCount} LPN`);
+}

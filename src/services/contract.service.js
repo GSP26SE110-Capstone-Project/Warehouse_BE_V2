@@ -294,11 +294,53 @@ export async function createContract(tenantId, warehouseId, body) {
   return contract;
 }
 
+function applySignatureWorkflow(existing, data) {
+  const whSigned =
+    data.warehouseSignature !== undefined
+      ? Boolean(String(data.warehouseSignature ?? '').trim())
+      : Boolean(String(existing.warehouseSignature ?? '').trim());
+  const tenantSigned =
+    data.tenantSignature !== undefined
+      ? Boolean(String(data.tenantSignature ?? '').trim())
+      : Boolean(String(existing.tenantSignature ?? '').trim());
+
+  if (data.tenantSignature !== undefined && data.tenantSignature && !whSigned) {
+    throw new AppError(
+      'Kho phải ký hợp đồng trước khi tenant ký',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  if (
+    data.warehouseSignature !== undefined &&
+    data.warehouseSignature &&
+    data.status === undefined &&
+    existing.status === 'DRAFT'
+  ) {
+    data.status = 'PENDING_APPROVAL';
+  }
+
+  if (
+    data.tenantSignature !== undefined &&
+    data.tenantSignature &&
+    data.status === undefined &&
+    whSigned
+  ) {
+    data.status = 'ACTIVE';
+  }
+
+  if (tenantSigned && whSigned && data.status === undefined && existing.status === 'PENDING_APPROVAL') {
+    data.status = 'ACTIVE';
+  }
+}
+
 export async function updateContract(contractId, body) {
   const id = parseUuid(contractId, 'contractId');
-  await getContract(id);
+  const existing = await getContract(id);
 
   const data = normalizeUpdatePayload(body);
+  applySignatureWorkflow(existing, data);
   return Contract.updateById(id, data);
 }
 

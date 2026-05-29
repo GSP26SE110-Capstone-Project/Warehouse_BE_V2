@@ -44,6 +44,14 @@ router.post(
   '/:inboundRequestId/complete-receiving',
   asyncHandler(inboundRequestController.completeReceiving)
 );
+router.post(
+  '/:inboundRequestId/bulk-putaway',
+  asyncHandler(inboundRequestController.bulkPutaway)
+);
+router.post(
+  '/:inboundRequestId/auto-putaway',
+  asyncHandler(inboundRequestController.autoPutaway)
+);
 router.post('/:inboundRequestId/complete', asyncHandler(inboundRequestController.complete));
 
 router.get('/:inboundRequestId', asyncHandler(inboundRequestController.getById));
