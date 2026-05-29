@@ -15,6 +15,11 @@ import { getWarehouseById } from './warehouse.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import { rentalRequestSchema } from '../models/RentalRequest.js';
+import {
+  assertWarehouseAccess,
+  getScopedTenantId,
+} from '../utils/warehouseAccess.js';
+import { WAREHOUSE_ROLES } from '../constants/auth.js';
 
 const CREATE_FIELDS = [
   'requestCode',
@@ -68,6 +73,40 @@ const UPDATE_FIELDS = [
 ];
 
 const CLAIMABLE_STATUSES = ['PENDING', 'UNDER_REVIEW'];
+
+function assertRentalRequestReadAccess(user, item) {
+  if (!user) return;
+
+  const scopedTenantId = getScopedTenantId(user);
+  if (scopedTenantId) {
+    if (item.tenantId !== scopedTenantId) {
+      throw new AppError('Forbidden: rental request out of tenant scope', 403, 'FORBIDDEN');
+    }
+    return;
+  }
+
+  if (WAREHOUSE_ROLES.includes(user.role) && item.warehouseId) {
+    assertWarehouseAccess(user, item.warehouseId);
+  }
+}
+
+function applyRentalListScope(user, filters, { warehouseId, regionMatch } = {}) {
+  const scopedTenantId = getScopedTenantId(user);
+  if (scopedTenantId) {
+    if (filters.tenantId && filters.tenantId !== scopedTenantId) {
+      throw new AppError('Forbidden: tenant out of scope', 403, 'FORBIDDEN');
+    }
+    if (warehouseId || regionMatch === true || regionMatch === 'true') {
+      throw new AppError('Forbidden: warehouse inbox not available for tenant users', 403, 'FORBIDDEN');
+    }
+    filters.tenantId = scopedTenantId;
+    return;
+  }
+
+  if (user?.role === 'WH_ADMIN' && filters.warehouseId) {
+    assertWarehouseAccess(user, filters.warehouseId);
+  }
+}
 
 function pickFields(source, fields) {
   const result = {};
@@ -349,12 +388,13 @@ async function queryRentalRequests({ conditions, params, limit, offset }) {
   };
 }
 
-export async function getRentalRequest(rentalRequestId) {
+export async function getRentalRequest(rentalRequestId, user = null) {
   const id = parseUuid(rentalRequestId, 'rentalRequestId');
   const item = await RentalRequest.findById(id);
   if (!item) {
     throw new AppError('Rental request not found', 404, 'NOT_FOUND');
   }
+  assertRentalRequestReadAccess(user, item);
   return item;
 }
 
@@ -429,6 +469,7 @@ export async function listRentalRequests({
   page,
   limit,
   offset,
+  user = null,
 }) {
   assertEnum(status, RENTAL_REQUEST_STATUS, 'status');
   assertEnum(contractType, CONTRACT_TYPE, 'contractType');
@@ -453,6 +494,8 @@ export async function listRentalRequests({
       filters.warehouseId = whId;
     }
   }
+
+  applyRentalListScope(user, filters, { warehouseId, regionMatch });
 
   if (status) filters.status = status;
   if (contractType) filters.contractType = contractType;

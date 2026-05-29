@@ -1,5 +1,5 @@
 import User from '../models/User.js';
-import { signAccessToken } from '../config/jwt.js';
+import { signAccessToken, verifyPasswordResetToken } from '../config/jwt.js';
 import AppError from '../utils/AppError.js';
 import {
   assertPasswordStrength,
@@ -158,6 +158,44 @@ export async function confirmPasswordChange(userId, { otp }) {
 
   const { newPasswordHash } = result.payload;
   await User.updateById(userId, { passwordHash: newPasswordHash });
+
+  return { changedAt: new Date().toISOString() };
+}
+
+/**
+ * Đặt lại mật khẩu bằng token từ email (welcome / forgot password).
+ * Không cần đăng nhập, không cần mật khẩu cũ.
+ */
+export async function resetPasswordWithToken({ token, newPassword }) {
+  if (!token?.trim()) {
+    throw new AppError('token is required', 400, 'VALIDATION_ERROR');
+  }
+  if (!newPassword) {
+    throw new AppError('newPassword is required', 400, 'VALIDATION_ERROR');
+  }
+
+  const strengthError = assertPasswordStrength(newPassword);
+  if (strengthError) {
+    throw new AppError(strengthError, 400, 'VALIDATION_ERROR');
+  }
+
+  let userId;
+  try {
+    userId = verifyPasswordResetToken(token.trim());
+  } catch {
+    throw new AppError('Invalid or expired reset link', 400, 'RESET_TOKEN_INVALID');
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('Invalid or expired reset link', 400, 'RESET_TOKEN_INVALID');
+  }
+  if (user.status !== 'ACTIVE') {
+    throw new AppError('Account is not active', 403, 'ACCOUNT_INACTIVE');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await User.updateById(userId, { passwordHash });
 
   return { changedAt: new Date().toISOString() };
 }
