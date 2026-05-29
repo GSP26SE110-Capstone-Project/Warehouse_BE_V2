@@ -86,6 +86,30 @@ async function assertContractForInbound(tenantId, contractId, warehouseId) {
   return contract;
 }
 
+function startOfDayUtc(date) {
+  const d = new Date(date);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function assertExpectedArrivalOnOrAfterContractStart(contract, expectedArrivalDate) {
+  if (expectedArrivalDate == null || !contract?.startDate) return;
+
+  const arrivalDay = startOfDayUtc(expectedArrivalDate);
+  const contractStartDay = startOfDayUtc(contract.startDate);
+
+  if (arrivalDay < contractStartDay) {
+    const startLabel =
+      contract.startDate instanceof Date
+        ? contract.startDate.toISOString().slice(0, 10)
+        : String(contract.startDate).slice(0, 10);
+    throw new AppError(
+      `Ngày dự kiến đến kho không được trước ngày bắt đầu hợp đồng (${startLabel})`,
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+}
+
 function normalizeCreatePayload(body) {
   const data = pickFields(body, CREATE_FIELDS);
 
@@ -236,7 +260,12 @@ export async function createInboundRequest(body) {
 
   await getTenantCompany(data.tenantId);
   await getWarehouseById(data.warehouseId);
-  await assertContractForInbound(data.tenantId, data.contractId, data.warehouseId);
+  const contract = await assertContractForInbound(
+    data.tenantId,
+    data.contractId,
+    data.warehouseId
+  );
+  assertExpectedArrivalOnOrAfterContractStart(contract, data.expectedArrivalDate);
 
   return InboundRequest.create(data);
 }
@@ -246,6 +275,11 @@ export async function updateInboundRequest(inboundRequestId, body) {
   const existing = await getInboundRequest(id);
 
   const data = normalizeUpdatePayload(body);
+
+  if (data.expectedArrivalDate !== undefined) {
+    const contract = await getContract(existing.contractId);
+    assertExpectedArrivalOnOrAfterContractStart(contract, data.expectedArrivalDate);
+  }
 
   if (data.deliveryMode !== undefined) {
     assertEnum(data.deliveryMode, DELIVERY_MODE, 'deliveryMode');

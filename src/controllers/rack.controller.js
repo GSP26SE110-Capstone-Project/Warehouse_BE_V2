@@ -10,7 +10,7 @@ export async function list(req, res) {
   }
 
   const { page, limit, offset } = parsePagination(req.query);
-  const { status, rackType } = req.query;
+  const { status, rackType, includeBinStats } = req.query;
 
   const result = await rackService.listRacks(zoneId, {
     status,
@@ -18,6 +18,7 @@ export async function list(req, res) {
     page,
     limit,
     offset,
+    includeBinStats: includeBinStats === 'true' || includeBinStats === '1',
   });
 
   paginated(res, result.items, result.meta);
@@ -37,6 +38,17 @@ export async function create(req, res) {
 
   const rack = await rackService.createRack(zoneId, req.body);
   created(res, rack);
+}
+
+export async function createBulk(req, res) {
+  const { zoneId } = req.body;
+  if (!zoneId) {
+    throw new AppError('zoneId is required', 400, 'VALIDATION_ERROR');
+  }
+  parseUuid(zoneId, 'zoneId');
+
+  const result = await rackService.createRacksBulk(zoneId, req.body);
+  created(res, result);
 }
 
 export async function update(req, res) {

@@ -1,4 +1,5 @@
-import Rack from '../models/Rack.js';
+import Rack, { rackSchema } from '../models/Rack.js';
+import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import {
@@ -112,7 +113,35 @@ export async function getRack(rackId) {
   return rack;
 }
 
-export async function listRacks(zoneId, { status, rackType, page, limit, offset }) {
+function mapRackBinStatsRow(row) {
+  const base = fromDbRecord(rackSchema, row) ?? {};
+  const binCount = Number(row.bin_count) || 0;
+  const usedBinCount = Number(row.used_bin_count) || 0;
+  const maxLpnTotal = Number(row.max_lpn_total) || 0;
+  const usedLpnTotal = Number(row.used_lpn_total) || 0;
+
+  let usagePercent = 0;
+  if (maxLpnTotal > 0) {
+    usagePercent = Math.min(100, Math.round((usedLpnTotal / maxLpnTotal) * 100));
+  } else if (binCount > 0) {
+    usagePercent = Math.min(100, Math.round((usedBinCount / binCount) * 100));
+  }
+
+  return {
+    ...base,
+    binCount,
+    usedBinCount,
+    maxLpnTotal,
+    usedLpnTotal,
+    usagePercent,
+    hasBins: binCount > 0,
+  };
+}
+
+export async function listRacks(
+  zoneId,
+  { status, rackType, page, limit, offset, includeBinStats }
+) {
   const zId = parseUuid(zoneId, 'zoneId');
   await assertZoneExists(zId);
 
@@ -122,6 +151,66 @@ export async function listRacks(zoneId, { status, rackType, page, limit, offset 
   const filters = { zoneId: zId };
   if (status) filters.status = status;
   if (rackType) filters.rackType = rackType;
+
+  if (includeBinStats) {
+    const clauses = ['r.zone_id = $1'];
+    const values = [zId];
+    let n = 2;
+    if (status) {
+      clauses.push(`r.status = $${n++}::rack_status_enum`);
+      values.push(status);
+    }
+    if (rackType) {
+      clauses.push(`r.rack_type = $${n++}::rack_type_enum`);
+      values.push(rackType);
+    }
+    const whereSql = clauses.join(' AND ');
+    const limitVal = limit ?? 100;
+    const offsetVal = offset ?? 0;
+    const paginationValues = [...values, limitVal, offsetVal];
+
+    const rows = await Rack.query(
+      `SELECT r.*,
+              COALESCE(bs.bin_count, 0)::int AS bin_count,
+              COALESCE(bs.used_bin_count, 0)::int AS used_bin_count,
+              COALESCE(bs.max_lpn_total, 0)::int AS max_lpn_total,
+              COALESCE(bs.used_lpn_total, 0)::int AS used_lpn_total
+       FROM racks r
+       LEFT JOIN LATERAL (
+         SELECT COUNT(b.bin_id)::int AS bin_count,
+                COUNT(b.bin_id) FILTER (
+                  WHERE b.status IN ('PARTIAL', 'FULL', 'RESERVED')
+                )::int AS used_bin_count,
+                COALESCE(SUM(b.max_lpn_count), 0)::int AS max_lpn_total,
+                COALESCE(SUM(b.current_lpn_count), 0)::int AS used_lpn_total
+         FROM rack_levels rl
+         LEFT JOIN bins b ON b.rack_level_id = rl.rack_level_id
+         WHERE rl.rack_id = r.rack_id
+       ) bs ON TRUE
+       WHERE ${whereSql}
+       ORDER BY r.created_at DESC
+       LIMIT $${paginationValues.length - 1}
+       OFFSET $${paginationValues.length}`,
+      paginationValues
+    );
+
+    const countRow = await Rack.queryOne(
+      `SELECT COUNT(*)::int AS count FROM racks r WHERE ${whereSql}`,
+      values
+    );
+    const total = countRow?.count ?? 0;
+    const items = rows.map(mapRackBinStatsRow);
+
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 0,
+      },
+    };
+  }
 
   const [items, total] = await Promise.all([
     Rack.findAll(filters, {
@@ -150,6 +239,81 @@ export async function createRack(zoneId, body) {
 
   const data = normalizeCreatePayload(body, zId);
   return Rack.create(data);
+}
+
+export async function createRacksBulk(zoneId, body) {
+  const zId = parseUuid(zoneId, 'zoneId');
+  const zone = await assertZoneExists(zId);
+  const capacity = computeZoneStorageCapacity(zone.areaM2);
+  if (!capacity.hasArea) {
+    throw new AppError(
+      'Zone must have areaM2 set before adding racks',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  const rawCodes = body.rackCodes;
+  if (!Array.isArray(rawCodes) || rawCodes.length === 0) {
+    throw new AppError('rackCodes must be a non-empty array', 400, 'VALIDATION_ERROR');
+  }
+
+  const rackCodes = [...new Set(rawCodes.map((c) => String(c).trim()).filter(Boolean))];
+  if (rackCodes.length !== rawCodes.length) {
+    throw new AppError('rackCodes must be unique', 400, 'VALIDATION_ERROR');
+  }
+  if (rackCodes.length > 100) {
+    throw new AppError('Maximum 100 racks per bulk request', 400, 'VALIDATION_ERROR');
+  }
+
+  const current = await Rack.count({ zoneId: zId });
+  const remaining = capacity.maxRacks - current;
+  if (remaining <= 0) {
+    throw new AppError(
+      `Zone capacity reached: max ${capacity.maxRacks} racks`,
+      400,
+      'CAPACITY_EXCEEDED'
+    );
+  }
+  if (rackCodes.length > remaining) {
+    throw new AppError(
+      `Cannot create ${rackCodes.length} racks: only ${remaining} slot(s) left (max ${capacity.maxRacks})`,
+      400,
+      'CAPACITY_EXCEEDED'
+    );
+  }
+
+  const existingInZone = await Rack.findAll({ zoneId: zId }, { limit: 500, offset: 0 });
+  const existingCodes = new Set(existingInZone.map((r) => r.rackCode?.toUpperCase()));
+  const duplicate = rackCodes.filter((c) => existingCodes.has(c.toUpperCase()));
+  if (duplicate.length) {
+    throw new AppError(
+      `Rack code already exists in zone: ${duplicate.slice(0, 5).join(', ')}${duplicate.length > 5 ? '…' : ''}`,
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  const sharedStatus = body.status ?? 'ACTIVE';
+  const created = [];
+
+  for (const rackCode of rackCodes) {
+    const data = normalizeCreatePayload(
+      { rackCode, status: sharedStatus, rackType: body.rackType, maxLevels: body.maxLevels },
+      zId
+    );
+    const rack = await Rack.create(data);
+    created.push(rack);
+  }
+
+  return {
+    items: created,
+    meta: {
+      created: created.length,
+      zoneId: zId,
+      remainingSlots: remaining - created.length,
+    },
+  };
 }
 
 export async function updateRack(rackId, body) {
