@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
+import authenticate from '../middleware/authenticate.js';
 import * as inboundRequestController from '../controllers/inboundRequest.controller.js';
 import * as inboundRequestItemController from '../controllers/inboundRequestItem.controller.js';
 import * as inboundDeliveryController from '../controllers/inboundDelivery.controller.js';
 
 const router = Router();
+
+router.use(authenticate);
 
 router.post('/', asyncHandler(inboundRequestController.create));
 router.get('/', asyncHandler(inboundRequestController.list));
@@ -44,7 +47,19 @@ router.post(
   '/:inboundRequestId/complete-receiving',
   asyncHandler(inboundRequestController.completeReceiving)
 );
+router.post(
+  '/:inboundRequestId/bulk-putaway',
+  asyncHandler(inboundRequestController.bulkPutaway)
+);
+router.post(
+  '/:inboundRequestId/auto-putaway',
+  asyncHandler(inboundRequestController.autoPutaway)
+);
 router.post('/:inboundRequestId/complete', asyncHandler(inboundRequestController.complete));
+router.post(
+  '/:inboundRequestId/report-arrival',
+  asyncHandler(inboundRequestController.reportArrival)
+);
 
 router.get('/:inboundRequestId', asyncHandler(inboundRequestController.getById));
 router.patch('/:inboundRequestId', asyncHandler(inboundRequestController.update));

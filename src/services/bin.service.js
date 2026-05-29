@@ -1,11 +1,14 @@
 import Bin from '../models/Bin.js';
+import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import {
   BIN_STATUS,
   BOX_TYPE,
   RESERVATION_TYPE,
 } from '../constants/warehouseStructure.js';
+import { computeZoneStorageCapacity } from '../constants/warehouseCapacity.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
+import { getRack } from './rack.service.js';
 import { getRackLevel } from './rackLevel.service.js';
 
 const CREATE_FIELDS = [
@@ -150,12 +153,120 @@ export async function listBins(
   };
 }
 
+async function getBinsPerLevelForRackLevel(rackLevelId) {
+  const level = await getRackLevel(rackLevelId);
+  const rack = await getRack(level.rackId);
+  const zone = await WarehouseZone.findById(rack.zoneId);
+  if (!zone) {
+    throw new AppError('Zone not found', 404, 'NOT_FOUND');
+  }
+  const capacity = computeZoneStorageCapacity(zone.areaM2);
+  if (!capacity.hasArea || capacity.binsPerLevel < 1) {
+    throw new AppError(
+      'Zone must have areaM2 set before adding bins',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+  return { binsPerLevel: capacity.binsPerLevel, level, rack, zone };
+}
+
+async function assertLevelBinCapacity(rackLevelId, additionalCount) {
+  const { binsPerLevel } = await getBinsPerLevelForRackLevel(rackLevelId);
+  const levelId = parseUuid(rackLevelId, 'rackLevelId');
+  const current = await Bin.count({ rackLevelId: levelId });
+  if (current + additionalCount > binsPerLevel) {
+    throw new AppError(
+      `Rack level can have at most ${binsPerLevel} bins (${current} existing, +${additionalCount} requested)`,
+      400,
+      'CAPACITY_EXCEEDED'
+    );
+  }
+  return binsPerLevel;
+}
+
 export async function createBin(rackLevelId, body) {
   const levelId = parseUuid(rackLevelId, 'rackLevelId');
-  await getRackLevel(levelId);
+  await assertLevelBinCapacity(levelId, 1);
 
   const data = normalizeCreatePayload(body, levelId);
   return Bin.create(data);
+}
+
+export async function createBinsBulk(body) {
+  const rawBins = body.bins;
+  if (!Array.isArray(rawBins) || rawBins.length === 0) {
+    throw new AppError('bins must be a non-empty array', 400, 'VALIDATION_ERROR');
+  }
+  if (rawBins.length > 500) {
+    throw new AppError('Maximum 500 bins per bulk request', 400, 'VALIDATION_ERROR');
+  }
+
+  const byLevel = new Map();
+  const seenCodes = new Set();
+
+  for (const entry of rawBins) {
+    const levelId = parseUuid(entry.rackLevelId, 'rackLevelId');
+    const codeKey = `${levelId}:${String(entry.binCode ?? '').trim().toUpperCase()}`;
+    if (!entry.binCode?.trim()) {
+      throw new AppError('Each bin requires binCode', 400, 'VALIDATION_ERROR');
+    }
+    if (seenCodes.has(codeKey)) {
+      throw new AppError('Duplicate binCode in request for same level', 400, 'VALIDATION_ERROR');
+    }
+    seenCodes.add(codeKey);
+    if (!byLevel.has(levelId)) byLevel.set(levelId, []);
+    byLevel.get(levelId).push(entry);
+  }
+
+  for (const [levelId, entries] of byLevel.entries()) {
+    await assertLevelBinCapacity(levelId, entries.length);
+
+    const existing = await Bin.findAll({ rackLevelId: levelId }, { limit: 500, offset: 0 });
+    const existingCodes = new Set(existing.map((b) => b.binCode?.toUpperCase()));
+    const duplicate = entries.filter((e) =>
+      existingCodes.has(String(e.binCode).trim().toUpperCase())
+    );
+    if (duplicate.length) {
+      const sample = duplicate.slice(0, 3).map((d) => d.binCode).join(', ');
+      throw new AppError(
+        `Bin code already exists on level: ${sample}${duplicate.length > 3 ? '…' : ''}`,
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+  }
+
+  const sharedDefaults = {
+    maxLpnCount: body.maxLpnCount,
+    maxVolumeUnits: body.maxVolumeUnits,
+    reservationType: body.reservationType,
+    status: body.status,
+    supportedBoxType: body.supportedBoxType,
+    maxOwnerCount: body.maxOwnerCount,
+  };
+
+  const created = [];
+  for (const entry of rawBins) {
+    const levelId = parseUuid(entry.rackLevelId, 'rackLevelId');
+    const payload = {
+      binCode: entry.binCode,
+      maxLpnCount: entry.maxLpnCount ?? sharedDefaults.maxLpnCount,
+      maxVolumeUnits: entry.maxVolumeUnits ?? sharedDefaults.maxVolumeUnits,
+      reservationType: entry.reservationType ?? sharedDefaults.reservationType,
+      status: entry.status ?? sharedDefaults.status,
+      supportedBoxType: entry.supportedBoxType ?? sharedDefaults.supportedBoxType,
+      maxOwnerCount: entry.maxOwnerCount ?? sharedDefaults.maxOwnerCount,
+    };
+    const data = normalizeCreatePayload(payload, levelId);
+    const bin = await Bin.create(data);
+    created.push(bin);
+  }
+
+  return {
+    items: created,
+    meta: { created: created.length },
+  };
 }
 
 export async function updateBin(binId, body) {

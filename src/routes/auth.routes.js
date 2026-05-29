@@ -7,6 +7,8 @@ const router = Router();
 
 router.post('/login', asyncHandler(authController.login));
 
+router.post('/reset-password', asyncHandler(authController.resetPassword));
+
 // Đổi mật khẩu cần xác nhận OTP qua email — 2 bước.
 router.post(
   '/change-password',

@@ -27,8 +27,14 @@ export async function getById(req, res) {
 }
 
 export async function create(req, res) {
-  const user = await userService.createUser(req.user, req.body);
-  created(res, user);
+  const result = await userService.createUser(req.user, req.body);
+  const message =
+    result.welcomeEmail?.sent === true
+      ? `Created successfully. Welcome email sent to ${result.welcomeEmail.to}.`
+      : result.welcomeEmail?.sent === false
+        ? `Created successfully but welcome email failed: ${result.welcomeEmail.error}`
+        : 'Created successfully';
+  created(res, result, message);
 }
 
 export async function update(req, res) {

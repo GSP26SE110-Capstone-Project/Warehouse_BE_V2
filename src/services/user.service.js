@@ -14,6 +14,9 @@ import {
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertPasswordStrength, hashPassword } from '../utils/password.js';
 import { toPublicUser } from '../utils/userPublic.js';
+import { signPasswordResetToken } from '../config/jwt.js';
+import { sendWarehouseAdminWelcomeEmail } from '../config/mail.js';
+import { buildLoginUrl, buildPasswordResetUrl } from '../utils/appUrl.js';
 
 const CREATE_FIELDS = ['fullName', 'email', 'password', 'phone', 'role', 'tenantId', 'warehouseId', 'status'];
 
@@ -161,7 +164,7 @@ function userInCreatorScope(creator, target) {
   if (creator.role === 'WH_ADMIN') {
     return (
       target.warehouseId === creator.warehouseId &&
-      ['WH_ADMIN', 'WH_STAFF'].includes(target.role)
+      ['WH_ADMIN', 'WH_STAFF', 'WH_TRANSPORTER'].includes(target.role)
     );
   }
   if (creator.role === 'TENANT_ADMIN') {
@@ -221,10 +224,55 @@ async function normalizeCreatePayload(body, creator) {
   return data;
 }
 
+async function sendWhAdminWelcomeEmail(createdUser, plainPassword, warehouseId) {
+  const resetToken = signPasswordResetToken(createdUser.userId);
+  const resetPasswordUrl = buildPasswordResetUrl(resetToken);
+  const loginUrl = buildLoginUrl();
+
+  let warehouseName = null;
+  let warehouseCode = null;
+  if (warehouseId) {
+    const warehouse = await Warehouse.findById(warehouseId);
+    warehouseName = warehouse?.warehouseName ?? null;
+    warehouseCode = warehouse?.warehouseCode ?? null;
+  }
+
+  try {
+    await sendWarehouseAdminWelcomeEmail({
+      to: createdUser.email,
+      fullName: createdUser.fullName,
+      email: createdUser.email,
+      temporaryPassword: plainPassword,
+      warehouseName,
+      warehouseCode,
+      loginUrl,
+      resetPasswordUrl,
+    });
+    return { sent: true, to: createdUser.email };
+  } catch (err) {
+    return {
+      sent: false,
+      to: createdUser.email,
+      error: err.message || 'Failed to send welcome email',
+    };
+  }
+}
+
 export async function createUser(creator, body) {
+  const plainPassword = body.password;
   const data = await normalizeCreatePayload(body, creator);
   const created = await User.create(data);
-  return toPublicUser(created);
+  const user = toPublicUser(created);
+
+  const shouldSendWelcome =
+    creator.role === 'SYSTEM_ADMIN' && data.role === 'WH_ADMIN' && plainPassword;
+
+  if (!shouldSendWelcome) {
+    return { user };
+  }
+
+  const welcomeEmail = await sendWhAdminWelcomeEmail(created, plainPassword, data.warehouseId);
+  return { user, welcomeEmail };
 }
 
 export async function getUserById(creator, userId) {
@@ -255,7 +303,7 @@ export async function listUsers(creator, { role, status, page, limit, offset }) 
     conditions.push(`warehouse_id = $${n++}`);
     values.push(creator.warehouseId);
     conditions.push(`role = ANY($${n++}::role_enum[])`);
-    values.push(['WH_ADMIN', 'WH_STAFF']);
+    values.push(['WH_ADMIN', 'WH_STAFF', 'WH_TRANSPORTER']);
   } else if (creator.role === 'TENANT_ADMIN') {
     conditions.push(`tenant_id = $${n++}`);
     values.push(creator.tenantId);
@@ -307,10 +355,15 @@ async function applySystemAdminScopePatch(creator, existing, body, data) {
         'VALIDATION_ERROR'
       );
     }
-    data.warehouseId = await assertWarehouseExists(body.warehouseId);
-    data.tenantId = null;
-    if (existing.role === 'WH_ADMIN') {
-      await assertUniqueWhAdminForWarehouse(data.warehouseId, existing.userId);
+    if (body.warehouseId === null || body.warehouseId === '') {
+      data.warehouseId = null;
+      data.tenantId = null;
+    } else {
+      data.warehouseId = await assertWarehouseExists(body.warehouseId);
+      data.tenantId = null;
+      if (existing.role === 'WH_ADMIN') {
+        await assertUniqueWhAdminForWarehouse(data.warehouseId, existing.userId);
+      }
     }
   }
 

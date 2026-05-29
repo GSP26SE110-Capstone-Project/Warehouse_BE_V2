@@ -1,4 +1,5 @@
-import StorageReservation from '../models/StorageReservation.js';
+import StorageReservation, { storageReservationSchema } from '../models/StorageReservation.js';
+import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import {
@@ -245,6 +246,23 @@ function normalizeUpdatePayload(body) {
   return data;
 }
 
+function mapReservationListRow(row) {
+  const base = fromDbRecord(storageReservationSchema, row) ?? {};
+  return {
+    ...base,
+    warehouseCode: row.warehouse_code ?? null,
+    warehouseName: row.warehouse_name ?? null,
+    zoneCode: row.zone_code ?? null,
+    zoneName: row.zone_name ?? null,
+    rackCode: row.rack_code ?? null,
+    levelNumber:
+      row.level_number != null && row.level_number !== ''
+        ? Number(row.level_number)
+        : null,
+    binCode: row.bin_code ?? null,
+  };
+}
+
 export async function getStorageReservation(reservationId) {
   const id = parseUuid(reservationId, 'reservationId');
   const reservation = await StorageReservation.findById(id);
@@ -294,7 +312,7 @@ export async function listStorageReservations({
   const offsetVal = offset ?? 0;
   paginationValues.push(limitVal, offsetVal);
 
-  const items = await StorageReservation.query(
+  const rows = await StorageReservation.query(
     `SELECT sr.*,
             w.warehouse_code,
             w.warehouse_name,
@@ -315,6 +333,7 @@ export async function listStorageReservations({
      OFFSET $${paginationValues.length}`,
     paginationValues
   );
+  const items = rows.map(mapReservationListRow);
   const totalRow = await StorageReservation.queryOne(
     `SELECT COUNT(*)::int AS count
      FROM storage_reservations sr

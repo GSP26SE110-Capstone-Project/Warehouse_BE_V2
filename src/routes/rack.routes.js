@@ -4,6 +4,7 @@ import * as rackController from '../controllers/rack.controller.js';
 
 const router = Router();
 
+router.post('/bulk', asyncHandler(rackController.createBulk));
 router.post('/', asyncHandler(rackController.create));
 router.get('/', asyncHandler(rackController.list));
 router.get('/:rackId', asyncHandler(rackController.getById));

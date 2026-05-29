@@ -4,6 +4,7 @@ import * as binController from '../controllers/bin.controller.js';
 
 const router = Router();
 
+router.post('/bulk', asyncHandler(binController.createBulk));
 router.post('/', asyncHandler(binController.create));
 router.get('/', asyncHandler(binController.list));
 router.get('/:binId', asyncHandler(binController.getById));

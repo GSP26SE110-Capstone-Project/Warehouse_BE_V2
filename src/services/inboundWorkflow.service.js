@@ -14,6 +14,14 @@ import { getLpnWithDetails } from './lpnDetail.service.js';
 import { getBatchContext } from './batch.service.js';
 import { getBin } from './bin.service.js';
 import {
+  applyBinPutawayInMemory,
+  assertPutawayBinAllowed,
+  binFitsLpnVolume,
+  filterBinsByContract,
+  loadActiveReservationsForContract,
+  loadPutawayEligibleBins,
+} from './putawayReservation.service.js';
+import {
   applyBinPutaway,
   assertNoInventoryForLpn,
   createPutawayInventoryRecords,
@@ -123,6 +131,207 @@ export async function completeInbound(inboundRequestId, body = {}) {
   return InboundRequest.updateById(id, data);
 }
 
+async function listReceivingLpnsForInbound(inboundRequestId) {
+  const id = parseUuid(inboundRequestId, 'inboundRequestId');
+  const result = await pool.query(
+    `SELECT l.lpn_id
+     FROM lpns l
+     INNER JOIN batches b ON b.batch_id = l.batch_id
+     WHERE b.inbound_request_id = $1
+       AND l.status = 'RECEIVING'
+     ORDER BY l.lpn_code ASC`,
+    [id]
+  );
+
+  const lpns = [];
+  for (const row of result.rows) {
+    lpns.push(await getLpnWithDetails(row.lpn_id));
+  }
+  return lpns;
+}
+
+async function executePutawayLpnCore(
+  { lpn, bin, inbound, tenantId, batch, movedBy, recommendationId },
+  client
+) {
+  await assertNoInventoryForLpn(lpn.lpnId, client);
+
+  await createPutawayInventoryRecords(
+    {
+      tenantId,
+      batchId: lpn.batchId,
+      lpnId: lpn.lpnId,
+      binId: bin.binId,
+      receivedAt: batch.warehouseReceivedAt,
+      details: lpn.details,
+      movedBy,
+      lpnCode: lpn.lpnCode,
+    },
+    client
+  );
+
+  await Lpn.updateById(
+    lpn.lpnId,
+    { currentBinId: bin.binId, status: 'STORED' },
+    client
+  );
+
+  await applyBinPutaway(bin, lpn.volumeUnits, client);
+
+  if (recommendationId) {
+    const recId = parseUuid(recommendationId, 'recommendationId');
+    await AiSlotRecommendation.updateById(recId, { isApplied: true }, client);
+  }
+}
+
+function planAutoPutawayAssignments(lpns, bins) {
+  const workingBins = bins.map((b) => ({ ...b }));
+  const assignments = [];
+
+  for (const lpn of lpns) {
+    const vol = lpn.volumeUnits ?? 8;
+    const bin = workingBins.find((b) => binFitsLpnVolume(b, vol));
+    if (!bin) {
+      throw new AppError(
+        `Không đủ bin trống cho LPN ${lpn.lpnCode} (cần thêm tầng/zone)`,
+        400,
+        'PUTAWAY_NO_BIN_AVAILABLE'
+      );
+    }
+    assignments.push({
+      lpnId: lpn.lpnId,
+      lpnCode: lpn.lpnCode,
+      binId: bin.binId,
+      binCode: bin.binCode,
+    });
+    applyBinPutawayInMemory(bin, vol);
+  }
+
+  return assignments;
+}
+
+export async function bulkPutawayInbound(inboundRequestId, body) {
+  const inboundId = parseUuid(inboundRequestId, 'inboundRequestId');
+  const inbound = await assertInboundAllowsReceivingOps(inboundId);
+
+  const assignments = body?.assignments;
+  if (!Array.isArray(assignments) || assignments.length === 0) {
+    throw new AppError('assignments array is required', 400, 'VALIDATION_ERROR');
+  }
+
+  const movedBy =
+    body.movedBy != null && body.movedBy !== ''
+      ? parseOptionalUserId(body.movedBy, 'movedBy')
+      : undefined;
+
+  const client = await pool.connect();
+  const results = [];
+
+  try {
+    await client.query('BEGIN');
+
+    for (const row of assignments) {
+      const lpnUuid = parseUuid(row.lpnId, 'lpnId');
+      const binId = parseUuid(row.binId, 'binId');
+
+      const lpn = await getLpnWithDetails(lpnUuid);
+      if (lpn.status !== 'RECEIVING') {
+        throw new AppError(
+          `LPN ${lpn.lpnCode} không ở trạng thái RECEIVING`,
+          400,
+          'INVALID_LPN_STATUS'
+        );
+      }
+      if (!lpn.details?.length) {
+        throw new AppError(
+          `LPN ${lpn.lpnCode} chưa có SKU — gán SKU trước khi putaway`,
+          400,
+          'VALIDATION_ERROR'
+        );
+      }
+
+      const { batch, tenantId } = await getBatchContext(lpn.batchId);
+      if (batch.inboundRequestId !== inbound.inboundRequestId) {
+        throw new AppError('LPN không thuộc phiếu nhập này', 400, 'VALIDATION_ERROR');
+      }
+
+      await assertPutawayBinAllowed({
+        contractId: inbound.contractId,
+        warehouseId: inbound.warehouseId,
+        binId,
+      });
+
+      const bin = await getBin(binId);
+
+      await executePutawayLpnCore(
+        { lpn, bin, inbound, tenantId, batch, movedBy },
+        client
+      );
+
+      results.push({
+        lpnId: lpn.lpnId,
+        lpnCode: lpn.lpnCode,
+        binId: bin.binId,
+        binCode: bin.binCode,
+      });
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return {
+    inboundRequestId: inbound.inboundRequestId,
+    putawayCount: results.length,
+    assignments: results,
+  };
+}
+
+export async function autoPutawayInbound(inboundRequestId, body) {
+  const inboundId = parseUuid(inboundRequestId, 'inboundRequestId');
+  const inbound = await assertInboundAllowsReceivingOps(inboundId);
+
+  if (!body?.zoneId) {
+    throw new AppError('zoneId is required', 400, 'VALIDATION_ERROR');
+  }
+
+  const lpns = await listReceivingLpnsForInbound(inboundId);
+  if (lpns.length === 0) {
+    throw new AppError('Không còn LPN RECEIVING để putaway', 400, 'VALIDATION_ERROR');
+  }
+
+  const reservations = await loadActiveReservationsForContract(
+    inbound.contractId,
+    inbound.warehouseId
+  );
+
+  let bins = await loadPutawayEligibleBins({
+    warehouseId: inbound.warehouseId,
+    zoneId: body.zoneId,
+    rackLevelId: body.rackLevelId,
+  });
+  bins = filterBinsByContract(bins, reservations);
+
+  if (!bins.length) {
+    throw new AppError(
+      'Không có bin trống trong phạm vi HĐ tại zone/tầng đã chọn',
+      400,
+      'PUTAWAY_NO_BIN_AVAILABLE'
+    );
+  }
+
+  const planned = planAutoPutawayAssignments(lpns, bins);
+
+  return bulkPutawayInbound(inboundId, {
+    assignments: planned.map((p) => ({ lpnId: p.lpnId, binId: p.binId })),
+    movedBy: body.movedBy,
+  });
+}
+
 export async function putawayLpn(lpnId, body) {
   if (!body?.binId) {
     throw new AppError('binId is required', 400, 'VALIDATION_ERROR');
@@ -156,6 +365,12 @@ export async function putawayLpn(lpnId, body) {
     throw new AppError('LPN tenant does not match inbound tenant', 400, 'VALIDATION_ERROR');
   }
 
+  await assertPutawayBinAllowed({
+    contractId: inbound.contractId,
+    warehouseId: inbound.warehouseId,
+    binId,
+  });
+
   const bin = await getBin(binId);
 
   if (body.recommendationId) {
@@ -186,34 +401,18 @@ export async function putawayLpn(lpnId, body) {
   try {
     await client.query('BEGIN');
 
-    await assertNoInventoryForLpn(lpn.lpnId, client);
-
-    await createPutawayInventoryRecords(
+    await executePutawayLpnCore(
       {
+        lpn,
+        bin,
+        inbound,
         tenantId,
-        batchId: lpn.batchId,
-        lpnId: lpn.lpnId,
-        binId,
-        receivedAt: batch.warehouseReceivedAt,
-        details: lpn.details,
+        batch,
         movedBy,
-        lpnCode: lpn.lpnCode,
+        recommendationId: body.recommendationId,
       },
       client
     );
-
-    await Lpn.updateById(
-      lpn.lpnId,
-      { currentBinId: binId, status: 'STORED' },
-      client
-    );
-
-    await applyBinPutaway(bin, lpn.volumeUnits, client);
-
-    if (body.recommendationId) {
-      const recId = parseUuid(body.recommendationId, 'recommendationId');
-      await AiSlotRecommendation.updateById(recId, { isApplied: true }, client);
-    }
 
     await client.query('COMMIT');
   } catch (err) {

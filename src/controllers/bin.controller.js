@@ -40,6 +40,11 @@ export async function create(req, res) {
   created(res, bin);
 }
 
+export async function createBulk(req, res) {
+  const result = await binService.createBinsBulk(req.body);
+  created(res, result);
+}
+
 export async function update(req, res) {
   const bin = await binService.updateBin(req.params.binId, req.body);
   success(res, bin, 'Updated successfully');

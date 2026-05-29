@@ -17,7 +17,7 @@ export const inboundDeliverySchema = {
   },
   vehiclePlate: {
     type: 'string',
-    required: true,
+    required: false,
   },
   driverName: {
     type: 'string',
@@ -42,6 +42,11 @@ export const inboundDeliverySchema = {
   notes: {
     type: 'string',
     required: false,
+  },
+  assignedDriverUserId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'assigned_driver_user_id',
   },
   createdAt: {
     type: 'datetime',

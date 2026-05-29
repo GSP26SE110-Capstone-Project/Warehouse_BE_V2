@@ -21,6 +21,7 @@ export async function list(req, res) {
     page,
     limit,
     offset,
+    user: req.user,
   });
 
   paginated(res, result.items, result.meta);
@@ -31,7 +32,7 @@ export async function getById(req, res) {
   if (rentalRequestId === 'lookup' || rentalRequestId === 'guest') {
     throw new AppError('Rental request not found', 404, 'NOT_FOUND');
   }
-  const item = await rentalRequestService.getRentalRequest(rentalRequestId);
+  const item = await rentalRequestService.getRentalRequest(rentalRequestId, req.user);
   success(res, item);
 }
 

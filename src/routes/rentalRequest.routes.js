@@ -6,11 +6,12 @@ import * as rentalRequestController from '../controllers/rentalRequest.controlle
 
 const router = Router();
 const rentalManagers = ['SYSTEM_ADMIN', 'WH_ADMIN'];
+const rentalReaders = [...rentalManagers, 'TENANT_ADMIN', 'TENANT_STAFF'];
 
 // Must be before /:rentalRequestId — Express 5 treats "lookup" as :id otherwise (400 Invalid UUID)
 router.get('/guest/lookup', asyncHandler(rentalRequestController.lookupByCode));
 router.post('/', asyncHandler(rentalRequestController.create));
-router.get('/', authenticate, authorize(...rentalManagers), asyncHandler(rentalRequestController.list));
+router.get('/', authenticate, authorize(...rentalReaders), asyncHandler(rentalRequestController.list));
 router.get(
   '/:rentalRequestId/price-estimate',
   authenticate,
@@ -20,7 +21,7 @@ router.get(
 router.get(
   '/:rentalRequestId',
   authenticate,
-  authorize(...rentalManagers),
+  authorize(...rentalReaders),
   asyncHandler(rentalRequestController.getById)
 );
 router.patch(
