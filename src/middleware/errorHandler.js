@@ -1,4 +1,5 @@
 import AppError from '../utils/AppError.js';
+import { toVietnameseErrorMessage } from '../utils/errorMessages.vi.js';
 
 function formatDuplicateMessage(err) {
   const detail = String(err?.detail ?? '');
@@ -27,9 +28,9 @@ function mapPgError(err) {
     case '23505':
       return new AppError(formatDuplicateMessage(err), 409, 'DUPLICATE');
     case '23503':
-      return new AppError('Related resource not found or invalid reference', 400, 'FK_VIOLATION');
+      return new AppError('Dữ liệu liên quan không tồn tại hoặc tham chiếu không hợp lệ', 400, 'FK_VIOLATION');
     case '22P02':
-      return new AppError('Invalid identifier format', 400, 'INVALID_ID');
+      return new AppError('Định dạng mã định danh không hợp lệ', 400, 'INVALID_ID');
     default:
       return null;
   }
@@ -48,7 +49,7 @@ export default function errorHandler(err, req, res, next) {
       error = pgError;
     } else {
       error = new AppError(
-        process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+        process.env.NODE_ENV === 'production' ? 'Lỗi máy chủ nội bộ' : err.message,
         500,
         'INTERNAL_ERROR'
       );
@@ -61,7 +62,7 @@ export default function errorHandler(err, req, res, next) {
 
   const body = {
     success: false,
-    message: error.message,
+    message: toVietnameseErrorMessage(error.message),
     code: error.code,
   };
 
