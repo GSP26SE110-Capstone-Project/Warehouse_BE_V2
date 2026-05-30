@@ -12,3 +12,7 @@ export function buildPasswordResetUrl(token) {
 export function buildLoginUrl() {
   return `${getFrontendBaseUrl()}/login`;
 }
+
+export function buildAdminContractsUrl() {
+  return `${getFrontendBaseUrl()}/admin/contract`;
+}

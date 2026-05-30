@@ -181,42 +181,93 @@ async function assertNoOverlappingReservation(data) {
             : data.binId;
   if (!targetId) return;
 
-  const conflicting = await StorageReservation.queryOne(
-    `SELECT reservation_id, contract_id, tenant_id, start_date, end_date
-     FROM storage_reservations
-     WHERE status = 'ACTIVE'
-       AND ${targetField} = $1
-       AND daterange(start_date, end_date, '[)') && daterange($2::date, $3::date, '[)')
-     LIMIT 1`,
-    [targetId, data.startDate, data.endDate]
-  );
+  const dateOverlapSql = `daterange(start_date, end_date, '[)') && daterange($2::date, $3::date, '[)')`;
 
-  if (conflicting) {
-    throw new AppError(
-      'Vị trí lưu trữ đã được cấp cho tenant khác trong khoảng thời gian này',
-      409,
-      'RESERVATION_CONFLICT'
-    );
+  // SHARED pool (zone/kho chung): nhiều tenant có thể cùng dùng — chỉ chặn khi có lock DEDICATED
+  if (data.reservationType === 'SHARED') {
+    if (data.storageLevel === 'ZONE' && data.zoneId) {
+      const dedicatedLock = await StorageReservation.queryOne(
+        `SELECT reservation_id, tenant_id
+         FROM storage_reservations
+         WHERE status = 'ACTIVE'
+           AND zone_id = $1
+           AND ${dateOverlapSql}
+           AND reservation_type = 'DEDICATED'
+         LIMIT 1`,
+        [data.zoneId, data.startDate, data.endDate]
+      );
+      if (dedicatedLock) {
+        throw new AppError(
+          'Zone này đang được cấp riêng (DEDICATED) cho tenant khác trong khoảng thời gian này',
+          409,
+          'ZONE_ALREADY_ASSIGNED'
+        );
+      }
+    }
+    if (data.storageLevel === 'WAREHOUSE' && data.warehouseId) {
+      const dedicatedWh = await StorageReservation.queryOne(
+        `SELECT reservation_id
+         FROM storage_reservations
+         WHERE status = 'ACTIVE'
+           AND warehouse_id = $1
+           AND storage_level = 'WAREHOUSE'
+           AND ${dateOverlapSql}
+           AND reservation_type = 'DEDICATED'
+         LIMIT 1`,
+        [data.warehouseId, data.startDate, data.endDate]
+      );
+      if (dedicatedWh) {
+        throw new AppError(
+          'Kho này đang được cấp riêng (DEDICATED) cho tenant khác trong khoảng thời gian này',
+          409,
+          'RESERVATION_CONFLICT'
+        );
+      }
+    }
+    return;
   }
 
-  // Dedicated zone must stay exclusive for the whole date range.
-  if (data.storageLevel === 'ZONE' && data.zoneId) {
-    const dedicatedConflict = await StorageReservation.queryOne(
+  // RESERVED bin / slot cố định: một bin chỉ một tenant trong kỳ
+  if (data.reservationType === 'RESERVED' || data.storageLevel === 'BIN') {
+    const binConflict = await StorageReservation.queryOne(
+      `SELECT reservation_id, tenant_id
+       FROM storage_reservations
+       WHERE status = 'ACTIVE'
+         AND ${targetField} = $1
+         AND tenant_id != $4
+         AND ${dateOverlapSql}
+       LIMIT 1`,
+      [targetId, data.startDate, data.endDate, data.tenantId]
+    );
+    if (binConflict) {
+      throw new AppError(
+        'Bin/slot này đã được cấp cho tenant khác trong khoảng thời gian này',
+        409,
+        'RESERVATION_CONFLICT'
+      );
+    }
+    return;
+  }
+
+  // DEDICATED: độc quyền — không tenant khác được trùng vị trí trong kỳ
+  if (data.reservationType === 'DEDICATED') {
+    const otherTenant = await StorageReservation.queryOne(
       `SELECT reservation_id, tenant_id, reservation_type
        FROM storage_reservations
        WHERE status = 'ACTIVE'
-         AND zone_id = $1
-         AND tenant_id != $2
-         AND daterange(start_date, end_date, '[)') && daterange($3::date, $4::date, '[)')
-         AND (reservation_type = 'DEDICATED' OR $5::reservation_type_enum = 'DEDICATED')
+         AND ${targetField} = $1
+         AND tenant_id != $4
+         AND ${dateOverlapSql}
        LIMIT 1`,
-      [data.zoneId, data.tenantId, data.startDate, data.endDate, data.reservationType]
+      [targetId, data.startDate, data.endDate, data.tenantId]
     );
-    if (dedicatedConflict) {
+    if (otherTenant) {
       throw new AppError(
-        'Zone này đã được cấp cho tenant khác trong khoảng thời gian này',
+        data.storageLevel === 'ZONE'
+          ? 'Zone này đã được cấp cho tenant khác trong khoảng thời gian này'
+          : 'Vị trí lưu trữ đã được cấp cho tenant khác trong khoảng thời gian này',
         409,
-        'ZONE_ALREADY_ASSIGNED'
+        data.storageLevel === 'ZONE' ? 'ZONE_ALREADY_ASSIGNED' : 'RESERVATION_CONFLICT'
       );
     }
   }

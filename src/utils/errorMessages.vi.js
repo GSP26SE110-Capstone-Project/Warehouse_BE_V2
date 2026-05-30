@@ -147,6 +147,8 @@ const EXACT = Object.freeze({
   'city and district must be a valid pair from the location catalog':
     'Thành phố và quận/huyện phải khớp danh mục địa điểm',
   'Rental request already claimed by another warehouse': 'Yêu cầu thuê đã được kho khác nhận',
+  'Rental request is already linked to another contract':
+    'Yêu cầu thuê đã có hợp đồng — tiếp tục với hợp đồng hiện có.',
   'Warehouse region does not match rental request city/district':
     'Khu vực kho không khớp thành phố/quận của yêu cầu thuê',
   'Cannot approve rental request (invalid status or region mismatch)':
