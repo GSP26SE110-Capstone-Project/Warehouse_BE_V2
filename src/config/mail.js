@@ -140,4 +140,76 @@ export async function sendWarehouseAdminWelcomeEmail({
   });
 }
 
+/**
+ * WH Admin — tenant vừa ký hợp đồng, HĐ chuyển ACTIVE.
+ */
+export async function sendContractSignedByTenantEmail({
+  to,
+  whAdminName,
+  tenantName,
+  contractCode,
+  contractName,
+  warehouseName,
+  warehouseCode,
+  startDate,
+  endDate,
+  contractsUrl,
+}) {
+  assertMailConfigured();
+
+  const safeWhName = escapeHtml(whAdminName || 'Warehouse Admin');
+  const safeTenant = escapeHtml(tenantName || 'Tenant');
+  const safeCode = escapeHtml(contractCode || '—');
+  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
+  const safeWarehouse = escapeHtml(
+    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : 'kho'
+  );
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Tenant đã ký hợp đồng</h2>
+      <p>Xin chào <strong>${safeWhName}</strong>,</p>
+      <p>
+        <strong>${safeTenant}</strong> vừa ký hợp đồng thuê kho. Hợp đồng đã chuyển sang trạng thái
+        <strong style="color: #059669">ACTIVE</strong> — tenant có thể tạo yêu cầu nhập kho.
+      </p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Thông tin hợp đồng</strong></p>
+        <p style="margin: 4px 0">Mã HĐ: <code>${safeCode}</code></p>
+        <p style="margin: 4px 0">Tên: ${safeTitle}</p>
+        <p style="margin: 4px 0">Kho: ${safeWarehouse}</p>
+        <p style="margin: 4px 0">Thời hạn: ${escapeHtml(startDate)} → ${escapeHtml(endDate)}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(contractsUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem quản lý hợp đồng
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${whAdminName || 'Warehouse Admin'},`,
+    '',
+    `${tenantName || 'Tenant'} vừa ký hợp đồng ${contractCode || ''}. HĐ đã ACTIVE.`,
+    '',
+    `Kho: ${warehouseName || ''}`,
+    `Thời hạn: ${startDate} → ${endDate}`,
+    '',
+    `Xem hợp đồng: ${contractsUrl}`,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Tenant đã ký HĐ ${contractCode || ''} — NEXSPACE Smart Warehouse`,
+    text,
+    html,
+  });
+}
+
 export default transporter;

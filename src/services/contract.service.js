@@ -1,4 +1,5 @@
 import Contract from '../models/Contract.js';
+import StorageReservation from '../models/StorageReservation.js';
 import RentalRequest from '../models/RentalRequest.js';
 import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
@@ -12,6 +13,7 @@ import {
 import { getWarehouseById } from './warehouse.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { seedDefaultContractItems } from './contractDefaultItems.service.js';
+import { notifyWarehouseAdminContractSigned } from './contractNotify.service.js';
 
 const CREATE_FIELDS = [
   'contractCode',
@@ -222,7 +224,7 @@ async function attachRentalRequest(data, rentalRequestId) {
     throw new AppError(
       'Rental request is already linked to another contract',
       409,
-      'DUPLICATE'
+      'CONTRACT_ALREADY_LINKED'
     );
   }
 
@@ -313,15 +315,6 @@ function applySignatureWorkflow(existing, data) {
   }
 
   if (
-    data.warehouseSignature !== undefined &&
-    data.warehouseSignature &&
-    data.status === undefined &&
-    existing.status === 'DRAFT'
-  ) {
-    data.status = 'PENDING_APPROVAL';
-  }
-
-  if (
     data.tenantSignature !== undefined &&
     data.tenantSignature &&
     data.status === undefined &&
@@ -335,13 +328,41 @@ function applySignatureWorkflow(existing, data) {
   }
 }
 
+async function assertActiveStorageForTenantSign(contractId) {
+  const count = await StorageReservation.count({ contractId, status: 'ACTIVE' });
+  if (count === 0) {
+    throw new AppError(
+      'Kho chưa cấp vị trí lưu trữ — tenant chỉ ký sau khi hoàn tất cấp bin/zone',
+      400,
+      'STORAGE_NOT_ASSIGNED'
+    );
+  }
+}
+
 export async function updateContract(contractId, body) {
   const id = parseUuid(contractId, 'contractId');
   const existing = await getContract(id);
 
   const data = normalizeUpdatePayload(body);
+  if (data.tenantSignature !== undefined && data.tenantSignature) {
+    await assertActiveStorageForTenantSign(id);
+  }
+
+  const tenantJustSigned =
+    data.tenantSignature !== undefined &&
+    Boolean(String(data.tenantSignature ?? '').trim()) &&
+    !Boolean(String(existing.tenantSignature ?? '').trim());
+
   applySignatureWorkflow(existing, data);
-  return Contract.updateById(id, data);
+  const updated = await Contract.updateById(id, data);
+
+  if (tenantJustSigned) {
+    void notifyWarehouseAdminContractSigned(updated).catch((err) => {
+      console.warn('[contract] WH admin notify failed:', err?.message ?? err);
+    });
+  }
+
+  return updated;
 }
 
 export async function deleteContract(contractId) {

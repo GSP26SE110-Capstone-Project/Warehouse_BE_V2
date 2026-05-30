@@ -23,16 +23,9 @@ function monthCountBetween(startIso, endIso) {
   const start = new Date(startIso);
   const end = new Date(endIso);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 12;
-  if (end.getTime() <= start.getTime()) return 1;
-  let months =
-    (end.getFullYear() - start.getFullYear()) * 12 +
-    (end.getMonth() - start.getMonth());
-  const anchor = new Date(start);
-  anchor.setMonth(anchor.getMonth() + months);
-  if (end.getTime() > anchor.getTime()) {
-    months += 1;
-  }
-  return Math.max(1, months);
+  const diffDays = Math.ceil((end.getTime() - start.getTime()) / 86400000);
+  if (diffDays <= 0) return 1;
+  return Math.max(1, Math.floor(diffDays / DAYS_PER_BILLING_MONTH));
 }
 
 function resolveZoneRate(rr) {

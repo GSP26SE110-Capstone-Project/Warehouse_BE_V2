@@ -12,7 +12,7 @@ export async function comparePassword(plain, hash) {
 
 export function assertPasswordStrength(password) {
   if (!password || String(password).length < 8) {
-    return 'Password must be at least 8 characters';
+    return 'Mật khẩu phải có ít nhất 8 ký tự';
   }
   return null;
 }
