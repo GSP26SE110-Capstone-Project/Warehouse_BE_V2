@@ -120,6 +120,7 @@ const EXACT = Object.freeze({
   'assignedToMe requires WH_TRANSPORTER': 'Chỉ tài xế kho mới dùng được bộ lọc assignedToMe',
   'SYSTEM_ADMIN only': 'Chỉ System Admin mới thực hiện được thao tác này',
   'Cannot reactivate blocked user': 'Không thể kích hoạt lại tài khoản đã bị khóa',
+  'Cannot deactivate your own account': 'Không thể tự vô hiệu hóa tài khoản của chính bạn',
   'Creator has no warehouse scope': 'Người tạo không có phạm vi kho',
   'Creator has no tenant scope': 'Người tạo không có phạm vi tenant',
   'Cannot assign a different warehouse': 'Không thể gán kho khác',

@@ -404,6 +404,18 @@ export async function updateUser(creator, userId, body) {
 
   await applySystemAdminScopePatch(creator, existing, body, data);
 
+  if (
+    data.status !== undefined &&
+    data.status !== 'ACTIVE' &&
+    creator.userId === id
+  ) {
+    throw new AppError(
+      'Cannot deactivate your own account',
+      403,
+      'FORBIDDEN'
+    );
+  }
+
   if (creator.role !== 'SYSTEM_ADMIN' && data.status === 'ACTIVE' && existing.status === 'BLOCKED') {
     throw new AppError('Cannot reactivate blocked user', 403, 'FORBIDDEN');
   }
