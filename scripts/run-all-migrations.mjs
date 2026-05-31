@@ -28,6 +28,7 @@ const MIGRATION_FILES = [
   'scripts/sql/add_wh_transporter.sql',
   'scripts/sql/inbound_delivery_shipment_vehicle.sql',
   'scripts/sql/branches.sql',
+  'scripts/sql/bin_lpn_count_equals_volume.sql',
 ];
 
 console.log(`Running ${MIGRATION_FILES.length} migrations...\n`);

@@ -29,6 +29,8 @@
     "db:migrate:wh-transporter": "node scripts/run-migration.mjs scripts/sql/add_wh_transporter.sql",
     "seed:locations": "node scripts/seed-locations.mjs",
     "db:reset": "node scripts/run-migration.mjs scripts/sql/db4_drop_legacy.sql && node scripts/run-migration.mjs scripts/sql/db4_schema.sql",
+    "db:fresh": "npm run db:reset && node scripts/run-migration.mjs scripts/sql/inbound_delivery_shipment_vehicle.sql && node scripts/run-migration.mjs scripts/sql/add_wh_transporter.sql && node scripts/run-migration.mjs scripts/sql/bin_max_volume_16.sql && node scripts/run-migration.mjs scripts/sql/contract_type_needs_consultation.sql && node scripts/run-migration.mjs scripts/sql/contracts_add_signatures.sql && node scripts/run-migration.mjs scripts/sql/contracts_add_rental_request_id.sql && node scripts/run-migration.mjs scripts/sql/simplify_zone_rack_enums.sql && node scripts/run-migration.mjs scripts/sql/rental_requests_add_requested_area_m2.sql && node scripts/run-migration.mjs scripts/sql/lpns_add_weight_kg.sql && node scripts/run-migration.mjs scripts/sql/add_yearly_billing_cycle.sql",
+    "seed:demo": "npm run seed:locations && npm run seed:accounts && npm run seed:warehouse && npm run seed:product-master && npm run seed:collections && npm run seed:sku-lpn",
     "db:tables": "node scripts/list-db-tables.mjs",
     "models:generate": "node scripts/generate-schema-models.mjs"
   },
