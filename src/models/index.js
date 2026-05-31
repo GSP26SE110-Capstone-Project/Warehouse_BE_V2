@@ -24,6 +24,16 @@ export {
   productKindCatalogSchema,
   tableName as productKindCatalogTableName,
 } from './ProductKindCatalog.js';
+export {
+  default as SizeFactorCatalog,
+  sizeFactorCatalogSchema,
+  tableName as sizeFactorCatalogTableName,
+} from './SizeFactorCatalog.js';
+export {
+  default as RentalRequestProductLine,
+  rentalRequestProductLineSchema,
+  tableName as rentalRequestProductLineTableName,
+} from './RentalRequestProductLine.js';
 export { default as Collection, collectionSchema, tableName as collectionTableName } from './Collection.js';
 export { default as Season, seasonSchema, tableName as seasonTableName } from './Season.js';
 export { default as Sku, skuSchema, tableName as skuTableName } from './Sku.js';

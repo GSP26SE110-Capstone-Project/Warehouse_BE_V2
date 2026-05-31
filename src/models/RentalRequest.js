@@ -119,6 +119,19 @@ export const rentalRequestSchema = {
     type: 'string',
     required: false,
   },
+  totalCommittedVolumeUnits: {
+    type: 'decimal',
+    required: false,
+  },
+  boxAllocationJson: {
+    type: 'json',
+    required: false,
+  },
+  selectedBoxTypeHint: {
+    type: 'string',
+    required: false,
+    maxLength: 20,
+  },
   createdBy: {
     type: 'string',
     required: false,

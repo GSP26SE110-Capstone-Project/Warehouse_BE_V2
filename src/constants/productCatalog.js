@@ -6,3 +6,5 @@ export const GARMENT_GROUP_CODE = Object.freeze([
 ]);
 
 export const CATALOG_STATUS = Object.freeze(['ACTIVE', 'INACTIVE']);
+
+export const SIZE_GROUP_CODE = Object.freeze(['XS_S', 'M_L', 'XL_3XL']);

@@ -6,7 +6,7 @@ import { parsePagination } from '../utils/validate.js';
 
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
-  const { tenantId, warehouseId, regionMatch, city, district, status, contractType, pricingModel } =
+  const { tenantId, warehouseId, regionMatch, city, district, status, contractType, pricingModel, includeProductLines } =
     req.query;
 
   const result = await rentalRequestService.listRentalRequests({
@@ -18,6 +18,7 @@ export async function list(req, res) {
     status,
     contractType,
     pricingModel,
+    includeProductLines,
     page,
     limit,
     offset,

@@ -583,8 +583,8 @@ Phân bổ: floor(200/8)=**25 EXTRA** (200 U) — không dư.
 | LPN `volumeUnits` | ✅ Có | `lpn.service.js` |
 | Rental form “cái/tháng” cũ | ⚠️ Legacy | `RentalRequestForm.tsx`, `rentalBoxEstimate.ts` |
 | Catalog product kind + Base U | ✅ Có | `garment_category_groups`, `product_kind_catalog`, `GET /api/product-kinds` |
-| Catalog size factor | ❌ Chưa | XS–S / M–L / XL–3XL |
-| Rental request `productLines` | ❌ Chưa | BE + FE |
+| Catalog size factor | ✅ Có | `size_factor_catalog`, `GET /api/size-factors` |
+| Rental request `productLines` | ✅ Có (BE) | `rental_request_product_lines`, POST/PATCH `/api/rental-requests` |
 | Contract committed snapshot | ❌ Chưa | JSON hoặc bảng con |
 | Overage ledger + billing job | ❌ Chưa | Flow 8 billing |
 | Bill line breakdown | ❌ Chưa | Invoice module |

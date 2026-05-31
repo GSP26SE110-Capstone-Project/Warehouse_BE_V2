@@ -1,4 +1,5 @@
 import RentalRequest from '../models/RentalRequest.js';
+import pool from '../config/db.js';
 import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { locationMatches, requireLocationField } from '../utils/location.js';
@@ -20,6 +21,12 @@ import {
   getScopedTenantId,
 } from '../utils/warehouseAccess.js';
 import { WAREHOUSE_ROLES } from '../constants/auth.js';
+import {
+  attachProductLinesToRentalRequest,
+  enrichRentalRequestsWithProductLines,
+  replaceProductLinesForRentalRequest,
+  validateAndComputeProductLines,
+} from './rentalRequestProductLine.service.js';
 
 const CREATE_FIELDS = [
   'requestCode',
@@ -235,14 +242,17 @@ function assertExpectedRentalDates(data) {
   }
 }
 
-function assertGuestCapacityEstimate(data) {
+function assertGuestCapacityEstimate(data, productLineSummary = null) {
   const hasArea =
     data.requestedAreaM2 != null && Number(data.requestedAreaM2) > 0;
   const hasBoxes =
     data.estimatedBoxCount != null && Number(data.estimatedBoxCount) > 0;
-  if (!hasArea && !hasBoxes) {
+  const hasVolumeU =
+    (productLineSummary?.totalCommittedVolumeUnits ?? 0) > 0 ||
+    (data.totalCommittedVolumeUnits != null && Number(data.totalCommittedVolumeUnits) > 0);
+  if (!hasArea && !hasBoxes && !hasVolumeU) {
     throw new AppError(
-      'Cần nhập diện tích mong muốn (m²) hoặc quy mô hàng (số cái/tháng hoặc số thùng/tháng)',
+      'Cần nhập diện tích mong muốn (m²), quy mô hàng (cái/tháng hoặc thùng/tháng), hoặc productLines theo loại hàng + size',
       400,
       'VALIDATION_ERROR'
     );
@@ -276,7 +286,7 @@ async function assertKnownCityDistrict(data) {
   data.district = resolved.district;
 }
 
-function normalizeCreatePayload(body) {
+function normalizeCreatePayload(body, { productLineSummary = null } = {}) {
   const data = pickFields(body, CREATE_FIELDS);
 
   if (!data.tenantId) {
@@ -301,7 +311,7 @@ function normalizeCreatePayload(body) {
   normalizeNumericFields(data);
   validateEnums(data);
   assertExpectedRentalDates(data);
-  assertGuestCapacityEstimate(data);
+  assertGuestCapacityEstimate(data, productLineSummary);
 
   return data;
 }
@@ -395,7 +405,7 @@ export async function getRentalRequest(rentalRequestId, user = null) {
     throw new AppError('Rental request not found', 404, 'NOT_FOUND');
   }
   assertRentalRequestReadAccess(user, item);
-  return item;
+  return attachProductLinesToRentalRequest(item);
 }
 
 export async function lookupRentalRequestByCode(requestCode, email) {
@@ -425,35 +435,40 @@ export async function lookupRentalRequestByCode(requestCode, email) {
     throw new AppError('Rental request not found', 404, 'NOT_FOUND');
   }
 
+  const enriched = await attachProductLinesToRentalRequest(item);
+
   let warehouseName = null;
-  if (item.warehouseId) {
-    const warehouse = await getWarehouseById(item.warehouseId);
+  if (enriched.warehouseId) {
+    const warehouse = await getWarehouseById(enriched.warehouseId);
     warehouseName = warehouse.warehouseName ?? null;
   }
 
   return {
-    requestCode: item.requestCode,
-    status: item.status,
+    requestCode: enriched.requestCode,
+    status: enriched.status,
     companyName: tenant.companyName,
-    city: item.city,
-    district: item.district,
-    contractType: item.contractType ?? null,
-    pricingModel: item.pricingModel ?? null,
-    billingCycle: item.billingCycle ?? null,
-    estimatedBoxCount: item.estimatedBoxCount ?? null,
-    estimatedSkuCount: item.estimatedSkuCount ?? null,
-    estimatedInboundPerWeek: item.estimatedInboundPerWeek ?? null,
-    estimatedOutboundPerWeek: item.estimatedOutboundPerWeek ?? null,
-    requestedAreaM2: item.requestedAreaM2 ?? null,
-    requiresFastPicking: item.requiresFastPicking ?? false,
-    requiresPremiumStorage: item.requiresPremiumStorage ?? false,
-    expectedStartDate: item.expectedStartDate ?? null,
-    expectedEndDate: item.expectedEndDate ?? null,
-    rejectionReason: item.rejectionReason ?? null,
+    city: enriched.city,
+    district: enriched.district,
+    contractType: enriched.contractType ?? null,
+    pricingModel: enriched.pricingModel ?? null,
+    billingCycle: enriched.billingCycle ?? null,
+    estimatedBoxCount: enriched.estimatedBoxCount ?? null,
+    estimatedSkuCount: enriched.estimatedSkuCount ?? null,
+    totalCommittedVolumeUnits: enriched.totalCommittedVolumeUnits ?? null,
+    boxAllocation: enriched.boxAllocation ?? [],
+    productLines: enriched.productLines ?? [],
+    estimatedInboundPerWeek: enriched.estimatedInboundPerWeek ?? null,
+    estimatedOutboundPerWeek: enriched.estimatedOutboundPerWeek ?? null,
+    requestedAreaM2: enriched.requestedAreaM2 ?? null,
+    requiresFastPicking: enriched.requiresFastPicking ?? false,
+    requiresPremiumStorage: enriched.requiresPremiumStorage ?? false,
+    expectedStartDate: enriched.expectedStartDate ?? null,
+    expectedEndDate: enriched.expectedEndDate ?? null,
+    rejectionReason: enriched.rejectionReason ?? null,
     warehouseName,
-    createdAt: item.createdAt ?? null,
-    updatedAt: item.updatedAt ?? null,
-    reviewedAt: item.reviewedAt ?? null,
+    createdAt: enriched.createdAt ?? null,
+    updatedAt: enriched.updatedAt ?? null,
+    reviewedAt: enriched.reviewedAt ?? null,
   };
 }
 
@@ -466,6 +481,7 @@ export async function listRentalRequests({
   status,
   contractType,
   pricingModel,
+  includeProductLines,
   page,
   limit,
   offset,
@@ -503,9 +519,13 @@ export async function listRentalRequests({
 
   const { conditions, params } = buildListConditions(filters, { regionMatchWarehouse });
   const { items, total } = await queryRentalRequests({ conditions, params, limit, offset });
+  const shouldIncludeLines = includeProductLines === true || includeProductLines === 'true';
+  const enrichedItems = shouldIncludeLines
+    ? await enrichRentalRequestsWithProductLines(items)
+    : items;
 
   return {
-    items,
+    items: enrichedItems,
     meta: {
       page,
       limit,
@@ -516,10 +536,45 @@ export async function listRentalRequests({
 }
 
 export async function createRentalRequest(body) {
-  const data = normalizeCreatePayload(body);
+  const { productLines, selectedBoxTypeHint } = body;
+  let productLineSummary = null;
+
+  if (productLines != null) {
+    if (!Array.isArray(productLines)) {
+      throw new AppError('productLines must be an array', 400, 'VALIDATION_ERROR');
+    }
+    if (productLines.length > 0) {
+      productLineSummary = await validateAndComputeProductLines(productLines);
+    }
+  }
+
+  const data = normalizeCreatePayload(body, { productLineSummary });
   await assertKnownCityDistrict(data);
   await getTenantCompany(data.tenantId);
-  return RentalRequest.create(data);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let item = await RentalRequest.create(data, client);
+
+    if (productLines?.length) {
+      await replaceProductLinesForRentalRequest(
+        item.rentalRequestId,
+        productLines,
+        { selectedBoxTypeHint },
+        client
+      );
+      item = await RentalRequest.findById(item.rentalRequestId, client);
+    }
+
+    await client.query('COMMIT');
+    return attachProductLinesToRentalRequest(item, client);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function claimRentalRequest(rentalRequestId, warehouseId, body) {
@@ -653,7 +708,7 @@ export async function updateRentalRequest(rentalRequestId, body, actor = null) {
   }
 
   const id = parseUuid(rentalRequestId, 'rentalRequestId');
-  const existing = await getRentalRequest(id);
+  const existing = await getRentalRequest(id, actor);
 
   if (existing.warehouseId == null && body.status && body.status !== 'REJECTED') {
     throw new AppError(
@@ -663,8 +718,51 @@ export async function updateRentalRequest(rentalRequestId, body, actor = null) {
     );
   }
 
-  const data = normalizeUpdatePayload(body);
-  return RentalRequest.updateById(id, data);
+  const { productLines, selectedBoxTypeHint } = body;
+  const hasProductLines = productLines !== undefined;
+  const hasOtherUpdates = Object.keys(pickFields(body, UPDATE_FIELDS)).length > 0;
+
+  if (hasProductLines) {
+    if (!['PENDING', 'UNDER_REVIEW'].includes(existing.status)) {
+      throw new AppError(
+        'Cannot change productLines unless status is PENDING or UNDER_REVIEW',
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+  }
+
+  if (!hasProductLines && !hasOtherUpdates) {
+    throw new AppError('No valid fields to update', 400, 'VALIDATION_ERROR');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (hasOtherUpdates) {
+      const data = normalizeUpdatePayload(body);
+      await RentalRequest.updateById(id, data, client);
+    }
+
+    if (hasProductLines) {
+      await replaceProductLinesForRentalRequest(
+        id,
+        productLines,
+        { selectedBoxTypeHint },
+        client
+      );
+    }
+
+    await client.query('COMMIT');
+    const item = await RentalRequest.findById(id);
+    return attachProductLinesToRentalRequest(item);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function deleteRentalRequest(rentalRequestId) {
