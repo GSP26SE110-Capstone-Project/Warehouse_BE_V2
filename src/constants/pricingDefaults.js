@@ -1,9 +1,16 @@
 import { BOX_TYPE } from './warehouseStructure.js';
 
-/** Giới hạn vật lý mặc định cho bin (seed / ước tính). */
-export const DEFAULT_BIN_MAX_LPN_COUNT = 4;
-/** 16 volume units → tối đa 2 LPN EXTRA (8+8) hoặc 4 LPN MEDIUM trong 1 bin. */
+/**
+ * Giới hạn vật lý mặc định cho bin (seed / ước tính).
+ *
+ * Quy ước: `DEFAULT_BIN_MAX_LPN_COUNT = DEFAULT_BIN_MAX_VOLUME_UNITS` để LPN count
+ * không phải là constraint chặn — bin chỉ chặn bởi volume. Vì mỗi SMALL = 1 volume
+ * unit, upper bound vật lý của số LPN trong 1 bin = số volume units. Cho phép tenant
+ * nhập tổ hợp box bất kỳ (1 EXTRA + 1 LARGE + 4 SMALL = 16 vol, 6 LPN) mà không bị
+ * cap LPN làm phí chỗ.
+ */
 export const DEFAULT_BIN_MAX_VOLUME_UNITS = 16;
+export const DEFAULT_BIN_MAX_LPN_COUNT = DEFAULT_BIN_MAX_VOLUME_UNITS;
 
 export const DAYS_PER_BILLING_MONTH = 30;
 

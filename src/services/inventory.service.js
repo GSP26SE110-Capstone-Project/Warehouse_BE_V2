@@ -192,19 +192,41 @@ export async function applyBinPutaway(bin, volumeUnits, client) {
     throw new AppError('Bin is blocked', 400, 'BIN_BLOCKED');
   }
 
-  const used = Number(bin.usedVolumeUnits ?? 0) + Number(volumeUnits);
-  const lpnCount = Number(bin.currentLpnCount ?? 0) + 1;
+  // PHẢI đọc lại bin trong cùng transaction + lock row, vì caller có thể đã
+  // dùng `getBin()` (pool.query connection khác) → không thấy update chưa commit
+  // từ iteration trước trong bulk putaway → cả 2 LPN cùng ghi đè lên 0 → 1 thay
+  // vì incremental 0 → 1 → 2. FOR UPDATE serialize ghi vào cùng bin row.
+  const lockResult = await client.query(
+    `SELECT current_lpn_count, used_volume_units, max_lpn_count, max_volume_units, status
+       FROM bins
+      WHERE bin_id = $1
+      FOR UPDATE`,
+    [bin.binId]
+  );
+  if (lockResult.rows.length === 0) {
+    throw new AppError('Bin not found', 404, 'NOT_FOUND');
+  }
+  const row = lockResult.rows[0];
 
-  if (used > Number(bin.maxVolumeUnits)) {
+  if (row.status === 'BLOCKED') {
+    throw new AppError('Bin is blocked', 400, 'BIN_BLOCKED');
+  }
+
+  const maxVol = Number(row.max_volume_units);
+  const maxLpn = Number(row.max_lpn_count);
+  const used = Number(row.used_volume_units ?? 0) + Number(volumeUnits);
+  const lpnCount = Number(row.current_lpn_count ?? 0) + 1;
+
+  if (used > maxVol) {
     throw new AppError('Bin volume capacity exceeded', 400, 'BIN_CAPACITY_EXCEEDED');
   }
-  if (lpnCount > Number(bin.maxLpnCount)) {
+  if (lpnCount > maxLpn) {
     throw new AppError('Bin LPN count capacity exceeded', 400, 'BIN_CAPACITY_EXCEEDED');
   }
 
-  let status = bin.status;
+  let status = row.status;
   if (status !== 'RESERVED') {
-    if (used >= bin.maxVolumeUnits || lpnCount >= bin.maxLpnCount) {
+    if (used >= maxVol || lpnCount >= maxLpn) {
       status = 'FULL';
     } else if (used > 0 || lpnCount > 0) {
       status = 'PARTIAL';
