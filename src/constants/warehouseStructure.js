@@ -5,7 +5,7 @@ export const WAREHOUSE_STATUS = Object.freeze([
   'CLOSED',
 ]);
 
-export const ZONE_TYPE = Object.freeze(['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN']);
+export const ZONE_TYPE = Object.freeze(['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE']);
 
 export const ZONE_STATUS = Object.freeze(['ACTIVE', 'BLOCKED']);
 

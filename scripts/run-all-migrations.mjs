@@ -30,6 +30,7 @@ const MIGRATION_FILES = [
   'scripts/sql/branches.sql',
   'scripts/sql/bin_lpn_count_equals_volume.sql',
   'scripts/sql/bins_resync_lpn_volume.sql',
+  'scripts/sql/zone_type_private_replace_return.sql',
 ];
 
 console.log(`Running ${MIGRATION_FILES.length} migrations...\n`);

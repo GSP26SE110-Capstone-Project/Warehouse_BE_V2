@@ -26,8 +26,7 @@ const PRIMARY_WAREHOUSE = {
   district: 'Quận 7',
   totalAreaM2: 5000,
   usableAreaM2: 4200,
-  // 4 zone chính + 2 zone hỗ trợ (QC, RETURN).
-  // Mỗi zone main có vài rack; QC/RETURN để trống cho test thủ công.
+  // 4 zone: shared, fast-moving, premium, private (dedicated).
   zones: [
     {
       zoneCode: 'Z-A01',
@@ -71,12 +70,12 @@ const PRIMARY_WAREHOUSE = {
       racks: [{ rackCode: 'R-P01-01', rackType: 'STANDARD', maxLevels: 3 }],
     },
     {
-      zoneCode: 'Z-RET',
-      zoneName: 'Return Area',
-      zoneType: 'RETURN',
-      areaM2: 200,
-      isDedicated: false,
-      racks: [],
+      zoneCode: 'Z-PRV',
+      zoneName: 'Private PRV01',
+      zoneType: 'PRIVATE',
+      areaM2: 500,
+      isDedicated: true,
+      racks: [{ rackCode: 'R-PRV-01', rackType: 'STANDARD', maxLevels: 3 }],
     },
   ],
 };

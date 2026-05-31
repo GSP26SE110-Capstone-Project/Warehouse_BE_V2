@@ -69,6 +69,7 @@ async function buildComputedLine(rawLine, index) {
   }
 
   const quantity = parsePositiveInt(rawLine.quantity, `${fieldPrefix}.quantity`);
+  // quantity = số cái cam kết trung bình mỗi tháng (peak inventory), không nhân số tháng HĐ.
   const catalogKind = await getProductKind(productKindCode);
 
   if (catalogKind.status && catalogKind.status !== 'ACTIVE') {

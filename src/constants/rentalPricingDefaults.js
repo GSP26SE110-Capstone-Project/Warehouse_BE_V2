@@ -6,7 +6,7 @@ export const ZONE_PRICE_PER_M2_MONTH = Object.freeze({
   SHARED: 120_000,
   FAST_MOVING: 220_000,
   PREMIUM: 300_000,
-  RETURN: 120_000,
+  PRIVATE: 250_000,
 });
 
 /** Giá box/day trung bình (SHARED_STORAGE) */

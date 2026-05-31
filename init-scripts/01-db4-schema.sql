@@ -13,7 +13,7 @@ DO $do$ BEGIN CREATE TYPE role_enum AS ENUM ('SYSTEM_ADMIN','WH_ADMIN','WH_STAFF
 DO $do$ BEGIN CREATE TYPE user_status_enum AS ENUM ('ACTIVE','INACTIVE','SUSPENDED','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE tenant_status_enum AS ENUM ('ACTIVE','SUSPENDED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE warehouse_status_enum AS ENUM ('ACTIVE','INACTIVE','MAINTENANCE','CLOSED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
-DO $do$ BEGIN CREATE TYPE zone_type_enum AS ENUM ('SHARED','FAST_MOVING','PREMIUM','RETURN'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
+DO $do$ BEGIN CREATE TYPE zone_type_enum AS ENUM ('SHARED','FAST_MOVING','PREMIUM','PRIVATE'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE zone_status_enum AS ENUM ('ACTIVE','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE rack_type_enum AS ENUM ('STANDARD'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE rack_status_enum AS ENUM ('ACTIVE','BLOCKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;

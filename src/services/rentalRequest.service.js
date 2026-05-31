@@ -219,12 +219,26 @@ function hasMinimumRentalDuration(startDate, endDate) {
   return diffDays >= 30;
 }
 
+function startOfDayUtc(date) {
+  const d = new Date(date);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
 function assertExpectedRentalDates(data) {
   if (data.expectedStartDate == null) {
     throw new AppError('expectedStartDate is required', 400, 'VALIDATION_ERROR');
   }
   if (data.expectedEndDate == null) {
     throw new AppError('expectedEndDate is required', 400, 'VALIDATION_ERROR');
+  }
+  const startDay = startOfDayUtc(data.expectedStartDate);
+  const todayDay = startOfDayUtc(new Date());
+  if (startDay < todayDay) {
+    throw new AppError(
+      'Ngày bắt đầu dự kiến không được trước hôm nay',
+      400,
+      'VALIDATION_ERROR'
+    );
   }
   if (data.expectedStartDate >= data.expectedEndDate) {
     throw new AppError(
@@ -577,6 +591,31 @@ export async function createRentalRequest(body) {
   }
 }
 
+async function assertWarehouseExclusiveForDedicatedLease(warehouseId, tenantId) {
+  const whId = parseUuid(warehouseId, 'warehouseId');
+  const tid = parseUuid(tenantId, 'tenantId');
+
+  const result = await pool.query(
+    `SELECT c.contract_id, tc.company_name, c.status
+     FROM contracts c
+     INNER JOIN tenant_companies tc ON tc.tenant_id = c.tenant_id
+     WHERE c.warehouse_id = $1
+       AND c.tenant_id != $2
+       AND c.status IN ('PENDING_APPROVAL', 'ACTIVE')
+     LIMIT 1`,
+    [whId, tid]
+  );
+
+  if (result.rowCount > 0) {
+    const row = result.rows[0];
+    throw new AppError(
+      `Không thể thuê nguyên kho: đang có hợp đồng ${row.status} với tenant khác (${row.company_name}). Chọn kho khác hoặc loại thuê khác.`,
+      409,
+      'WAREHOUSE_EXCLUSIVE_LEASE_CONFLICT'
+    );
+  }
+}
+
 async function claimRentalRequest(rentalRequestId, warehouseId, body) {
   const id = parseUuid(rentalRequestId, 'rentalRequestId');
   const whId = parseUuid(warehouseId, 'warehouseId');
@@ -634,6 +673,11 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
       400,
       'VALIDATION_ERROR'
     );
+  }
+
+  const effectiveContractType = body.contractType ?? existing.contractType;
+  if (effectiveContractType === 'DEDICATED_WAREHOUSE') {
+    await assertWarehouseExclusiveForDedicatedLease(whId, existing.tenantId);
   }
 
   const row = await RentalRequest.queryOne(

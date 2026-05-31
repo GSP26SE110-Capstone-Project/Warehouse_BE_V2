@@ -84,7 +84,7 @@ export function cityDistrictPairMatches(aCity, aDistrict, bCity, bDistrict) {
   return locationMatches(aCity, bCity) && locationMatches(aDistrict, bDistrict);
 }
 
-/** Public guest preview — ACTIVE warehouses in city/district (name + area only). */
+/** Public guest preview — ACTIVE warehouses in city/district (name + area + utilization). */
 export async function listWarehousesInRegion(cityName, districtName) {
   const resolved = await resolveCityDistrict(cityName, districtName);
   if (!resolved) {
@@ -97,14 +97,24 @@ export async function listWarehousesInRegion(cityName, districtName) {
   }
 
   const result = await pool.query(
-    `SELECT warehouse_name, total_area_m2
-     FROM warehouses
-     WHERE status = 'ACTIVE'
-       AND city IS NOT NULL
-       AND district IS NOT NULL
-       AND LOWER(TRIM(city)) = LOWER(TRIM($1))
-       AND LOWER(TRIM(district)) = LOWER(TRIM($2))
-     ORDER BY warehouse_name ASC`,
+    `SELECT w.warehouse_name,
+            w.total_area_m2,
+            w.usable_area_m2,
+            COALESCE(z.used_area_m2, 0) AS used_area_m2
+     FROM warehouses w
+     LEFT JOIN (
+       SELECT warehouse_id, SUM(area_m2) AS used_area_m2
+       FROM warehouse_zones
+       WHERE status = 'ACTIVE'
+         AND area_m2 IS NOT NULL
+       GROUP BY warehouse_id
+     ) z ON z.warehouse_id = w.warehouse_id
+     WHERE w.status = 'ACTIVE'
+       AND w.city IS NOT NULL
+       AND w.district IS NOT NULL
+       AND LOWER(TRIM(w.city)) = LOWER(TRIM($1))
+       AND LOWER(TRIM(w.district)) = LOWER(TRIM($2))
+     ORDER BY w.warehouse_name ASC`,
     [resolved.city, resolved.district]
   );
 
@@ -112,9 +122,30 @@ export async function listWarehousesInRegion(cityName, districtName) {
     count: result.rowCount,
     city: resolved.city,
     district: resolved.district,
-    items: result.rows.map((row) => ({
-      warehouseName: row.warehouse_name,
-      totalAreaM2: row.total_area_m2 != null ? Number(row.total_area_m2) : null,
-    })),
+    items: result.rows.map((row) => mapGuestRegionWarehouseItem(row)),
+  };
+}
+
+function mapGuestRegionWarehouseItem(row) {
+  const totalAreaM2 = row.total_area_m2 != null ? Number(row.total_area_m2) : null;
+  const usableAreaM2 = row.usable_area_m2 != null ? Number(row.usable_area_m2) : null;
+  const usedAreaM2 = Number(row.used_area_m2) || 0;
+  const capacityAreaM2 = usableAreaM2 ?? totalAreaM2;
+  let utilizationPercent = null;
+  let availableAreaM2 = null;
+
+  if (capacityAreaM2 != null && capacityAreaM2 > 0) {
+    utilizationPercent = Math.min(100, Math.round((usedAreaM2 / capacityAreaM2) * 100));
+    availableAreaM2 = Math.max(0, Math.round((capacityAreaM2 - usedAreaM2) * 10) / 10);
+  }
+
+  return {
+    warehouseName: row.warehouse_name,
+    totalAreaM2,
+    usableAreaM2,
+    capacityAreaM2,
+    usedAreaM2,
+    availableAreaM2,
+    utilizationPercent,
   };
 }
