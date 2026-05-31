@@ -202,3 +202,47 @@ export async function resetPasswordWithToken({ token, newPassword }) {
 
   return { changedAt: new Date().toISOString() };
 }
+
+/**
+ * Đổi mật khẩu khi đã đăng nhập — verify mật khẩu cũ, không cần OTP.
+ */
+export async function changePassword(userId, { currentPassword, newPassword }) {
+  if (!currentPassword || !newPassword) {
+    throw new AppError(
+      'currentPassword and newPassword are required',
+      400,
+      'VALIDATION_ERROR',
+    );
+  }
+
+  const strengthError = assertPasswordStrength(newPassword);
+  if (strengthError) {
+    throw new AppError(strengthError, 400, 'VALIDATION_ERROR');
+  }
+
+  if (currentPassword === newPassword) {
+    throw new AppError(
+      'New password must differ from current password',
+      400,
+      'VALIDATION_ERROR',
+    );
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', 404, 'NOT_FOUND');
+  }
+  if (user.status !== 'ACTIVE') {
+    throw new AppError('Account is not active', 403, 'ACCOUNT_INACTIVE');
+  }
+
+  const validCurrent = await comparePassword(currentPassword, user.passwordHash);
+  if (!validCurrent) {
+    throw new AppError('Current password is incorrect', 400, 'INVALID_CURRENT_PASSWORD');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await User.updateById(userId, { passwordHash });
+
+  return { changedAt: new Date().toISOString() };
+}

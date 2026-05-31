@@ -24,6 +24,7 @@ import { buildLoginUrl, buildPasswordResetUrl } from '../utils/appUrl.js';
 const CREATE_FIELDS = ['fullName', 'email', 'password', 'phone', 'role', 'tenantId', 'warehouseId', 'status'];
 
 const UPDATE_FIELDS = ['fullName', 'phone', 'status'];
+const SELF_UPDATE_FIELDS = ['fullName', 'phone'];
 
 function pickFields(source, fields) {
   const result = {};
@@ -429,6 +430,21 @@ async function applySystemAdminScopePatch(creator, existing, body, data) {
       await assertUniqueTenantAdminForTenant(data.tenantId, existing.userId);
     }
   }
+}
+
+export async function updateSelfProfile(currentUser, body) {
+  const data = pickFields(body, SELF_UPDATE_FIELDS);
+  if (data.fullName != null) {
+    data.fullName = String(data.fullName).trim();
+    if (!data.fullName) {
+      throw new AppError('fullName cannot be empty', 400, 'VALIDATION_ERROR');
+    }
+  }
+  if (Object.keys(data).length === 0) {
+    throw new AppError('No valid fields to update', 400, 'VALIDATION_ERROR');
+  }
+  const updated = await User.updateById(currentUser.userId, data);
+  return toPublicUser(updated);
 }
 
 export async function updateUser(creator, userId, body) {

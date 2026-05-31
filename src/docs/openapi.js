@@ -148,6 +148,7 @@ const spec = {
       '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
       '- `POST /api/auth/forgot-password` + `/verify` — public (OTP flow)\n' +
+      '- `POST /api/auth/change-password` — Bearer token (đổi mật khẩu khi đã đăng nhập)\n' +
       '- `POST /api/auth/reset-password` — public (welcome email token)\n' +
       '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
       '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/guest/lookup` — public (guest onboarding)',
@@ -1368,6 +1369,26 @@ const spec = {
         },
       },
 
+      ChangePasswordRequest: {
+        type: 'object',
+        required: ['currentPassword', 'newPassword'],
+        properties: {
+          currentPassword: { type: 'string', format: 'password' },
+          newPassword: {
+            type: 'string',
+            format: 'password',
+            minLength: 8,
+            description: 'Phải khác mật khẩu hiện tại, tối thiểu 8 ký tự.',
+          },
+        },
+      },
+      ChangePasswordData: {
+        type: 'object',
+        properties: {
+          changedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+
       RentalRequest: {
         type: 'object',
         description:
@@ -2073,6 +2094,33 @@ const spec = {
             'Đặt lại mật khẩu thành công',
           ),
           400: stdErrors[400],
+          403: stdErrors[403],
+        },
+      },
+    },
+
+    '/api/auth/change-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Đổi mật khẩu (đã đăng nhập, không cần OTP)',
+        security: bearerSecurity,
+        description:
+          'User đã đăng nhập nhập `currentPassword` + `newPassword`. BE verify mật khẩu cũ rồi cập nhật ngay — không gửi OTP.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ChangePasswordRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ChangePasswordData' },
+            'Đổi mật khẩu thành công',
+          ),
+          400: stdErrors[400],
+          401: stdErrors[401],
           403: stdErrors[403],
         },
       },

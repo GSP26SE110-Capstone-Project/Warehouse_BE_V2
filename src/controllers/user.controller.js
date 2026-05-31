@@ -6,6 +6,11 @@ export async function me(req, res) {
   success(res, req.user);
 }
 
+export async function updateMe(req, res) {
+  const user = await userService.updateSelfProfile(req.user, req.body);
+  success(res, user, 'Updated successfully');
+}
+
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
   const { role, status } = req.query;

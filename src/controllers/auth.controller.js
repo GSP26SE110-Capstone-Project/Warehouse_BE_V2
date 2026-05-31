@@ -24,3 +24,8 @@ export async function resetPassword(req, res) {
   const result = await authService.resetPasswordWithToken(req.body);
   success(res, result, 'Đặt lại mật khẩu thành công.');
 }
+
+export async function changePassword(req, res) {
+  const result = await authService.changePassword(req.user.userId, req.body);
+  success(res, result, 'Đổi mật khẩu thành công.');
+}
