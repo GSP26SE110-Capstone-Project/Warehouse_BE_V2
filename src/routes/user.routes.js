@@ -11,6 +11,7 @@ const userManagers = ['SYSTEM_ADMIN', 'WH_ADMIN', 'TENANT_ADMIN'];
 router.use(authenticate);
 
 router.get('/me', asyncHandler(userController.me));
+router.patch('/me', asyncHandler(userController.updateMe));
 
 router.get('/', authorize(...userManagers), asyncHandler(userController.list));
 router.post('/', authorize(...userManagers), asyncHandler(userController.create));

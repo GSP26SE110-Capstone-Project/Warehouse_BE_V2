@@ -147,6 +147,9 @@ const spec = {
       'Category, Season, Collection, Inbound request, Batch, SKU, LPN, LPN detail, AI slot recommendation\n\n' +
       '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
+      '- `POST /api/auth/forgot-password` + `/verify` — public (OTP flow)\n' +
+      '- `POST /api/auth/change-password` — Bearer token (đổi mật khẩu khi đã đăng nhập)\n' +
+      '- `POST /api/auth/reset-password` — public (welcome email token)\n' +
       '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
       '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/guest/lookup` — public (guest onboarding)',
   },
@@ -1326,6 +1329,46 @@ const spec = {
         },
       },
 
+      ForgotPasswordRequest: {
+        type: 'object',
+        required: ['email'],
+        properties: {
+          email: {
+            type: 'string',
+            format: 'email',
+            example: 'user@warehouse.local',
+            description: 'Email của tài khoản cần đặt lại mật khẩu.',
+          },
+        },
+      },
+      ForgotPasswordRequestData: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', format: 'email' },
+          expiresInMinutes: { type: 'integer', example: 10 },
+        },
+      },
+      ForgotPasswordVerifyRequest: {
+        type: 'object',
+        required: ['email', 'otp', 'newPassword'],
+        properties: {
+          email: { type: 'string', format: 'email', example: 'user@warehouse.local' },
+          otp: { type: 'string', example: '123456' },
+          newPassword: {
+            type: 'string',
+            format: 'password',
+            minLength: 8,
+            description: 'Mật khẩu mới, tối thiểu 8 ký tự.',
+          },
+        },
+      },
+      ForgotPasswordVerifyData: {
+        type: 'object',
+        properties: {
+          changedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+
       ChangePasswordRequest: {
         type: 'object',
         required: ['currentPassword', 'newPassword'],
@@ -1339,21 +1382,7 @@ const spec = {
           },
         },
       },
-      ChangePasswordRequestData: {
-        type: 'object',
-        properties: {
-          email: { type: 'string', format: 'email' },
-          expiresInMinutes: { type: 'integer', example: 10 },
-        },
-      },
-      ChangePasswordVerifyRequest: {
-        type: 'object',
-        required: ['otp'],
-        properties: {
-          otp: { type: 'string', example: '123456' },
-        },
-      },
-      ChangePasswordVerifyData: {
+      ChangePasswordData: {
         type: 'object',
         properties: {
           changedAt: { type: 'string', format: 'date-time' },
@@ -2014,28 +2043,26 @@ const spec = {
       },
     },
 
-    '/api/auth/change-password': {
+    '/api/auth/forgot-password': {
       post: {
         tags: ['Auth'],
-        summary: 'Yêu cầu đổi mật khẩu — gửi OTP về email',
-        security: bearerSecurity,
+        summary: 'Quên mật khẩu — gửi OTP về email (không cần đăng nhập)',
         description:
-          'Bước 1/2. Verify `currentPassword`, sinh OTP 6 số (TTL 10 phút) và gửi tới email của user hiện tại. Chưa đổi password ở bước này.',
+          'Bước 1/2 của flow quên mật khẩu. Nhập email tài khoản → BE sinh OTP 6 số (TTL 10 phút) và gửi tới email đó. Phản hồi luôn 200 để tránh user enumeration (không xác nhận email có tồn tại hay không). Chưa đổi password ở bước này.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: { $ref: '#/components/schemas/ChangePasswordRequest' },
+              schema: { $ref: '#/components/schemas/ForgotPasswordRequest' },
             },
           },
         },
         responses: {
           200: successEnvelope(
-            { $ref: '#/components/schemas/ChangePasswordRequestData' },
-            'OTP đã được gửi tới email',
+            { $ref: '#/components/schemas/ForgotPasswordRequestData' },
+            'OTP đã được gửi tới email nếu tài khoản tồn tại',
           ),
           400: stdErrors[400],
-          401: stdErrors[401],
           502: {
             description: 'Gửi email thất bại',
             content: {
@@ -2047,28 +2074,54 @@ const spec = {
         },
       },
     },
-    '/api/auth/change-password/verify': {
+    '/api/auth/forgot-password/verify': {
       post: {
         tags: ['Auth'],
-        summary: 'Xác nhận OTP và áp dụng đổi mật khẩu',
-        security: bearerSecurity,
+        summary: 'Xác nhận OTP và đặt lại mật khẩu (không cần đăng nhập)',
         description:
-          'Bước 2/2. Nhập đúng OTP đã nhận trong email để áp dụng mật khẩu mới. OTP single-use, tối đa 5 lần nhập sai sẽ bị khoá — phải request lại.',
+          'Bước 2/2. Nhập email + OTP đã nhận + mật khẩu mới. OTP single-use, tối đa 5 lần nhập sai sẽ bị khoá — phải request lại OTP. Mật khẩu mới ≥ 8 ký tự.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: { $ref: '#/components/schemas/ChangePasswordVerifyRequest' },
+              schema: { $ref: '#/components/schemas/ForgotPasswordVerifyRequest' },
             },
           },
         },
         responses: {
           200: successEnvelope(
-            { $ref: '#/components/schemas/ChangePasswordVerifyData' },
+            { $ref: '#/components/schemas/ForgotPasswordVerifyData' },
+            'Đặt lại mật khẩu thành công',
+          ),
+          400: stdErrors[400],
+          403: stdErrors[403],
+        },
+      },
+    },
+
+    '/api/auth/change-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Đổi mật khẩu (đã đăng nhập, không cần OTP)',
+        security: bearerSecurity,
+        description:
+          'User đã đăng nhập nhập `currentPassword` + `newPassword`. BE verify mật khẩu cũ rồi cập nhật ngay — không gửi OTP.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ChangePasswordRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ChangePasswordData' },
             'Đổi mật khẩu thành công',
           ),
           400: stdErrors[400],
           401: stdErrors[401],
+          403: stdErrors[403],
         },
       },
     },

@@ -36,6 +36,31 @@ function mapPgError(err) {
   }
 }
 
+function isDbConnectionError(err) {
+  if (!err) return false;
+  if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+    return true;
+  }
+  if (err.name === 'AggregateError' && Array.isArray(err.errors)) {
+    return err.errors.some((e) => isDbConnectionError(e));
+  }
+  return false;
+}
+
+function resolveUnknownErrorMessage(err) {
+  if (isDbConnectionError(err)) {
+    return 'Không kết nối được cơ sở dữ liệu. Vui lòng bật PostgreSQL/Docker rồi thử lại.';
+  }
+  if (err?.message?.trim()) {
+    return err.message;
+  }
+  if (err?.name === 'AggregateError' && Array.isArray(err.errors)) {
+    const nested = err.errors.find((e) => e?.message?.trim());
+    if (nested?.message) return nested.message;
+  }
+  return process.env.NODE_ENV === 'production' ? 'Lỗi máy chủ nội bộ' : 'Lỗi máy chủ nội bộ';
+}
+
 export default function errorHandler(err, req, res, next) {
   if (res.headersSent) {
     return next(err);
@@ -47,12 +72,10 @@ export default function errorHandler(err, req, res, next) {
     const pgError = mapPgError(error);
     if (pgError) {
       error = pgError;
+    } else if (isDbConnectionError(error)) {
+      error = new AppError(resolveUnknownErrorMessage(error), 503, 'DB_UNAVAILABLE');
     } else {
-      error = new AppError(
-        process.env.NODE_ENV === 'production' ? 'Lỗi máy chủ nội bộ' : err.message,
-        500,
-        'INTERNAL_ERROR'
-      );
+      error = new AppError(resolveUnknownErrorMessage(error), 500, 'INTERNAL_ERROR');
     }
   }
 

@@ -13,6 +13,14 @@ import { generateOtp, saveOtp, verifyOtp } from '../utils/otpStore.js';
 const OTP_TTL_MINUTES = 10;
 const OTP_TTL_MS = OTP_TTL_MINUTES * 60 * 1000;
 
+function normalizeEmail(email) {
+  return String(email ?? '').trim().toLowerCase();
+}
+
+function otpKeyForEmail(email) {
+  return `forgot-password:${normalizeEmail(email)}`;
+}
+
 export async function login({ email, password }) {
   if (!email?.trim() || !password) {
     throw new AppError('email and password are required', 400, 'VALIDATION_ERROR');
@@ -47,57 +55,30 @@ export async function login({ email, password }) {
 }
 
 /**
- * Bước 1 — yêu cầu đổi mật khẩu.
- * Verify mật khẩu hiện tại, sinh OTP, gửi email, lưu pending change.
- * Chưa update bảng `users` ở bước này.
+ * Bước 1 — quên mật khẩu: input email → gửi OTP về email.
+ *
+ * Phản hồi luôn giống nhau dù email tồn tại hay không, để tránh user enumeration.
+ * OTP key theo email (không cần userId vì user chưa đăng nhập).
  */
-export async function requestPasswordChange(userId, { currentPassword, newPassword }) {
-  if (!currentPassword || !newPassword) {
-    throw new AppError(
-      'currentPassword and newPassword are required',
-      400,
-      'VALIDATION_ERROR',
-    );
+export async function requestForgotPassword({ email }) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw new AppError('email is required', 400, 'VALIDATION_ERROR');
   }
 
-  const strengthError = assertPasswordStrength(newPassword);
-  if (strengthError) {
-    throw new AppError(strengthError, 400, 'VALIDATION_ERROR');
+  const user = await User.findOne({ email: normalizedEmail });
+
+  // Email không tồn tại / account inactive → vẫn trả 200 success, không gửi OTP.
+  // Mục đích: kẻ tấn công không thể dùng endpoint này để dò email hợp lệ.
+  if (!user || user.status !== 'ACTIVE') {
+    return { email: normalizedEmail, expiresInMinutes: OTP_TTL_MINUTES };
   }
 
-  if (currentPassword === newPassword) {
-    throw new AppError(
-      'New password must differ from current password',
-      400,
-      'VALIDATION_ERROR',
-    );
-  }
-
-  const user = await User.findById(userId);
-  if (!user) {
-    throw new AppError('User not found', 404, 'NOT_FOUND');
-  }
-
-  const validCurrent = await comparePassword(currentPassword, user.passwordHash);
-  if (!validCurrent) {
-    throw new AppError('Current password is incorrect', 401, 'INVALID_CREDENTIALS');
-  }
-
-  if (!user.email) {
-    throw new AppError(
-      'User has no email configured — cannot send OTP',
-      400,
-      'VALIDATION_ERROR',
-    );
-  }
-
-  const newPasswordHash = await hashPassword(newPassword);
   const otp = generateOtp(6);
-
-  saveOtp(userId, {
+  saveOtp(otpKeyForEmail(normalizedEmail), {
     otp,
     ttlMs: OTP_TTL_MS,
-    payload: { newPasswordHash },
+    payload: { userId: user.userId },
   });
 
   try {
@@ -116,48 +97,70 @@ export async function requestPasswordChange(userId, { currentPassword, newPasswo
   }
 
   return {
-    email: user.email,
+    email: normalizedEmail,
     expiresInMinutes: OTP_TTL_MINUTES,
   };
 }
 
 /**
- * Bước 2 — xác nhận OTP và áp dụng đổi mật khẩu.
+ * Bước 2 — xác nhận OTP + áp dụng mật khẩu mới.
  */
-export async function confirmPasswordChange(userId, { otp }) {
+export async function confirmForgotPassword({ email, otp, newPassword }) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw new AppError('email is required', 400, 'VALIDATION_ERROR');
+  }
   if (!otp || !String(otp).trim()) {
     throw new AppError('otp is required', 400, 'VALIDATION_ERROR');
   }
+  if (!newPassword) {
+    throw new AppError('newPassword is required', 400, 'VALIDATION_ERROR');
+  }
 
-  const result = verifyOtp(userId, String(otp).trim());
+  const strengthError = assertPasswordStrength(newPassword);
+  if (strengthError) {
+    throw new AppError(strengthError, 400, 'VALIDATION_ERROR');
+  }
+
+  const result = verifyOtp(otpKeyForEmail(normalizedEmail), String(otp).trim());
 
   if (!result.ok) {
     if (result.reason === 'NOT_FOUND') {
       throw new AppError(
-        'No pending password change. Request OTP again.',
+        'Không tìm thấy OTP cho email này. Vui lòng yêu cầu OTP mới.',
         400,
         'OTP_NOT_FOUND',
       );
     }
     if (result.reason === 'EXPIRED') {
-      throw new AppError('OTP expired. Request a new one.', 400, 'OTP_EXPIRED');
+      throw new AppError('OTP đã hết hạn. Vui lòng yêu cầu OTP mới.', 400, 'OTP_EXPIRED');
     }
     if (result.reason === 'LOCKED') {
       throw new AppError(
-        'Too many wrong attempts. Request a new OTP.',
+        'Nhập sai OTP quá nhiều lần. Vui lòng yêu cầu OTP mới.',
         400,
         'OTP_LOCKED',
       );
     }
     throw new AppError(
-      `Incorrect OTP. ${result.attemptsLeft ?? 0} attempt(s) left.`,
+      `OTP không đúng. Còn ${result.attemptsLeft ?? 0} lần thử.`,
       400,
       'OTP_MISMATCH',
     );
   }
 
-  const { newPasswordHash } = result.payload;
-  await User.updateById(userId, { passwordHash: newPasswordHash });
+  const { userId } = result.payload;
+  const user = await User.findById(userId);
+  if (!user || user.status !== 'ACTIVE') {
+    throw new AppError(
+      'Tài khoản không khả dụng. Vui lòng liên hệ quản trị viên.',
+      403,
+      'ACCOUNT_INACTIVE',
+    );
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await User.updateById(userId, { passwordHash });
 
   return { changedAt: new Date().toISOString() };
 }
@@ -192,6 +195,50 @@ export async function resetPasswordWithToken({ token, newPassword }) {
   }
   if (user.status !== 'ACTIVE') {
     throw new AppError('Account is not active', 403, 'ACCOUNT_INACTIVE');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await User.updateById(userId, { passwordHash });
+
+  return { changedAt: new Date().toISOString() };
+}
+
+/**
+ * Đổi mật khẩu khi đã đăng nhập — verify mật khẩu cũ, không cần OTP.
+ */
+export async function changePassword(userId, { currentPassword, newPassword }) {
+  if (!currentPassword || !newPassword) {
+    throw new AppError(
+      'currentPassword and newPassword are required',
+      400,
+      'VALIDATION_ERROR',
+    );
+  }
+
+  const strengthError = assertPasswordStrength(newPassword);
+  if (strengthError) {
+    throw new AppError(strengthError, 400, 'VALIDATION_ERROR');
+  }
+
+  if (currentPassword === newPassword) {
+    throw new AppError(
+      'New password must differ from current password',
+      400,
+      'VALIDATION_ERROR',
+    );
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', 404, 'NOT_FOUND');
+  }
+  if (user.status !== 'ACTIVE') {
+    throw new AppError('Account is not active', 403, 'ACCOUNT_INACTIVE');
+  }
+
+  const validCurrent = await comparePassword(currentPassword, user.passwordHash);
+  if (!validCurrent) {
+    throw new AppError('Current password is incorrect', 400, 'INVALID_CURRENT_PASSWORD');
   }
 
   const passwordHash = await hashPassword(newPassword);

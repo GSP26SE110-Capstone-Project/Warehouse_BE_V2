@@ -7,18 +7,24 @@ const router = Router();
 
 router.post('/login', asyncHandler(authController.login));
 
+// Reset bằng token gửi trong welcome email (system admin tạo user).
 router.post('/reset-password', asyncHandler(authController.resetPassword));
 
-// Đổi mật khẩu cần xác nhận OTP qua email — 2 bước.
+// Quên mật khẩu — flow 2 bước qua OTP email, KHÔNG cần đăng nhập.
+router.post(
+  '/forgot-password',
+  asyncHandler(authController.requestForgotPassword),
+);
+router.post(
+  '/forgot-password/verify',
+  asyncHandler(authController.confirmForgotPassword),
+);
+
+// Đổi mật khẩu khi đã đăng nhập — verify mật khẩu cũ, không cần OTP.
 router.post(
   '/change-password',
   authenticate,
-  asyncHandler(authController.requestChangePassword),
-);
-router.post(
-  '/change-password/verify',
-  authenticate,
-  asyncHandler(authController.confirmChangePassword),
+  asyncHandler(authController.changePassword),
 );
 
 export default router;

@@ -4,7 +4,7 @@ import crypto from 'crypto';
  * In-memory OTP store theo `userId`.
  * Mỗi entry có TTL; expired sẽ bị tự dọn khi truy vấn.
  *
- * Không cần persist xuyên qua restart — pending change-password chấp nhận mất nếu BE restart.
+ * Không cần persist xuyên qua restart — pending forgot-password chấp nhận mất nếu BE restart.
  */
 const store = new Map();
 
