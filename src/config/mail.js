@@ -47,24 +47,24 @@ export async function sendChangePasswordOtp({ to, fullName, otp, ttlMinutes }) {
   const safeName = escapeHtml(fullName || 'bạn');
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1f2937">
-      <h2 style="color: #111827">Xác nhận đổi mật khẩu</h2>
+      <h2 style="color: #111827">Đặt lại mật khẩu</h2>
       <p>Xin chào <strong>${safeName}</strong>,</p>
-      <p>Bạn vừa yêu cầu đổi mật khẩu cho tài khoản Smart Warehouse. Nhập mã OTP bên dưới để xác nhận:</p>
+      <p>Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản NEXSPACE Smart Warehouse. Nhập mã OTP bên dưới để xác nhận:</p>
       <p style="font-size: 28px; letter-spacing: 6px; font-weight: 700; color: #111827;
                 background: #f3f4f6; padding: 12px 18px; display: inline-block; border-radius: 8px;">
         ${escapeHtml(otp)}
       </p>
-      <p>Mã có hiệu lực trong <strong>${ttlMinutes} phút</strong>. Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email.</p>
+      <p>Mã có hiệu lực trong <strong>${ttlMinutes} phút</strong>. Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email — mật khẩu của bạn sẽ không thay đổi.</p>
       <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
-      <p style="font-size: 12px; color: #6b7280">Smart Warehouse — Đây là email tự động, vui lòng không trả lời.</p>
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Đây là email tự động, vui lòng không trả lời.</p>
     </div>
   `;
 
   return transporter.sendMail({
     from: FROM_ADDRESS,
     to,
-    subject: 'Mã OTP đổi mật khẩu — Smart Warehouse',
-    text: `Mã OTP đổi mật khẩu của bạn là: ${otp} (hết hạn sau ${ttlMinutes} phút).`,
+    subject: 'Mã OTP đặt lại mật khẩu — NEXSPACE Smart Warehouse',
+    text: `Mã OTP đặt lại mật khẩu của bạn là: ${otp} (hết hạn sau ${ttlMinutes} phút). Nếu không phải bạn yêu cầu, hãy bỏ qua email này.`,
     html,
   });
 }
@@ -135,6 +135,77 @@ export async function sendWarehouseAdminWelcomeEmail({
     from: FROM_ADDRESS,
     to,
     subject: 'Tài khoản Warehouse Admin — NEXSPACE Smart Warehouse',
+    text,
+    html,
+  });
+}
+
+/**
+ * Email chào mừng Tenant Admin mới — gửi sau khi System Admin tạo tài khoản.
+ */
+export async function sendTenantAdminWelcomeEmail({
+  to,
+  fullName,
+  email,
+  temporaryPassword,
+  tenantName,
+  tenantCode,
+  loginUrl,
+  resetPasswordUrl,
+}) {
+  assertMailConfigured();
+
+  const safeName = escapeHtml(fullName || 'Tenant Admin');
+  const safeEmail = escapeHtml(email);
+  const safeTenant = escapeHtml(
+    tenantName ? `${tenantName}${tenantCode ? ` (${tenantCode})` : ''}` : 'doanh nghiệp của bạn',
+  );
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Tài khoản Tenant Admin</h2>
+      <p>Xin chào <strong>${safeName}</strong>,</p>
+      <p>Bạn đã được cấp quyền <strong>Tenant Admin</strong> cho <strong>${safeTenant}</strong> trên hệ thống NEXSPACE Smart Warehouse — quản lý hợp đồng thuê kho, sản phẩm (SKU), yêu cầu nhập/xuất kho và nhân viên tenant.</p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Thông tin đăng nhập</strong></p>
+        <p style="margin: 4px 0">Email: <code>${safeEmail}</code></p>
+        <p style="margin: 4px 0">Mật khẩu tạm: <code>${escapeHtml(temporaryPassword)}</code></p>
+      </div>
+      <p>Vì lý do bảo mật, vui lòng <strong>đổi mật khẩu ngay</strong> sau khi đăng nhập lần đầu.</p>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(resetPasswordUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Đặt lại mật khẩu
+        </a>
+      </p>
+      <p style="font-size: 14px; color: #4b5563">
+        Hoặc đăng nhập trực tiếp tại:
+        <a href="${escapeHtml(loginUrl)}">${escapeHtml(loginUrl)}</a>
+      </p>
+      <p style="font-size: 13px; color: #6b7280">Link đặt lại mật khẩu có thời hạn giới hạn. Nếu hết hạn, liên hệ System Admin để được cấp link mới.</p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${fullName || 'Tenant Admin'},`,
+    '',
+    `Bạn đã được cấp quyền Tenant Admin cho ${tenantName || 'doanh nghiệp'}.`,
+    '',
+    'Thông tin đăng nhập:',
+    `Email: ${email}`,
+    `Mật khẩu tạm: ${temporaryPassword}`,
+    '',
+    `Đặt lại mật khẩu: ${resetPasswordUrl}`,
+    `Đăng nhập: ${loginUrl}`,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: 'Tài khoản Tenant Admin — NEXSPACE Smart Warehouse',
     text,
     html,
   });

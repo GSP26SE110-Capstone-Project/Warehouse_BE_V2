@@ -15,7 +15,10 @@ import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertPasswordStrength, hashPassword } from '../utils/password.js';
 import { toPublicUser } from '../utils/userPublic.js';
 import { signPasswordResetToken } from '../config/jwt.js';
-import { sendWarehouseAdminWelcomeEmail } from '../config/mail.js';
+import {
+  sendTenantAdminWelcomeEmail,
+  sendWarehouseAdminWelcomeEmail,
+} from '../config/mail.js';
 import { buildLoginUrl, buildPasswordResetUrl } from '../utils/appUrl.js';
 
 const CREATE_FIELDS = ['fullName', 'email', 'password', 'phone', 'role', 'tenantId', 'warehouseId', 'status'];
@@ -258,21 +261,66 @@ async function sendWhAdminWelcomeEmail(createdUser, plainPassword, warehouseId) 
   }
 }
 
+async function sendTenantAdminWelcome(createdUser, plainPassword, tenantId) {
+  const resetToken = signPasswordResetToken(createdUser.userId);
+  const resetPasswordUrl = buildPasswordResetUrl(resetToken);
+  const loginUrl = buildLoginUrl();
+
+  let tenantName = null;
+  let tenantCode = null;
+  if (tenantId) {
+    const tenant = await TenantCompany.findById(tenantId);
+    tenantName = tenant?.companyName ?? null;
+    tenantCode = tenant?.companyCode ?? tenant?.taxCode ?? null;
+  }
+
+  try {
+    await sendTenantAdminWelcomeEmail({
+      to: createdUser.email,
+      fullName: createdUser.fullName,
+      email: createdUser.email,
+      temporaryPassword: plainPassword,
+      tenantName,
+      tenantCode,
+      loginUrl,
+      resetPasswordUrl,
+    });
+    return { sent: true, to: createdUser.email };
+  } catch (err) {
+    return {
+      sent: false,
+      to: createdUser.email,
+      error: err.message || 'Failed to send welcome email',
+    };
+  }
+}
+
 export async function createUser(creator, body) {
   const plainPassword = body.password;
   const data = await normalizeCreatePayload(body, creator);
   const created = await User.create(data);
   const user = toPublicUser(created);
 
-  const shouldSendWelcome =
-    creator.role === 'SYSTEM_ADMIN' && data.role === 'WH_ADMIN' && plainPassword;
-
-  if (!shouldSendWelcome) {
-    return { user };
+  if (creator.role === 'SYSTEM_ADMIN' && plainPassword) {
+    if (data.role === 'WH_ADMIN') {
+      const welcomeEmail = await sendWhAdminWelcomeEmail(
+        created,
+        plainPassword,
+        data.warehouseId
+      );
+      return { user, welcomeEmail };
+    }
+    if (data.role === 'TENANT_ADMIN') {
+      const welcomeEmail = await sendTenantAdminWelcome(
+        created,
+        plainPassword,
+        data.tenantId
+      );
+      return { user, welcomeEmail };
+    }
   }
 
-  const welcomeEmail = await sendWhAdminWelcomeEmail(created, plainPassword, data.warehouseId);
-  return { user, welcomeEmail };
+  return { user };
 }
 
 export async function getUserById(creator, userId) {

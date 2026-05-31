@@ -61,10 +61,29 @@ try {
   await client.query(sql);
   console.log('Migration completed successfully.');
 } catch (err) {
-  console.error('Migration failed:', err.message);
+  const isConnRefused =
+    err?.code === 'ECONNREFUSED' ||
+    (err?.name === 'AggregateError' &&
+      Array.isArray(err.errors) &&
+      err.errors.some((e) => e?.code === 'ECONNREFUSED'));
+
+  if (isConnRefused) {
+    console.error('Migration failed: Không kết nối được PostgreSQL trên port 5432.');
+    console.error('');
+    console.error('PostgreSQL chưa chạy. Chọn một trong các cách sau:');
+    console.error('  1) Bật Docker Desktop → docker compose up -d postgres');
+    console.error('  2) Cài PostgreSQL trên Windows → Start service trong services.msc');
+    console.error('');
+    console.error(`Đang thử kết nối: ${config.connectionString?.replace(/:([^:@/]+)@/, ':***@') || `${config.user}@${config.host}:${config.port}/${config.database}`}`);
+  } else {
+    console.error('Migration failed:', err.message || err);
+    if (err.detail) console.error('Detail:', err.detail);
+    if (err.hint) console.error('Hint:', err.hint);
+  }
+
   if (config.connectionString?.includes('@postgres:')) {
     console.error(
-      'Hint: DATABASE_URL points to Docker host "postgres". For local npm run, use localhost in .env or unset DATABASE_URL and set POSTGRES_*.',
+      'Hint: DATABASE_URL trỏ host Docker "postgres". Chạy local npm cần localhost trong .env hoặc bỏ DATABASE_URL, dùng POSTGRES_*.',
     );
   }
   if (!config.connectionString && config.password === '') {
