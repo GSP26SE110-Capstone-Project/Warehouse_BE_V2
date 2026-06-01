@@ -31,6 +31,7 @@ import sizeFactorCatalogRoutes from './sizeFactorCatalog.routes.js';
 import seasonRoutes from './season.routes.js';
 import collectionRoutes from './collection.routes.js';
 import locationRoutes from './location.routes.js';
+import adminNotificationRoutes from './adminNotification.routes.js';
 import * as rentalRequestController from '../controllers/rentalRequest.controller.js';
 
 const router = Router();
@@ -59,6 +60,7 @@ router.use('/size-factors', sizeFactorCatalogRoutes);
 router.use('/seasons', seasonRoutes);
 router.use('/collections', collectionRoutes);
 router.use('/locations', locationRoutes);
+router.use('/admin/notifications', adminNotificationRoutes);
 router.use('/skus', skuRoutes);
 router.use('/lpns', lpnRoutes);
 router.use('/lpn-details', lpnDetailRoutes);

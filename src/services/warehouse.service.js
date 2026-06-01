@@ -126,12 +126,28 @@ export async function getWarehouseZonePlanning(warehouseId) {
 
   const zones = await WarehouseZone.findAll({ warehouseId });
   const zoneCount = zones.length;
-  const missingZoneCount =
+  const idealZoneGap =
     suggestedMinZoneCount != null ? Math.max(0, suggestedMinZoneCount - zoneCount) : null;
 
+  const addableZoneCount =
+    remainingZoneAreaM2 != null && remainingZoneAreaM2 > 0
+      ? Math.max(0, Math.floor(remainingZoneAreaM2 / suggestedReferenceZoneAreaM2))
+      : 0;
+
+  /** Số zone có thể thêm theo diện tích còn lại (không vượt khoảng trống thực tế). */
+  const missingZoneCount =
+    idealZoneGap != null
+      ? Math.min(idealZoneGap, addableZoneCount)
+      : addableZoneCount > 0
+        ? addableZoneCount
+        : null;
+
+  const zonesForEvenSplit =
+    addableZoneCount > 0 ? addableZoneCount : idealZoneGap != null && idealZoneGap > 0 ? idealZoneGap : null;
+
   const suggestedAreaPerZoneForEvenSplit =
-    missingZoneCount != null && missingZoneCount > 0 && remainingZoneAreaM2 != null
-      ? Math.round((remainingZoneAreaM2 / missingZoneCount) * 100) / 100
+    zonesForEvenSplit != null && zonesForEvenSplit > 0 && remainingZoneAreaM2 != null
+      ? Math.round((remainingZoneAreaM2 / zonesForEvenSplit) * 100) / 100
       : suggestedReferenceZoneAreaM2;
 
   return {

@@ -11,6 +11,7 @@ import {
 import { assertWarehouseAccess } from '../utils/warehouseAccess.js';
 import { getWarehouseById, getWarehouseZonePlanning } from './warehouse.service.js';
 import { getRentalRequest } from './rentalRequest.service.js';
+import { getZoneForUser } from './warehouseZone.service.js';
 
 function parseArea(value) {
   if (value == null) return null;
@@ -28,6 +29,22 @@ function monthCountBetween(startIso, endIso) {
   return Math.max(1, Math.floor(diffDays / DAYS_PER_BILLING_MONTH));
 }
 
+function zoneRateForType(zoneType, rr) {
+  const base =
+    ZONE_PRICE_PER_M2_MONTH[zoneType] ??
+    ZONE_PRICE_PER_M2_MONTH[rr.suggestedZoneType] ??
+    (rr.requiresPremiumStorage
+      ? ZONE_PRICE_PER_M2_MONTH.PREMIUM
+      : rr.requiresFastPicking
+        ? ZONE_PRICE_PER_M2_MONTH.FAST_MOVING
+        : ZONE_PRICE_PER_M2_MONTH.SHARED);
+
+  if (rr.requiresPremiumStorage && zoneType !== 'PREMIUM' && zoneType !== 'PRIVATE') {
+    return Math.round(base * PREMIUM_STORAGE_SURCHARGE_RATIO);
+  }
+  return base;
+}
+
 function resolveZoneRate(rr) {
   const base =
     ZONE_PRICE_PER_M2_MONTH[rr.suggestedZoneType] ??
@@ -43,7 +60,57 @@ function resolveZoneRate(rr) {
   return base;
 }
 
-export async function estimateContractPrice(rentalRequestId, warehouseId, user) {
+async function resolvePricingFromZoneIds(zoneIds, whId, user, rr) {
+  if (!zoneIds?.length) return null;
+
+  let totalArea = 0;
+  let monthlyAmount = 0;
+  const zoneLines = [];
+
+  for (const rawId of zoneIds) {
+    const zone = await getZoneForUser(rawId, user);
+    if (whId && zone.warehouseId !== whId) {
+      throw new AppError(
+        'Zone không thuộc kho đang ước tính giá',
+        400,
+        'ESTIMATE_ZONE_WAREHOUSE_MISMATCH'
+      );
+    }
+    const area = parseArea(zone.areaM2);
+    if (!area) continue;
+    const rate = zoneRateForType(zone.zoneType, rr);
+    totalArea += area;
+    monthlyAmount += area * rate;
+    zoneLines.push({
+      zoneCode: zone.zoneCode,
+      zoneType: zone.zoneType,
+      areaM2: area,
+      ratePerM2Month: rate,
+    });
+  }
+
+  if (totalArea <= 0 || monthlyAmount <= 0) {
+    throw new AppError(
+      'Zone đã chọn chưa có diện tích (m²) hợp lệ để ước tính giá',
+      400,
+      'ESTIMATE_ZONE_NO_AREA'
+    );
+  }
+
+  return {
+    totalAreaM2: totalArea,
+    monthlyAmount,
+    unitPricePerM2Month: Math.round(monthlyAmount / totalArea),
+    zoneLines,
+  };
+}
+
+export async function estimateContractPrice(
+  rentalRequestId,
+  warehouseId,
+  user,
+  { zoneIds, contractType: contractTypeOverride } = {}
+) {
   const id = parseUuid(rentalRequestId, 'rentalRequestId');
   const rr = await getRentalRequest(id);
   const whId = warehouseId ? parseUuid(warehouseId, 'warehouseId') : rr.warehouseId;
@@ -52,7 +119,8 @@ export async function estimateContractPrice(rentalRequestId, warehouseId, user) 
     assertWarehouseAccess(user, whId);
   }
 
-  const contractType = rr.contractType ?? 'SHARED_STORAGE';
+  const contractType = contractTypeOverride ?? rr.contractType ?? 'SHARED_STORAGE';
+  const selectedZonePricing = await resolvePricingFromZoneIds(zoneIds, whId, user, rr);
   const months = monthCountBetween(rr.expectedStartDate, rr.expectedEndDate);
   const requestedArea = parseArea(rr.requestedAreaM2);
 
@@ -93,20 +161,44 @@ export async function estimateContractPrice(rentalRequestId, warehouseId, user) 
       break;
     }
     case 'DEDICATED_ZONE': {
-      const zoneRate = resolveZoneRate(rr);
-      areaM2Used =
-        requestedArea ??
-        parseArea(planning?.suggestedAreaPerZoneForEvenSplit) ??
-        REFERENCE_ZONE_AREA_M2;
-      unitPricePerM2Month = zoneRate;
-      monthlyAmount = areaM2Used * zoneRate;
-      basisLabel = 'Diện tích zone × đơn giá m²/tháng (theo loại zone)';
-      breakdown.push({
-        label: 'Thuê nguyên zone',
-        detail: `${areaM2Used} m² × ${zoneRate.toLocaleString('vi-VN')} VND/m²/tháng`,
-      });
-      if (rr.suggestedZoneType) {
-        breakdown.push({ label: 'Loại zone tham chiếu', detail: rr.suggestedZoneType });
+      if (selectedZonePricing) {
+        areaM2Used = selectedZonePricing.totalAreaM2;
+        unitPricePerM2Month = selectedZonePricing.unitPricePerM2Month;
+        monthlyAmount = selectedZonePricing.monthlyAmount;
+        basisLabel = 'Tổng diện tích zone đã chọn × đơn giá m²/tháng (theo từng loại zone)';
+        breakdown.push({
+          label: 'Thuê zone đã chọn',
+          detail: `${areaM2Used} m² (${selectedZonePricing.zoneLines.length} zone) · TB ~${unitPricePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng`,
+        });
+        for (const line of selectedZonePricing.zoneLines) {
+          breakdown.push({
+            label: line.zoneCode,
+            detail: `${line.areaM2} m² (${line.zoneType}) × ${line.ratePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng`,
+          });
+        }
+      } else {
+        const zoneRate = resolveZoneRate(rr);
+        areaM2Used =
+          requestedArea ??
+          parseArea(planning?.suggestedAreaPerZoneForEvenSplit) ??
+          REFERENCE_ZONE_AREA_M2;
+        unitPricePerM2Month = zoneRate;
+        monthlyAmount = areaM2Used * zoneRate;
+        basisLabel = 'Diện tích tham chiếu × đơn giá m²/tháng (chưa chọn zone cụ thể)';
+        breakdown.push({
+          label: 'Thuê nguyên zone (ước tính)',
+          detail: `${areaM2Used} m² × ${zoneRate.toLocaleString('vi-VN')} VND/m²/tháng`,
+        });
+        if (planning?.suggestedAreaPerZoneForEvenSplit && !requestedArea) {
+          breakdown.push({
+            label: 'Ghi chú',
+            detail:
+              'Diện tích tham chiếu từ phần còn lại của kho — chọn zone ở bước duyệt/cấp chỗ để tính đúng diện tích zone thực tế.',
+          });
+        }
+        if (rr.suggestedZoneType) {
+          breakdown.push({ label: 'Loại zone tham chiếu', detail: rr.suggestedZoneType });
+        }
       }
       break;
     }

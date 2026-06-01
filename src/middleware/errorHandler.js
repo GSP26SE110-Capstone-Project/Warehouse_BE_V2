@@ -9,10 +9,10 @@ function formatDuplicateMessage(err) {
   const value = match?.[2];
 
   if (constraint === 'tenant_companies_tax_code_key' || field === 'tax_code') {
-    return `Mã số thuế "${value ?? ''}" đã tồn tại. Vui lòng dùng mã số thuế khác.`;
+    return `Mã số thuế "${value ?? ''}" đã được đăng ký. Dùng email liên hệ đã đăng ký trước đó, hoặc tra cứu yêu cầu bằng mã RR + email.`;
   }
   if (constraint === 'tenant_companies_contact_email_key' || field === 'contact_email') {
-    return `Email liên hệ "${value ?? ''}" đã tồn tại.`;
+    return `Email liên hệ "${value ?? ''}" đã được dùng đăng ký trước đó. Nếu bạn đã gửi yêu cầu, tra cứu bằng mã RR + email ở form bên cạnh — hoặc gửi lại form với đúng email này để tạo yêu cầu mới.`;
   }
   if (constraint === 'tenant_companies_company_code_key' || field === 'company_code') {
     return `Mã công ty "${value ?? ''}" đã tồn tại.`;

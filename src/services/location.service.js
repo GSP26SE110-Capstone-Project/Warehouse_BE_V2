@@ -100,7 +100,21 @@ export async function listWarehousesInRegion(cityName, districtName) {
     `SELECT w.warehouse_name,
             w.total_area_m2,
             w.usable_area_m2,
-            COALESCE(z.used_area_m2, 0) AS used_area_m2
+            COALESCE(z.used_area_m2, 0) AS used_area_m2,
+            COALESCE(leased.leased_area_m2, 0) AS leased_area_m2,
+            EXISTS (
+              SELECT 1
+              FROM contracts c
+              WHERE c.warehouse_id = w.warehouse_id
+                AND c.status IN ('PENDING_APPROVAL', 'ACTIVE')
+            ) AS has_active_tenant_contract,
+            EXISTS (
+              SELECT 1
+              FROM contracts c
+              WHERE c.warehouse_id = w.warehouse_id
+                AND c.contract_type = 'DEDICATED_WAREHOUSE'
+                AND c.status IN ('PENDING_APPROVAL', 'ACTIVE')
+            ) AS has_dedicated_warehouse_lease
      FROM warehouses w
      LEFT JOIN (
        SELECT warehouse_id, SUM(area_m2) AS used_area_m2
@@ -109,6 +123,28 @@ export async function listWarehousesInRegion(cityName, districtName) {
          AND area_m2 IS NOT NULL
        GROUP BY warehouse_id
      ) z ON z.warehouse_id = w.warehouse_id
+     LEFT JOIN LATERAL (
+       SELECT
+         CASE
+           WHEN EXISTS (
+             SELECT 1
+             FROM contracts c
+             WHERE c.warehouse_id = w.warehouse_id
+               AND c.contract_type = 'DEDICATED_WAREHOUSE'
+               AND c.status IN ('PENDING_APPROVAL', 'ACTIVE')
+           ) THEN COALESCE(w.usable_area_m2, w.total_area_m2, 0)
+           ELSE COALESCE((
+             SELECT SUM(DISTINCT z2.area_m2)
+             FROM storage_reservations sr
+             INNER JOIN contracts c ON c.contract_id = sr.contract_id
+             INNER JOIN warehouse_zones z2 ON z2.zone_id = sr.zone_id AND z2.status = 'ACTIVE'
+             WHERE sr.warehouse_id = w.warehouse_id
+               AND sr.status = 'ACTIVE'
+               AND sr.storage_level = 'ZONE'
+               AND c.status IN ('PENDING_APPROVAL', 'ACTIVE')
+           ), 0)
+         END AS leased_area_m2
+     ) leased ON TRUE
      WHERE w.status = 'ACTIVE'
        AND w.city IS NOT NULL
        AND w.district IS NOT NULL
@@ -126,17 +162,37 @@ export async function listWarehousesInRegion(cityName, districtName) {
   };
 }
 
+function deriveDedicatedLeaseAvailability(
+  hasActiveTenantContract,
+  hasDedicatedWarehouseLease,
+  leasedPercent
+) {
+  if (hasDedicatedWarehouseLease || (leasedPercent != null && leasedPercent >= 100)) {
+    return 'OCCUPIED';
+  }
+  if (hasActiveTenantContract) return 'OCCUPIED';
+  if (leasedPercent != null && leasedPercent > 0) return 'NEEDS_REVIEW';
+  return 'AVAILABLE';
+}
+
 function mapGuestRegionWarehouseItem(row) {
   const totalAreaM2 = row.total_area_m2 != null ? Number(row.total_area_m2) : null;
   const usableAreaM2 = row.usable_area_m2 != null ? Number(row.usable_area_m2) : null;
   const usedAreaM2 = Number(row.used_area_m2) || 0;
+  const leasedAreaM2 = Number(row.leased_area_m2) || 0;
   const capacityAreaM2 = usableAreaM2 ?? totalAreaM2;
+  const hasActiveTenantContract = Boolean(row.has_active_tenant_contract);
+  const hasDedicatedWarehouseLease = Boolean(row.has_dedicated_warehouse_lease);
   let utilizationPercent = null;
   let availableAreaM2 = null;
+  let leasedPercent = null;
+  let unleasedAreaM2 = null;
 
   if (capacityAreaM2 != null && capacityAreaM2 > 0) {
     utilizationPercent = Math.min(100, Math.round((usedAreaM2 / capacityAreaM2) * 100));
     availableAreaM2 = Math.max(0, Math.round((capacityAreaM2 - usedAreaM2) * 10) / 10);
+    leasedPercent = Math.min(100, Math.round((leasedAreaM2 / capacityAreaM2) * 100));
+    unleasedAreaM2 = Math.max(0, Math.round((capacityAreaM2 - leasedAreaM2) * 10) / 10);
   }
 
   return {
@@ -147,5 +203,15 @@ function mapGuestRegionWarehouseItem(row) {
     usedAreaM2,
     availableAreaM2,
     utilizationPercent,
+    leasedAreaM2,
+    leasedPercent,
+    unleasedAreaM2,
+    hasActiveTenantContract,
+    hasDedicatedWarehouseLease,
+    dedicatedLeaseAvailability: deriveDedicatedLeaseAvailability(
+      hasActiveTenantContract,
+      hasDedicatedWarehouseLease,
+      leasedPercent
+    ),
   };
 }

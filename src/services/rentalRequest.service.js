@@ -479,6 +479,7 @@ export async function lookupRentalRequestByCode(requestCode, email) {
     expectedStartDate: enriched.expectedStartDate ?? null,
     expectedEndDate: enriched.expectedEndDate ?? null,
     rejectionReason: enriched.rejectionReason ?? null,
+    reviewNote: enriched.reviewNote ?? null,
     warehouseName,
     createdAt: enriched.createdAt ?? null,
     updatedAt: enriched.updatedAt ?? null,
@@ -754,12 +755,36 @@ export async function updateRentalRequest(rentalRequestId, body, actor = null) {
   const id = parseUuid(rentalRequestId, 'rentalRequestId');
   const existing = await getRentalRequest(id, actor);
 
-  if (existing.warehouseId == null && body.status && body.status !== 'REJECTED') {
+  const isSystemAdminGuestNotify =
+    actor?.role === 'SYSTEM_ADMIN' &&
+    existing.warehouseId == null &&
+    ['PENDING', 'UNDER_REVIEW'].includes(existing.status) &&
+    body.reviewNote !== undefined &&
+    String(body.reviewNote).trim().length > 0 &&
+    (body.status === undefined || body.status === 'UNDER_REVIEW') &&
+    body.warehouseId === undefined;
+
+  if (
+    existing.warehouseId == null &&
+    body.status &&
+    body.status !== 'REJECTED' &&
+    !isSystemAdminGuestNotify
+  ) {
     throw new AppError(
-      'Unclaimed rental request can only be APPROVED (with warehouseId) or REJECTED',
+      'Unclaimed rental request can only be APPROVED (with warehouseId), REJECTED, or UNDER_REVIEW with reviewNote (System Admin)',
       400,
       'VALIDATION_ERROR'
     );
+  }
+
+  if (isSystemAdminGuestNotify) {
+    body.status = 'UNDER_REVIEW';
+    if (body.reviewedBy === undefined && actor?.userId) {
+      body.reviewedBy = actor.userId;
+    }
+    if (body.reviewedAt === undefined) {
+      body.reviewedAt = new Date().toISOString();
+    }
   }
 
   const { productLines, selectedBoxTypeHint } = body;

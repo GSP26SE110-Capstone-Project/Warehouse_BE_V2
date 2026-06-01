@@ -22,8 +22,11 @@ export async function getById(req, res) {
 }
 
 export async function create(req, res) {
-  const tenant = await tenantService.createTenantCompany(req.body);
-  created(res, tenant);
+  const tenant = await tenantService.resolveOrCreateGuestTenant(req.body);
+  const message = tenant.reusedExistingProfile
+    ? 'Hồ sơ công ty với email này đã có — tiếp tục tạo yêu cầu thuê mới.'
+    : 'Created successfully';
+  created(res, tenant, message);
 }
 
 export async function update(req, res) {
