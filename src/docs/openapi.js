@@ -252,7 +252,7 @@ const spec = {
           zoneName: { type: 'string', nullable: true },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
           },
           areaM2: { type: 'number', nullable: true },
           isDedicated: { type: 'boolean' },
@@ -269,7 +269,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
             default: 'SHARED',
           },
           areaM2: { type: 'number' },
@@ -283,7 +283,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
           },
           areaM2: { type: 'number' },
           isDedicated: { type: 'boolean' },
@@ -1440,7 +1440,7 @@ const spec = {
           notes: { type: 'string', nullable: true },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
             nullable: true,
           },
           suggestedRackType: {
@@ -1508,7 +1508,7 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
           },
           suggestedRackType: {
             type: 'string',
@@ -1983,7 +1983,7 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
+            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
           },
           suggestedRackType: {
             type: 'string',
@@ -2443,7 +2443,7 @@ const spec = {
             name: 'zoneType',
             schema: {
               type: 'string',
-              enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN'],
+              enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
             },
           },
           { $ref: '#/components/parameters/page' },

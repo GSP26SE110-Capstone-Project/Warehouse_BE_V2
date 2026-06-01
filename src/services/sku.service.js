@@ -9,11 +9,14 @@ import { getCategory } from './category.service.js';
 import { getCollection } from './collection.service.js';
 import { getSeason } from './season.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
+import { getProductKind } from './productKindCatalog.service.js';
+import { resolveSizeGroup } from './sizeFactorCatalog.service.js';
 
 const CREATE_FIELDS = [
   'tenantId',
   'skuCode',
   'productName',
+  'productKind',
   'categoryId',
   'collectionId',
   'seasonId',
@@ -27,6 +30,7 @@ const CREATE_FIELDS = [
 const UPDATE_FIELDS = [
   'skuCode',
   'productName',
+  'productKind',
   'categoryId',
   'collectionId',
   'seasonId',
@@ -61,6 +65,50 @@ function trimStrings(data, fields) {
       data[field] = String(data[field]).trim();
     }
   }
+}
+
+async function resolveProductKind(data, { required = false } = {}) {
+  if (data.productKind === undefined) {
+    if (required) {
+      throw new AppError('productKind is required', 400, 'VALIDATION_ERROR');
+    }
+    return null;
+  }
+
+  if (data.productKind === null || data.productKind === '') {
+    if (required) {
+      throw new AppError('productKind is required', 400, 'VALIDATION_ERROR');
+    }
+    data.productKind = null;
+    return null;
+  }
+
+  const code = String(data.productKind).trim().toUpperCase();
+  const kind = await getProductKind(code);
+  if (kind.status && kind.status !== 'ACTIVE') {
+    throw new AppError('productKind is inactive', 400, 'VALIDATION_ERROR');
+  }
+  data.productKind = code;
+  return kind;
+}
+
+async function normalizeSkuSize(kind, size) {
+  if (!kind || kind.hasSize === false) {
+    return null;
+  }
+
+  const normalized = String(size ?? '').trim().toUpperCase();
+  if (!normalized) {
+    throw new AppError('size is required for this product kind', 400, 'VALIDATION_ERROR');
+  }
+
+  await resolveSizeGroup({
+    size: normalized,
+    hasSize: true,
+    fieldPrefix: 'size',
+  });
+
+  return normalized;
 }
 
 async function resolveOptionalFks(data, tenantId) {
@@ -122,6 +170,9 @@ async function normalizeCreatePayload(body) {
   assertEnum(data.movementCategory, MOVEMENT_CATEGORY, 'movementCategory');
   assertEnum(data.status, SKU_STATUS, 'status');
 
+  const kind = await resolveProductKind(data, { required: true });
+  data.size = await normalizeSkuSize(kind, data.size);
+
   await resolveOptionalFks(data, data.tenantId);
 
   return data;
@@ -150,6 +201,20 @@ async function normalizeUpdatePayload(body, existing) {
 
   if (Object.keys(data).length === 0) {
     throw new AppError('No valid fields to update', 400, 'VALIDATION_ERROR');
+  }
+
+  let kind = null;
+  if (data.productKind !== undefined) {
+    kind = await resolveProductKind(data, { required: false });
+  } else if (existing.productKind) {
+    kind = await getProductKind(existing.productKind);
+  }
+
+  if (data.size !== undefined || data.productKind !== undefined) {
+    const sizeValue = data.size !== undefined ? data.size : existing.size;
+    data.size = await normalizeSkuSize(kind, sizeValue);
+  } else if (kind && kind.hasSize === false) {
+    data.size = null;
   }
 
   await resolveOptionalFks(data, existing.tenantId);

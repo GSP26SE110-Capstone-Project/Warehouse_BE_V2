@@ -17,7 +17,7 @@
     "seed:sku-lpn": "node scripts/seed-sku-lpn.mjs",
     "db:migrate": "node scripts/run-migration.mjs scripts/sql/db4_schema.sql",
     "db:migrate:all": "node scripts/run-all-migrations.mjs",
-    "db:migrate:zone-type": "node scripts/run-migration.mjs scripts/sql/zone_type_remove_dedicated.sql",
+    "db:migrate:zone-type": "node scripts/run-migration.mjs scripts/sql/zone_type_private_replace_return.sql",
     "db:migrate:rental-requests": "node scripts/run-migration.mjs scripts/sql/rental_requests_add_estimation_fields.sql",
     "db:migrate:rental-tenant": "node scripts/run-migration.mjs scripts/sql/rental_requests_add_tenant_id.sql",
     "db:migrate:location": "node scripts/run-migration.mjs scripts/sql/add_location_fields.sql",

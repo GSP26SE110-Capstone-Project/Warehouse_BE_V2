@@ -23,6 +23,11 @@ export const skuSchema = {
     required: false,
     foreignKey: 'category_id',
   },
+  productKind: {
+    type: 'string',
+    required: false,
+    maxLength: 50,
+  },
   collectionId: {
     type: 'string',
     required: false,

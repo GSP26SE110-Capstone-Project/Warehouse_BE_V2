@@ -14,6 +14,26 @@ export { default as Contract, contractSchema, tableName as contractTableName } f
 export { default as ContractItem, contractItemSchema, tableName as contractItemTableName } from './ContractItem.js';
 export { default as StorageReservation, storageReservationSchema, tableName as storageReservationTableName } from './StorageReservation.js';
 export { default as Category, categorySchema, tableName as categoryTableName } from './Category.js';
+export {
+  default as GarmentCategoryGroup,
+  garmentCategoryGroupSchema,
+  tableName as garmentCategoryGroupTableName,
+} from './GarmentCategoryGroup.js';
+export {
+  default as ProductKindCatalog,
+  productKindCatalogSchema,
+  tableName as productKindCatalogTableName,
+} from './ProductKindCatalog.js';
+export {
+  default as SizeFactorCatalog,
+  sizeFactorCatalogSchema,
+  tableName as sizeFactorCatalogTableName,
+} from './SizeFactorCatalog.js';
+export {
+  default as RentalRequestProductLine,
+  rentalRequestProductLineSchema,
+  tableName as rentalRequestProductLineTableName,
+} from './RentalRequestProductLine.js';
 export { default as Collection, collectionSchema, tableName as collectionTableName } from './Collection.js';
 export { default as Season, seasonSchema, tableName as seasonTableName } from './Season.js';
 export { default as Sku, skuSchema, tableName as skuTableName } from './Sku.js';

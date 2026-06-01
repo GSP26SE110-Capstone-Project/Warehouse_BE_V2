@@ -22,7 +22,7 @@ WHERE suggested_rack_type::text = 'HIGH_CAPACITY';
 -- zone_type_enum
 DO $do$
 BEGIN
-  CREATE TYPE zone_type_enum_new AS ENUM ('SHARED', 'FAST_MOVING', 'PREMIUM', 'RETURN');
+  CREATE TYPE zone_type_enum_new AS ENUM ('SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE');
 
   ALTER TABLE warehouse_zones ALTER COLUMN zone_type DROP DEFAULT;
   ALTER TABLE warehouse_zones

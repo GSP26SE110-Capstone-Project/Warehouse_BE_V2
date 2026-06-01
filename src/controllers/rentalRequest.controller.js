@@ -6,7 +6,7 @@ import { parsePagination } from '../utils/validate.js';
 
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
-  const { tenantId, warehouseId, regionMatch, city, district, status, contractType, pricingModel } =
+  const { tenantId, warehouseId, regionMatch, city, district, status, contractType, pricingModel, includeProductLines } =
     req.query;
 
   const result = await rentalRequestService.listRentalRequests({
@@ -18,6 +18,7 @@ export async function list(req, res) {
     status,
     contractType,
     pricingModel,
+    includeProductLines,
     page,
     limit,
     offset,
@@ -36,13 +37,22 @@ export async function getById(req, res) {
   success(res, item);
 }
 
+function parseZoneIdsQuery(query) {
+  const raw = query.zoneIds;
+  if (raw == null || raw === '') return undefined;
+  const parts = Array.isArray(raw) ? raw : String(raw).split(',');
+  return parts.map((s) => String(s).trim()).filter(Boolean);
+}
+
 export async function getPriceEstimate(req, res) {
   const { rentalRequestId } = req.params;
-  const { warehouseId } = req.query;
+  const { warehouseId, contractType } = req.query;
+  const zoneIds = parseZoneIdsQuery(req.query);
   const estimate = await contractPriceEstimateService.estimateContractPrice(
     rentalRequestId,
     warehouseId,
-    req.user
+    req.user,
+    { zoneIds, contractType }
   );
   success(res, estimate);
 }

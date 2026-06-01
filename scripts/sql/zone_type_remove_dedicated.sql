@@ -32,7 +32,7 @@ BEGIN
     'SHARED',
     'FAST_MOVING',
     'PREMIUM',
-    'RETURN'
+    'PRIVATE'
   );
 
   ALTER TABLE warehouse_zones

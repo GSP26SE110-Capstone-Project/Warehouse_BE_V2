@@ -2,6 +2,8 @@ import TenantCompany from '../models/TenantCompany.js';
 import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { TENANT_STATUS } from '../constants/tenantOnboarding.js';
+import { fromDbRecord } from '../models/utils/fieldMapper.js';
+import { tenantCompanySchema } from '../models/TenantCompany.js';
 
 const CREATE_FIELDS = [
   'companyName',
@@ -137,6 +139,49 @@ export async function listTenantCompanies({ status, page, limit, offset }) {
 export async function createTenantCompany(body) {
   const data = normalizeCreatePayload(body);
   return TenantCompany.create(data);
+}
+
+/**
+ * Guest landing — tái sử dụng tenant theo email liên hệ nếu đã đăng ký trước (chưa cần account).
+ */
+export async function resolveOrCreateGuestTenant(body) {
+  const data = normalizeCreatePayload(body);
+
+  const existingByEmail = await TenantCompany.queryOne(
+    `SELECT *
+     FROM tenant_companies
+     WHERE LOWER(TRIM(contact_email)) = LOWER(TRIM($1))
+     LIMIT 1`,
+    [data.contactEmail]
+  );
+
+  if (existingByEmail) {
+    const tenant = fromDbRecord(tenantCompanySchema, existingByEmail);
+    return { ...tenant, reusedExistingProfile: true };
+  }
+
+  if (data.taxCode) {
+    const existingByTax = await TenantCompany.queryOne(
+      `SELECT tc.*, tc.contact_email AS existing_email
+       FROM tenant_companies tc
+       WHERE LOWER(TRIM(tax_code)) = LOWER(TRIM($1))
+       LIMIT 1`,
+      [data.taxCode]
+    );
+    if (existingByTax) {
+      const maskedEmail = String(existingByTax.existing_email ?? '').trim();
+      throw new AppError(
+        maskedEmail
+          ? `Mã số thuế này đã đăng ký với email ${maskedEmail}. Dùng email đó để gửi yêu cầu mới hoặc tra cứu mã RR + email bên cạnh form.`
+          : 'Mã số thuế này đã được đăng ký. Vui lòng dùng email liên hệ đã đăng ký trước đó.',
+        409,
+        'GUEST_TENANT_TAX_EXISTS'
+      );
+    }
+  }
+
+  const tenant = await TenantCompany.create(data);
+  return { ...tenant, reusedExistingProfile: false };
 }
 
 export async function updateTenantCompany(tenantId, body) {

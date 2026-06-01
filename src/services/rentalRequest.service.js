@@ -1,4 +1,5 @@
 import RentalRequest from '../models/RentalRequest.js';
+import pool from '../config/db.js';
 import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { locationMatches, requireLocationField } from '../utils/location.js';
@@ -20,6 +21,12 @@ import {
   getScopedTenantId,
 } from '../utils/warehouseAccess.js';
 import { WAREHOUSE_ROLES } from '../constants/auth.js';
+import {
+  attachProductLinesToRentalRequest,
+  enrichRentalRequestsWithProductLines,
+  replaceProductLinesForRentalRequest,
+  validateAndComputeProductLines,
+} from './rentalRequestProductLine.service.js';
 
 const CREATE_FIELDS = [
   'requestCode',
@@ -212,12 +219,26 @@ function hasMinimumRentalDuration(startDate, endDate) {
   return diffDays >= 30;
 }
 
+function startOfDayUtc(date) {
+  const d = new Date(date);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
 function assertExpectedRentalDates(data) {
   if (data.expectedStartDate == null) {
     throw new AppError('expectedStartDate is required', 400, 'VALIDATION_ERROR');
   }
   if (data.expectedEndDate == null) {
     throw new AppError('expectedEndDate is required', 400, 'VALIDATION_ERROR');
+  }
+  const startDay = startOfDayUtc(data.expectedStartDate);
+  const todayDay = startOfDayUtc(new Date());
+  if (startDay < todayDay) {
+    throw new AppError(
+      'Ngày bắt đầu dự kiến không được trước hôm nay',
+      400,
+      'VALIDATION_ERROR'
+    );
   }
   if (data.expectedStartDate >= data.expectedEndDate) {
     throw new AppError(
@@ -235,14 +256,17 @@ function assertExpectedRentalDates(data) {
   }
 }
 
-function assertGuestCapacityEstimate(data) {
+function assertGuestCapacityEstimate(data, productLineSummary = null) {
   const hasArea =
     data.requestedAreaM2 != null && Number(data.requestedAreaM2) > 0;
   const hasBoxes =
     data.estimatedBoxCount != null && Number(data.estimatedBoxCount) > 0;
-  if (!hasArea && !hasBoxes) {
+  const hasVolumeU =
+    (productLineSummary?.totalCommittedVolumeUnits ?? 0) > 0 ||
+    (data.totalCommittedVolumeUnits != null && Number(data.totalCommittedVolumeUnits) > 0);
+  if (!hasArea && !hasBoxes && !hasVolumeU) {
     throw new AppError(
-      'Cần nhập diện tích mong muốn (m²) hoặc quy mô hàng (số cái/tháng hoặc số thùng/tháng)',
+      'Cần nhập diện tích mong muốn (m²), quy mô hàng (cái/tháng hoặc thùng/tháng), hoặc productLines theo loại hàng + size',
       400,
       'VALIDATION_ERROR'
     );
@@ -276,7 +300,7 @@ async function assertKnownCityDistrict(data) {
   data.district = resolved.district;
 }
 
-function normalizeCreatePayload(body) {
+function normalizeCreatePayload(body, { productLineSummary = null } = {}) {
   const data = pickFields(body, CREATE_FIELDS);
 
   if (!data.tenantId) {
@@ -301,7 +325,7 @@ function normalizeCreatePayload(body) {
   normalizeNumericFields(data);
   validateEnums(data);
   assertExpectedRentalDates(data);
-  assertGuestCapacityEstimate(data);
+  assertGuestCapacityEstimate(data, productLineSummary);
 
   return data;
 }
@@ -395,7 +419,7 @@ export async function getRentalRequest(rentalRequestId, user = null) {
     throw new AppError('Rental request not found', 404, 'NOT_FOUND');
   }
   assertRentalRequestReadAccess(user, item);
-  return item;
+  return attachProductLinesToRentalRequest(item);
 }
 
 export async function lookupRentalRequestByCode(requestCode, email) {
@@ -425,35 +449,41 @@ export async function lookupRentalRequestByCode(requestCode, email) {
     throw new AppError('Rental request not found', 404, 'NOT_FOUND');
   }
 
+  const enriched = await attachProductLinesToRentalRequest(item);
+
   let warehouseName = null;
-  if (item.warehouseId) {
-    const warehouse = await getWarehouseById(item.warehouseId);
+  if (enriched.warehouseId) {
+    const warehouse = await getWarehouseById(enriched.warehouseId);
     warehouseName = warehouse.warehouseName ?? null;
   }
 
   return {
-    requestCode: item.requestCode,
-    status: item.status,
+    requestCode: enriched.requestCode,
+    status: enriched.status,
     companyName: tenant.companyName,
-    city: item.city,
-    district: item.district,
-    contractType: item.contractType ?? null,
-    pricingModel: item.pricingModel ?? null,
-    billingCycle: item.billingCycle ?? null,
-    estimatedBoxCount: item.estimatedBoxCount ?? null,
-    estimatedSkuCount: item.estimatedSkuCount ?? null,
-    estimatedInboundPerWeek: item.estimatedInboundPerWeek ?? null,
-    estimatedOutboundPerWeek: item.estimatedOutboundPerWeek ?? null,
-    requestedAreaM2: item.requestedAreaM2 ?? null,
-    requiresFastPicking: item.requiresFastPicking ?? false,
-    requiresPremiumStorage: item.requiresPremiumStorage ?? false,
-    expectedStartDate: item.expectedStartDate ?? null,
-    expectedEndDate: item.expectedEndDate ?? null,
-    rejectionReason: item.rejectionReason ?? null,
+    city: enriched.city,
+    district: enriched.district,
+    contractType: enriched.contractType ?? null,
+    pricingModel: enriched.pricingModel ?? null,
+    billingCycle: enriched.billingCycle ?? null,
+    estimatedBoxCount: enriched.estimatedBoxCount ?? null,
+    estimatedSkuCount: enriched.estimatedSkuCount ?? null,
+    totalCommittedVolumeUnits: enriched.totalCommittedVolumeUnits ?? null,
+    boxAllocation: enriched.boxAllocation ?? [],
+    productLines: enriched.productLines ?? [],
+    estimatedInboundPerWeek: enriched.estimatedInboundPerWeek ?? null,
+    estimatedOutboundPerWeek: enriched.estimatedOutboundPerWeek ?? null,
+    requestedAreaM2: enriched.requestedAreaM2 ?? null,
+    requiresFastPicking: enriched.requiresFastPicking ?? false,
+    requiresPremiumStorage: enriched.requiresPremiumStorage ?? false,
+    expectedStartDate: enriched.expectedStartDate ?? null,
+    expectedEndDate: enriched.expectedEndDate ?? null,
+    rejectionReason: enriched.rejectionReason ?? null,
+    reviewNote: enriched.reviewNote ?? null,
     warehouseName,
-    createdAt: item.createdAt ?? null,
-    updatedAt: item.updatedAt ?? null,
-    reviewedAt: item.reviewedAt ?? null,
+    createdAt: enriched.createdAt ?? null,
+    updatedAt: enriched.updatedAt ?? null,
+    reviewedAt: enriched.reviewedAt ?? null,
   };
 }
 
@@ -466,6 +496,7 @@ export async function listRentalRequests({
   status,
   contractType,
   pricingModel,
+  includeProductLines,
   page,
   limit,
   offset,
@@ -503,9 +534,13 @@ export async function listRentalRequests({
 
   const { conditions, params } = buildListConditions(filters, { regionMatchWarehouse });
   const { items, total } = await queryRentalRequests({ conditions, params, limit, offset });
+  const shouldIncludeLines = includeProductLines === true || includeProductLines === 'true';
+  const enrichedItems = shouldIncludeLines
+    ? await enrichRentalRequestsWithProductLines(items)
+    : items;
 
   return {
-    items,
+    items: enrichedItems,
     meta: {
       page,
       limit,
@@ -516,10 +551,70 @@ export async function listRentalRequests({
 }
 
 export async function createRentalRequest(body) {
-  const data = normalizeCreatePayload(body);
+  const { productLines, selectedBoxTypeHint } = body;
+  let productLineSummary = null;
+
+  if (productLines != null) {
+    if (!Array.isArray(productLines)) {
+      throw new AppError('productLines must be an array', 400, 'VALIDATION_ERROR');
+    }
+    if (productLines.length > 0) {
+      productLineSummary = await validateAndComputeProductLines(productLines);
+    }
+  }
+
+  const data = normalizeCreatePayload(body, { productLineSummary });
   await assertKnownCityDistrict(data);
   await getTenantCompany(data.tenantId);
-  return RentalRequest.create(data);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let item = await RentalRequest.create(data, client);
+
+    if (productLines?.length) {
+      await replaceProductLinesForRentalRequest(
+        item.rentalRequestId,
+        productLines,
+        { selectedBoxTypeHint },
+        client
+      );
+      item = await RentalRequest.findById(item.rentalRequestId, client);
+    }
+
+    await client.query('COMMIT');
+    return attachProductLinesToRentalRequest(item, client);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function assertWarehouseExclusiveForDedicatedLease(warehouseId, tenantId) {
+  const whId = parseUuid(warehouseId, 'warehouseId');
+  const tid = parseUuid(tenantId, 'tenantId');
+
+  const result = await pool.query(
+    `SELECT c.contract_id, tc.company_name, c.status
+     FROM contracts c
+     INNER JOIN tenant_companies tc ON tc.tenant_id = c.tenant_id
+     WHERE c.warehouse_id = $1
+       AND c.tenant_id != $2
+       AND c.status IN ('PENDING_APPROVAL', 'ACTIVE')
+     LIMIT 1`,
+    [whId, tid]
+  );
+
+  if (result.rowCount > 0) {
+    const row = result.rows[0];
+    throw new AppError(
+      `Không thể thuê nguyên kho: đang có hợp đồng ${row.status} với tenant khác (${row.company_name}). Chọn kho khác hoặc loại thuê khác.`,
+      409,
+      'WAREHOUSE_EXCLUSIVE_LEASE_CONFLICT'
+    );
+  }
 }
 
 async function claimRentalRequest(rentalRequestId, warehouseId, body) {
@@ -579,6 +674,11 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
       400,
       'VALIDATION_ERROR'
     );
+  }
+
+  const effectiveContractType = body.contractType ?? existing.contractType;
+  if (effectiveContractType === 'DEDICATED_WAREHOUSE') {
+    await assertWarehouseExclusiveForDedicatedLease(whId, existing.tenantId);
   }
 
   const row = await RentalRequest.queryOne(
@@ -653,18 +753,85 @@ export async function updateRentalRequest(rentalRequestId, body, actor = null) {
   }
 
   const id = parseUuid(rentalRequestId, 'rentalRequestId');
-  const existing = await getRentalRequest(id);
+  const existing = await getRentalRequest(id, actor);
 
-  if (existing.warehouseId == null && body.status && body.status !== 'REJECTED') {
+  const isSystemAdminGuestNotify =
+    actor?.role === 'SYSTEM_ADMIN' &&
+    existing.warehouseId == null &&
+    ['PENDING', 'UNDER_REVIEW'].includes(existing.status) &&
+    body.reviewNote !== undefined &&
+    String(body.reviewNote).trim().length > 0 &&
+    (body.status === undefined || body.status === 'UNDER_REVIEW') &&
+    body.warehouseId === undefined;
+
+  if (
+    existing.warehouseId == null &&
+    body.status &&
+    body.status !== 'REJECTED' &&
+    !isSystemAdminGuestNotify
+  ) {
     throw new AppError(
-      'Unclaimed rental request can only be APPROVED (with warehouseId) or REJECTED',
+      'Unclaimed rental request can only be APPROVED (with warehouseId), REJECTED, or UNDER_REVIEW with reviewNote (System Admin)',
       400,
       'VALIDATION_ERROR'
     );
   }
 
-  const data = normalizeUpdatePayload(body);
-  return RentalRequest.updateById(id, data);
+  if (isSystemAdminGuestNotify) {
+    body.status = 'UNDER_REVIEW';
+    if (body.reviewedBy === undefined && actor?.userId) {
+      body.reviewedBy = actor.userId;
+    }
+    if (body.reviewedAt === undefined) {
+      body.reviewedAt = new Date().toISOString();
+    }
+  }
+
+  const { productLines, selectedBoxTypeHint } = body;
+  const hasProductLines = productLines !== undefined;
+  const hasOtherUpdates = Object.keys(pickFields(body, UPDATE_FIELDS)).length > 0;
+
+  if (hasProductLines) {
+    if (!['PENDING', 'UNDER_REVIEW'].includes(existing.status)) {
+      throw new AppError(
+        'Cannot change productLines unless status is PENDING or UNDER_REVIEW',
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+  }
+
+  if (!hasProductLines && !hasOtherUpdates) {
+    throw new AppError('No valid fields to update', 400, 'VALIDATION_ERROR');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (hasOtherUpdates) {
+      const data = normalizeUpdatePayload(body);
+      await RentalRequest.updateById(id, data, client);
+    }
+
+    if (hasProductLines) {
+      await replaceProductLinesForRentalRequest(
+        id,
+        productLines,
+        { selectedBoxTypeHint },
+        client
+      );
+    }
+
+    await client.query('COMMIT');
+    const item = await RentalRequest.findById(id);
+    return attachProductLinesToRentalRequest(item);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function deleteRentalRequest(rentalRequestId) {

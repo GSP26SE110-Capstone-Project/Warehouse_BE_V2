@@ -582,9 +582,10 @@ Phân bổ: floor(200/8)=**25 EXTRA** (200 U) — không dư.
 | Bin capacity theo U | ✅ Có | putaway, `BinModal`, inbound |
 | LPN `volumeUnits` | ✅ Có | `lpn.service.js` |
 | Rental form “cái/tháng” cũ | ⚠️ Legacy | `RentalRequestForm.tsx`, `rentalBoxEstimate.ts` |
-| Catalog product kind + Base U | ❌ Chưa | Cần master data + API |
-| Catalog size factor | ❌ Chưa | XS–S / M–L / XL–3XL |
-| Rental request `productLines` | ❌ Chưa | BE + FE |
+| Catalog product kind + Base U | ✅ Có | `garment_category_groups`, `product_kind_catalog`, `GET /api/product-kinds` |
+| Catalog size factor | ✅ Có | `size_factor_catalog`, `GET /api/size-factors` |
+| Rental request `productLines` | ✅ Có (BE + FE tenant/guest) | `rental_request_product_lines` |
+| `skus.product_kind` + SKU form | ✅ Có | FK catalog; tenant chọn loại hàng + size |
 | Contract committed snapshot | ❌ Chưa | JSON hoặc bảng con |
 | Overage ledger + billing job | ❌ Chưa | Flow 8 billing |
 | Bill line breakdown | ❌ Chưa | Invoice module |

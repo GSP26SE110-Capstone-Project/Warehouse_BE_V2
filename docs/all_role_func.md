@@ -1,7 +1,7 @@
 # All Role Functions — NextGen Warehouse
 
 > **Mục đích**: Bảng tổng hợp chức năng theo role — dùng cho doc Capstone / spreadsheet.
-> **Phiên bản**: 1.1 — cập nhật 2026-05-30.
+> **Phiên bản**: 1.3 — cập nhật 2026-05-30.
 > **Nguồn**: `docs/fe-flow-guide.md`, `docs/warehouse_staff.md`, `docs/tenant_staff.md`, BE `inboundDelivery.service.js`.
 
 ---
@@ -76,6 +76,10 @@
 | 64 | View Inbound Trip Detail | Warehouse Transporter |
 | 65 | Update Vehicle & Driver Info | Warehouse Transporter |
 | 66 | Report Arrival at Warehouse | Warehouse Transporter |
+| 67 | Forgot Password | Guest (unauthenticated) |
+| 68 | Change Password | All authenticated users |
+| 69 | Verify OTP | All authenticated users |
+| 70 | Login | All roles (unauthenticated → session) |
 
 ---
 
@@ -205,6 +209,55 @@
 - Duyệt inbound/outbound
 - Quản lý cấu trúc kho, SKU, user
 - Xóa thông tin delivery
+
+---
+
+## Authentication — Login, Password & OTP (#70, #67–#69)
+
+> **#70**: Guest → authenticated. **#67**: Guest. **#68–#69**: user đã đăng nhập (`ACTIVE`).
+
+| # | Function | Role |
+|---|----------|------|
+| 70 | Login | All roles (unauthenticated) |
+| 67 | Forgot Password | Guest (unauthenticated) |
+| 68 | Change Password | All authenticated users |
+| 69 | Verify OTP | All authenticated users |
+
+| Function | Mô tả ngắn | API / FE |
+|----------|------------|----------|
+| Login | Email + mật khẩu → JWT + redirect theo role | FE: `/login` → **Đăng nhập** · API: `POST /api/auth/login` |
+| Forgot Password | Nhập email → nhận link đặt lại mật khẩu | FE: `/forgot-password` → `/reset-password?token=...` · API reset: `POST /api/auth/reset-password` |
+| Change Password | Bước 1: xác minh mật khẩu cũ, gửi OTP email | `POST /api/auth/change-password` (Bearer token) |
+| Verify OTP | Bước 2: nhập OTP 6 số để áp dụng mật khẩu mới | `POST /api/auth/change-password/verify` (Bearer token) |
+
+**Luồng #68 → #69** (đổi mật khẩu khi đã login):
+
+```
+POST /change-password { currentPassword, newPassword }
+    → OTP gửi email (TTL 10 phút, tối đa 5 lần nhập sai)
+POST /change-password/verify { otp }
+    → passwordHash cập nhật
+```
+
+**Luồng #67** (quên mật khẩu):
+
+```
+/forgot-password → nhập email → Gửi yêu cầu
+    → (API gửi email — chưa expose) link ?token=...
+/reset-password?token=... → Đặt lại mật khẩu
+```
+
+**Trạng thái triển khai**: #70 Login FE+BE ✅ · #68–#69 BE ✅ · FE chưa có form OTP (test Swagger). #67 FE form ⏳ · API gửi email forgot ⏳ · reset token từ welcome email ✅.
+
+**Redirect sau login** (`getHomePathForRole`):
+
+| Role | Path |
+|------|------|
+| `SYSTEM_ADMIN` | `/admin/requests` |
+| `WH_ADMIN` | `/admin/dashboard` |
+| `TENANT_ADMIN` | `/staff/products` |
+| `WH_STAFF`, `TENANT_STAFF` | `/staff/dashboard` |
+| `WH_TRANSPORTER` | `/staff/my-deliveries` |
 
 ---
 
