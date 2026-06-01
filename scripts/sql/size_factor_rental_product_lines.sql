@@ -6,6 +6,11 @@ DO $do$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $do$;
 
+DO $do$ BEGIN
+  CREATE TYPE catalog_status_enum AS ENUM ('ACTIVE', 'INACTIVE');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $do$;
+
 CREATE TABLE IF NOT EXISTS size_factor_catalog (
   size_group size_group_code_enum PRIMARY KEY,
   display_label VARCHAR(50) NOT NULL,

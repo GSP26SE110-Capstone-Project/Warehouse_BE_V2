@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import { signAccessToken, verifyPasswordResetToken } from '../config/jwt.js';
 import AppError from '../utils/AppError.js';
+import { findTenantCompanyByContactEmail } from './tenantCompany.service.js';
 import {
   assertPasswordStrength,
   comparePassword,
@@ -30,11 +31,24 @@ export async function login({ email, password }) {
   const user = await User.findOne({ email: normalizedEmail });
 
   if (!user) {
+    const tenant = await findTenantCompanyByContactEmail(normalizedEmail);
+    if (tenant) {
+      const companyLabel = tenant.companyName?.trim() || 'công ty của bạn';
+      throw new AppError(
+        `Email này đã được đăng ký với ${companyLabel} trên hệ thống, nhưng tài khoản đăng nhập chưa được cấp. ` +
+          'Vui lòng chờ kho duyệt yêu cầu thuê và gửi thông tin kích hoạt, hoặc tra cứu trạng thái yêu cầu trên trang chủ (mã RR + email).',
+        403,
+        'TENANT_ACCOUNT_NOT_PROVISIONED'
+      );
+    }
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
 
   if (user.status !== 'ACTIVE') {
-    throw new AppError('Account is not active', 403, 'ACCOUNT_INACTIVE');
+    const inactiveMessage = user.tenantId
+      ? 'Tài khoản của bạn chưa được kích hoạt. Kiểm tra email để đặt mật khẩu lần đầu hoặc liên hệ quản trị viên kho.'
+      : 'Tài khoản chưa được kích hoạt. Liên hệ quản trị viên để được hỗ trợ.';
+    throw new AppError(inactiveMessage, 403, 'ACCOUNT_INACTIVE');
   }
 
   const valid = await comparePassword(password, user.passwordHash);

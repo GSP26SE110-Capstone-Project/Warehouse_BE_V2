@@ -31,6 +31,9 @@ const MIGRATION_FILES = [
   'scripts/sql/bin_lpn_count_equals_volume.sql',
   'scripts/sql/bins_resync_lpn_volume.sql',
   'scripts/sql/zone_type_private_replace_return.sql',
+  'scripts/sql/garment_category_product_kind_catalog.sql',
+  'scripts/sql/size_factor_rental_product_lines.sql',
+  'scripts/sql/skus_add_product_kind.sql',
 ];
 
 console.log(`Running ${MIGRATION_FILES.length} migrations...\n`);

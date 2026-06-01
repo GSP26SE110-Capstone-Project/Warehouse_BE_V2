@@ -1,4 +1,5 @@
 import Bin from '../models/Bin.js';
+import pool from '../config/db.js';
 import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import {
@@ -279,7 +280,32 @@ export async function updateBin(binId, body) {
 
 export async function deleteBin(binId) {
   const id = parseUuid(binId, 'binId');
-  await getBin(id);
+  const bin = await getBin(id);
+
+  const usedVol = Number(bin.usedVolumeUnits ?? 0);
+  const lpnCount = Number(bin.currentLpnCount ?? 0);
+  if (usedVol > 0 || lpnCount > 0) {
+    throw new AppError(
+      'Bin đang chứa LPN hoặc hàng — cần dời hết trước khi xóa',
+      400,
+      'BIN_NOT_EMPTY'
+    );
+  }
+
+  const check = await pool.query(
+    `SELECT
+      (SELECT COUNT(*)::int FROM inventories WHERE bin_id = $1) AS inv_count,
+      (SELECT COUNT(*)::int FROM lpns WHERE current_bin_id = $1) AS lpn_count`,
+    [id]
+  );
+  const { inv_count: invCount, lpn_count: storedLpnCount } = check.rows[0] ?? {};
+  if ((invCount ?? 0) > 0 || (storedLpnCount ?? 0) > 0) {
+    throw new AppError(
+      'Bin đang chứa LPN hoặc hàng — cần dời hết trước khi xóa',
+      400,
+      'BIN_NOT_EMPTY'
+    );
+  }
 
   const deleted = await Bin.deleteById(id);
   if (!deleted) {

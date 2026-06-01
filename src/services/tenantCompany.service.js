@@ -110,6 +110,22 @@ export async function getTenantCompany(tenantId) {
   return tenant;
 }
 
+/** Tra cứu tenant theo email liên hệ (guest onboarding / login hint). */
+export async function findTenantCompanyByContactEmail(email) {
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const row = await TenantCompany.queryOne(
+    `SELECT *
+     FROM tenant_companies
+     WHERE LOWER(TRIM(contact_email)) = $1
+     LIMIT 1`,
+    [normalizedEmail]
+  );
+
+  return row ? fromDbRecord(tenantCompanySchema, row) : null;
+}
+
 export async function listTenantCompanies({ status, page, limit, offset }) {
   assertEnum(status, TENANT_STATUS, 'status');
 
