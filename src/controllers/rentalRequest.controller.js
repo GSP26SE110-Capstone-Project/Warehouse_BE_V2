@@ -66,7 +66,7 @@ export async function lookupByCode(req, res) {
 }
 
 export async function create(req, res) {
-  const item = await rentalRequestService.createRentalRequest(req.body);
+  const item = await rentalRequestService.createRentalRequest(req.body, req.user ?? null);
   created(res, item);
 }
 

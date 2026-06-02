@@ -191,7 +191,13 @@ const spec = {
       '### Convention (mọi flow)\n' +
       '- Base: `/api`, body **camelCase**, cập nhật dùng **PATCH** (không PUT)\n' +
       '- GET list: `page` (default 1), `limit` (default 20, max 100)\n' +
-      '- POST: ID cha trong **body**; GET list: ID cha/lọc trong **query**\n\n' +
+      '- POST: ID cha trong **body**; GET list: ID cha/lọc trong **query**\n' +
+      '- Field bắt buộc = danh sách `required` trong từng schema Request Body. Field không nằm trong `required` là optional.\n\n' +
+      '### Role quick guide\n' +
+      '- `SYSTEM_ADMIN`: quản trị hệ thống / user / warehouse master data\n' +
+      '- `WH_ADMIN`, `WH_STAFF`, `WH_TRANSPORTER`: nghiệp vụ kho\n' +
+      '- `TENANT_ADMIN`, `TENANT_STAFF`: nghiệp vụ tenant\n' +
+      '- Endpoint public (guest) sẽ ghi rõ `security: []` trong Swagger\n\n' +
       '### Flow 1 — Tenant onboarding\n' +
       '1. `POST /tenants` — guest tạo tenant company\n' +
       '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không chọn kho)\n' +
@@ -222,27 +228,27 @@ const spec = {
   tags: [
     { name: 'System', description: 'Health check' },
     { name: 'Auth', description: 'Login' },
-    { name: 'User', description: 'User management (admin roles)' },
-    { name: 'Warehouse', description: 'Warehouses' },
-    { name: 'Zone', description: 'Warehouse zones' },
-    { name: 'Rack', description: 'Racks' },
+    { name: 'User', description: 'User management (admin roles). Roles: SYSTEM_ADMIN / WH_ADMIN / TENANT_ADMIN' },
+    { name: 'Warehouse', description: 'Warehouses. Roles: SYSTEM_ADMIN, WH_ADMIN, WH_STAFF, WH_TRANSPORTER, TENANT_ADMIN, TENANT_STAFF (read by scope)' },
+    { name: 'Zone', description: 'Warehouse zones. Roles: SYSTEM_ADMIN, WH_ADMIN (+ WH_STAFF read planning)' },
+    { name: 'Rack', description: 'Racks. Roles: warehouse-side users' },
     { name: 'RackLevel', description: 'Rack levels' },
     { name: 'Bin', description: 'Storage bins' },
     { name: 'Category', description: 'Product categories (Áo, Quần, …)' },
     { name: 'Season', description: 'Fashion seasons' },
     { name: 'Collection', description: 'Tenant product collections' },
     { name: 'SKU', description: 'Tenant product SKUs' },
-    { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 4)' },
+    { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 4). Roles: tenant-side create/update; warehouse-side approve/receive' },
     { name: 'InboundRequestItem', description: 'SKU lines on an inbound request' },
     { name: 'Inventory', description: 'Stock on hand (SKU + batch + LPN + bin)' },
-    { name: 'OutboundRequest', description: 'Tenant outbound / shipping requests (Flow 7)' },
+    { name: 'OutboundRequest', description: 'Tenant outbound / shipping requests (Flow 7). Roles: tenant-side create/update; warehouse-side process' },
     { name: 'Batch', description: 'Receiving batches (inbound)' },
     { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
     { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
     { name: 'AI', description: 'Rule-based putaway slot recommendations (Phase 1a)' },
-    { name: 'RentalRequest', description: 'Flow 1 — Guest gửi yêu cầu thuê theo city/district; WH claim khi approve' },
-    { name: 'TenantCompany', description: 'Flow 1 — Tenant company (bước 1 guest onboarding)' },
-    { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
+    { name: 'RentalRequest', description: 'Flow 1 — guest gửi yêu cầu thuê theo city/district; WH claim khi approve. Public create + guest lookup, còn lại cần token theo role' },
+    { name: 'TenantCompany', description: 'Flow 1 — tenant company (bước 1 guest onboarding). Public create, các API khác cần token' },
+    { name: 'Contract', description: 'Tenant contracts (Flow 1). Roles: tenant + warehouse + system by scope' },
     {
       name: 'PayOS',
       description:
@@ -699,15 +705,19 @@ const spec = {
       },
       InboundRequestCreate: {
         type: 'object',
+        description:
+          'Required fields: `tenantId`, `contractId`, `warehouseId`. Field khác optional. Các field actor (`createdBy`, `approvedBy`, `receivedBy`) nên để server tự set.',
         required: ['tenantId', 'contractId', 'warehouseId'],
+        example: {
+          tenantId: '98cad623-9071-4f40-8f41-196940a9338d',
+          contractId: 'a5f86099-adcf-4151-8c90-884d16b9e6e2',
+          warehouseId: 'f2af9626-635b-4fe2-a149-3ab5b33b153e',
+          expectedArrivalDate: '2026-06-15T09:00:00.000Z',
+        },
         properties: {
           tenantId: uuid,
           contractId: uuid,
           warehouseId: uuid,
-          inboundCode: {
-            type: 'string',
-            description: 'Auto-generated if omitted (INB-...)',
-          },
           expectedArrivalDate: { type: 'string', format: 'date-time' },
           actualArrivalAt: { type: 'string', format: 'date-time' },
           status: {
@@ -957,15 +967,19 @@ const spec = {
       },
       OutboundRequestCreate: {
         type: 'object',
+        description:
+          'Required fields: `tenantId`, `contractId`, `warehouseId`. Field khác optional. Các field actor (`createdBy`, `approvedBy`) nên để server tự set.',
         required: ['tenantId', 'contractId', 'warehouseId'],
+        example: {
+          tenantId: '98cad623-9071-4f40-8f41-196940a9338d',
+          contractId: 'a5f86099-adcf-4151-8c90-884d16b9e6e2',
+          warehouseId: 'f2af9626-635b-4fe2-a149-3ab5b33b153e',
+          requestedShipDate: '2026-06-20T08:00:00.000Z',
+        },
         properties: {
           tenantId: uuid,
           contractId: uuid,
           warehouseId: uuid,
-          outboundCode: {
-            type: 'string',
-            description: 'Auto-generated if omitted (OUT-...)',
-          },
           requestedShipDate: { type: 'string', format: 'date-time' },
           actualShippedAt: { type: 'string', format: 'date-time' },
           status: {
@@ -1535,16 +1549,12 @@ const spec = {
       RentalRequestCreate: {
         type: 'object',
         description:
-          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve.',
+          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve. Required fields: `tenantId`, `city`, `district`. `createdBy` được server tự gán: có token thì lấy `userId`, guest thì `null`.',
         required: ['tenantId', 'city', 'district'],
         properties: {
           tenantId: uuid,
           city: { type: 'string', example: 'TP.HCM', description: 'Thành phố tenant muốn thuê kho' },
           district: { type: 'string', example: 'Quận 7', description: 'Quận/huyện' },
-          requestCode: {
-            type: 'string',
-            description: 'Auto-generated RR-… if omitted',
-          },
           contractType: {
             type: 'string',
             enum: [
@@ -1591,7 +1601,6 @@ const spec = {
             enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
             default: 'PENDING',
           },
-          createdBy: { ...uuid, description: 'Optional UUID user' },
         },
       },
       Contract: {
@@ -1649,6 +1658,8 @@ const spec = {
       },
       ContractCreate: {
         type: 'object',
+        description:
+          'Required fields: `tenantId`, `warehouseId`, `contractType`, `pricingModel`, `startDate`, `endDate`. Field khác optional.',
         required: [
           'tenantId',
           'warehouseId',
@@ -1661,10 +1672,6 @@ const spec = {
           tenantId: uuid,
           warehouseId: uuid,
           rentalRequestId: uuid,
-          contractCode: {
-            type: 'string',
-            description: 'Auto-generated if omitted',
-          },
           contractName: { type: 'string' },
           contractType: {
             type: 'string',
@@ -2079,7 +2086,8 @@ const spec = {
       },
       TenantCompanyCreate: {
         type: 'object',
-        description: 'Flow 1 bước 1 — guest tạo hồ sơ công ty trước khi gửi rental request.',
+        description:
+          'Flow 1 bước 1 — guest tạo hồ sơ công ty trước khi gửi rental request. Required fields: `companyName`.',
         required: ['companyName'],
         properties: {
           companyName: { type: 'string' },
@@ -3279,6 +3287,8 @@ const spec = {
       get: {
         tags: ['InboundRequest'],
         summary: 'List inbound requests (filter by tenant, warehouse, contract, status)',
+        description:
+          'Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF`, `WH_TRANSPORTER`, `TENANT_ADMIN`, `TENANT_STAFF` (theo scope).',
         parameters: [
           { in: 'query', name: 'tenantId', schema: uuid },
           {
@@ -3317,6 +3327,8 @@ const spec = {
       post: {
         tags: ['InboundRequest'],
         summary: 'Create inbound request (contract must be ACTIVE)',
+        description:
+          'Roles: tenant-side create request (`TENANT_ADMIN`, `TENANT_STAFF`). `WH_ADMIN` bị chặn tạo. Chỉ cần gửi field bắt buộc; field khác optional.',
         requestBody: {
           required: true,
           content: {
@@ -3658,6 +3670,8 @@ const spec = {
       get: {
         tags: ['OutboundRequest'],
         summary: 'List outbound requests (filter by tenant, warehouse, contract, status)',
+        description:
+          'Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF`, `TENANT_ADMIN`, `TENANT_STAFF` (theo scope).',
         parameters: [
           { in: 'query', name: 'tenantId', schema: uuid },
           { in: 'query', name: 'warehouseId', schema: uuid },
@@ -3692,6 +3706,8 @@ const spec = {
       post: {
         tags: ['OutboundRequest'],
         summary: 'Create outbound request (contract must be ACTIVE)',
+        description:
+          'Roles: tenant-side create request (`TENANT_ADMIN`, `TENANT_STAFF`). `WH_ADMIN` bị chặn tạo. Chỉ cần gửi field bắt buộc; field khác optional.',
         requestBody: {
           required: true,
           content: {
@@ -4245,6 +4261,7 @@ const spec = {
         tags: ['RentalRequest'],
         summary: 'List rental requests',
         description:
+          'Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `TENANT_ADMIN`, `TENANT_STAFF`.\n' +
           'Query filters:\n' +
           '- `warehouseId` + `regionMatch=true` — inbox kho: yêu cầu **chưa claim** cùng city/district\n' +
           '- `warehouseId` (không regionMatch) — yêu cầu **đã gán** cho kho đó\n' +
@@ -4308,7 +4325,8 @@ const spec = {
         tags: ['RentalRequest'],
         summary: 'Create rental request (guest — by region)',
         description:
-          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê. Public — no auth.',
+          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê. Public endpoint: guest không cần token; nếu có Bearer token thì server tự gán `createdBy` từ user đăng nhập.',
+        security: [],
         requestBody: {
           required: true,
           content: {
