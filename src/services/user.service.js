@@ -14,6 +14,7 @@ import {
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertPasswordStrength, hashPassword } from '../utils/password.js';
 import { toPublicUser } from '../utils/userPublic.js';
+import { pickTransporterSelfUpdate } from '../utils/transporterProfile.js';
 import { signPasswordResetToken } from '../config/jwt.js';
 import {
   sendTenantAdminWelcomeEmail,
@@ -433,7 +434,10 @@ async function applySystemAdminScopePatch(creator, existing, body, data) {
 }
 
 export async function updateSelfProfile(currentUser, body) {
-  const data = pickFields(body, SELF_UPDATE_FIELDS);
+  const data =
+    currentUser.role === 'WH_TRANSPORTER'
+      ? pickTransporterSelfUpdate(body)
+      : pickFields(body, SELF_UPDATE_FIELDS);
   if (data.fullName != null) {
     data.fullName = String(data.fullName).trim();
     if (!data.fullName) {

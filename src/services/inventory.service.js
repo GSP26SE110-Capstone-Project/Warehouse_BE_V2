@@ -72,6 +72,7 @@ export async function listInventories({
   inboundRequestId,
   warehouseId,
   status,
+  search,
   page,
   limit,
   offset,
@@ -123,11 +124,30 @@ export async function listInventories({
     )`);
     values.push(parseUuid(warehouseId, 'warehouseId'));
   }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    conditions.push(`(
+      s.sku_code ILIKE $${idx}
+      OR s.product_name ILIKE $${idx}
+      OR l.lpn_code ILIKE $${idx}
+      OR bat.batch_code ILIKE $${idx}
+      OR b.bin_code ILIKE $${idx}
+    )`);
+    values.push(term);
+    idx += 1;
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const fromClause = `
+     FROM inventories i
+     INNER JOIN skus s ON s.sku_id = i.sku_id
+     INNER JOIN lpns l ON l.lpn_id = i.lpn_id
+     INNER JOIN bins b ON b.bin_id = i.bin_id
+     INNER JOIN batches bat ON bat.batch_id = i.batch_id
+     ${where}`;
 
   const countResult = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM inventories i ${where}`,
+    `SELECT COUNT(*)::int AS count ${fromClause}`,
     values
   );
   const total = countResult.rows[0].count;
@@ -135,12 +155,7 @@ export async function listInventories({
   const listValues = [...values, limit, offset];
   const rowsResult = await pool.query(
     `SELECT i.*, s.sku_code, s.product_name, l.lpn_code, b.bin_code, bat.batch_code
-     FROM inventories i
-     INNER JOIN skus s ON s.sku_id = i.sku_id
-     INNER JOIN lpns l ON l.lpn_id = i.lpn_id
-     INNER JOIN bins b ON b.bin_id = i.bin_id
-     INNER JOIN batches bat ON bat.batch_id = i.batch_id
-     ${where}
+     ${fromClause}
      ORDER BY i.received_at DESC NULLS LAST, i.created_at DESC
      LIMIT $${idx++} OFFSET $${idx}`,
     listValues

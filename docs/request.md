@@ -1114,6 +1114,19 @@ Query tuỳ chọn: `status`, `page`, `limit`
 
 ## 8. Contract
 
+### Billing & chấm dứt HĐ
+
+Chi tiết nghiệp vụ (MONTHLY/YEARLY, invoice đầu, phụ phí, chấm dứt): **[contract-billing-termination.md](./contract-billing-termination.md)**.
+
+| Method | Path | Mô tả |
+|--------|------|--------|
+| `GET` | `/contracts/:contractId/termination/preview` | Xem phí/hoàn trước chấm dứt |
+| `POST` | `/contracts/:contractId/termination/request` | Gửi yêu cầu chấm dứt |
+| `POST` | `/contracts/:contractId/invoices/:invoiceId/payos/create-link` | Tạo link thanh toán PayOS |
+| `POST` | `/api/payos/webhook` | Webhook PayOS (không JWT) |
+| `POST` | `/contracts/:contractId/invoices/:invoiceId/mark-paid` | Ghi nhận thủ công (dev) |
+| `GET` | `/contracts/:contractId/invoices` | Danh sách invoice của HĐ |
+
 ### `POST /contracts`
 
 | Field | Bắt buộc | Mặc định | Ghi chú |

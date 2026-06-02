@@ -20,4 +20,39 @@ router.get(
   asyncHandler(adminNotificationController.getWhPendingRentalAlerts)
 );
 
+router.get(
+  '/wh-pending-inbounds',
+  authenticate,
+  authorize('WH_ADMIN'),
+  asyncHandler(adminNotificationController.getWhPendingInboundAlerts)
+);
+
+router.get(
+  '/wh-arrived-inbounds',
+  authenticate,
+  authorize('WH_ADMIN'),
+  asyncHandler(adminNotificationController.getWhArrivedInboundAlerts)
+);
+
+router.get(
+  '/wh-contract-payments',
+  authenticate,
+  authorize('WH_ADMIN'),
+  asyncHandler(adminNotificationController.getWhContractPaymentAlerts)
+);
+
+router.get(
+  '/transporter-trips',
+  authenticate,
+  authorize('WH_TRANSPORTER'),
+  asyncHandler(adminNotificationController.getTransporterTripAlerts)
+);
+
+router.get(
+  '/tenant-inbound-transport',
+  authenticate,
+  authorize('TENANT_ADMIN'),
+  asyncHandler(adminNotificationController.getTenantInboundTransportAlerts)
+);
+
 export default router;

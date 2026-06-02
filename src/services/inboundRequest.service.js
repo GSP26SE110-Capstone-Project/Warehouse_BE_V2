@@ -9,7 +9,7 @@ import { assertInboundHasDeliveryForGate } from './inboundDelivery.service.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertInboundStatusTransition } from '../utils/inboundStatus.js';
 import { assertNoInboundReceivingActivity } from './inboundApprovalReadiness.service.js';
-import { getContract } from './contract.service.js';
+import { assertContractOperational, getContract } from './contract.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
 
@@ -70,20 +70,13 @@ function parseOptionalUserId(value, fieldName) {
 }
 
 async function assertContractForInbound(tenantId, contractId, warehouseId) {
-  const contract = await getContract(contractId);
+  const contract = await assertContractOperational(contractId);
 
   if (contract.tenantId !== tenantId) {
     throw new AppError('contractId does not belong to this tenant', 400, 'VALIDATION_ERROR');
   }
   if (contract.warehouseId !== warehouseId) {
     throw new AppError('contractId does not belong to this warehouse', 400, 'VALIDATION_ERROR');
-  }
-  if (contract.status !== 'ACTIVE') {
-    throw new AppError(
-      'Contract must be ACTIVE to create an inbound request',
-      400,
-      'VALIDATION_ERROR'
-    );
   }
 
   return contract;
@@ -428,6 +421,13 @@ export async function updateInboundRequest(inboundRequestId, body) {
     }
     if (data.status === 'ARRIVED') {
       await assertInboundHasDeliveryForGate(id);
+      if (existing.deliveryMode === 'WAREHOUSE_TRANSPORT') {
+        throw new AppError(
+          'Warehouse transport arrivals must be reported by the assigned transporter',
+          403,
+          'FORBIDDEN'
+        );
+      }
     }
   }
 

@@ -22,18 +22,40 @@ export const BILLABLE_CONTRACT_TYPE = Object.freeze(
 
 export const PRICING_MODEL = Object.freeze(['USAGE_BASED', 'FIXED', 'HYBRID']);
 
-export const BILLING_CYCLE = Object.freeze(['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY']);
+/** Chu kỳ billing được phép trên HĐ mới (legacy DAILY/QUARTERLY chỉ còn trong DB cũ). */
+export const BILLING_CYCLE = Object.freeze(['MONTHLY', 'YEARLY']);
+
+/** Giá trị enum PostgreSQL (bao gồm legacy). */
+export const BILLING_CYCLE_DB = Object.freeze(['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY']);
 
 export const TENANT_STATUS = Object.freeze(['ACTIVE', 'SUSPENDED']);
 
 export const CONTRACT_STATUS = Object.freeze([
   'DRAFT',
   'PENDING_APPROVAL',
+  'PENDING_PAYMENT',
   'ACTIVE',
   'EXPIRED',
   'TERMINATED',
   'CANCELLED',
 ]);
+
+export const INVOICE_CATEGORY = Object.freeze([
+  'INITIAL',
+  'RECURRING_RENT',
+  'OPERATIONAL',
+  'TERMINATION_SETTLEMENT',
+]);
+
+export const TERMINATION_REQUEST_STATUS = Object.freeze([
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+]);
+
+/** Phí xử lý hoàn tiền HĐ yearly chưa inbound (1%). */
+export const YEARLY_EARLY_REFUND_PROCESSING_RATE = 0.01;
 
 export const BILLING_UNIT = Object.freeze([
   'BOX_DAY',

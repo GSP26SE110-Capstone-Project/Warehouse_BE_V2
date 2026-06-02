@@ -6,6 +6,11 @@ import { TENANT_ROLES, WH_TRANSPORT_ROLES } from '../constants/auth.js';
 import InboundRequest from '../models/InboundRequest.js';
 import { assertInboundStatusTransition } from '../utils/inboundStatus.js';
 import { getInboundRequest } from './inboundRequest.service.js';
+import { applyTransporterProfileToDelivery } from '../utils/transporterProfile.js';
+import {
+  notifyInboundArrivalReported,
+  notifyTenantAdminTransportAssigned,
+} from './inboundNotify.service.js';
 
 const UPSERT_FIELDS = [
   'vehiclePlate',
@@ -15,6 +20,13 @@ const UPSERT_FIELDS = [
   'carrierName',
   'scheduledAt',
   'notes',
+];
+
+const PICKUP_FIELDS = [
+  'pickupAddress',
+  'pickupContactName',
+  'pickupContactPhone',
+  'pickupNotes',
 ];
 
 const WAREHOUSE_DISPATCH_ROLES = Object.freeze(['SYSTEM_ADMIN', 'WH_ADMIN', 'WH_STAFF']);
@@ -91,10 +103,12 @@ function assertActorCanManageDelivery(actor, inbound) {
     if (actor.tenantId !== inbound.tenantId) {
       throw new AppError('Forbidden: tenant out of scope', 403, 'FORBIDDEN');
     }
-    if (inbound.deliveryMode !== 'TENANT_SELF') {
-      throw new AppError('Tenant cannot edit warehouse transport delivery', 403, 'FORBIDDEN');
+    if (inbound.deliveryMode === 'TENANT_SELF') {
+      return;
     }
-    return;
+    if (inbound.deliveryMode === 'WAREHOUSE_TRANSPORT') {
+      return;
+    }
   }
 
   throw new AppError('Forbidden', 403, 'FORBIDDEN');
@@ -144,6 +158,48 @@ function normalizeDispatchPayload(body, { requirePlate }) {
   }
 
   return data;
+}
+
+function normalizePickupPayload(body, { requireAddress = false } = {}) {
+  const data = pickFields(body, PICKUP_FIELDS);
+
+  if (data.pickupAddress !== undefined) {
+    const addr = trimOptionalString(data.pickupAddress);
+    if (requireAddress && !addr) {
+      throw new AppError('pickupAddress is required', 400, 'VALIDATION_ERROR');
+    }
+    data.pickupAddress = addr;
+  } else if (requireAddress) {
+    throw new AppError('pickupAddress is required', 400, 'VALIDATION_ERROR');
+  }
+
+  for (const key of ['pickupContactName', 'pickupContactPhone', 'pickupNotes']) {
+    if (data[key] !== undefined) {
+      data[key] = trimOptionalString(data[key]);
+    }
+  }
+
+  if (requireAddress && !data.pickupContactName) {
+    throw new AppError('pickupContactName is required', 400, 'VALIDATION_ERROR');
+  }
+  if (requireAddress && !data.pickupContactPhone) {
+    throw new AppError('pickupContactPhone is required', 400, 'VALIDATION_ERROR');
+  }
+
+  return data;
+}
+
+async function fireTransportAssignedNotify(inbound, delivery, previousAssignedDriverUserId) {
+  if (!delivery?.assignedDriverUserId) return;
+  try {
+    await notifyTenantAdminTransportAssigned({
+      inbound,
+      delivery,
+      previousAssignedDriverUserId,
+    });
+  } catch {
+    /* email optional — không chặn lưu delivery */
+  }
 }
 
 function normalizeTransporterPayload(body) {
@@ -201,6 +257,7 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
   }
 
   const existing = await getInboundDeliveryByRequestId(id);
+  const previousAssignedDriverUserId = existing?.assignedDriverUserId ?? null;
 
   if (actor && WH_TRANSPORT_ROLES.includes(actor.role)) {
     assertTransporterCanAccessDelivery(actor, inbound, existing);
@@ -208,15 +265,29 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
       throw new AppError('Delivery record not found for this trip', 404, 'NOT_FOUND');
     }
     const data = normalizeTransporterPayload(body);
-    const updated = await InboundDelivery.updateById(existing.inboundDeliveryId, data);
-    return updated;
+    return InboundDelivery.updateById(existing.inboundDeliveryId, data);
+  }
+
+  if (
+    actor &&
+    TENANT_ROLES.includes(actor.role) &&
+    inbound.deliveryMode === 'WAREHOUSE_TRANSPORT'
+  ) {
+    if (actor.tenantId !== inbound.tenantId) {
+      throw new AppError('Forbidden: tenant out of scope', 403, 'FORBIDDEN');
+    }
+    const pickupData = normalizePickupPayload(body, { requireAddress: !existing });
+    if (existing) {
+      return InboundDelivery.updateById(existing.inboundDeliveryId, pickupData);
+    }
+    return InboundDelivery.create({
+      inboundRequestId: id,
+      tenantId: inbound.tenantId,
+      ...pickupData,
+    });
   }
 
   assertActorCanManageDelivery(actor, inbound);
-
-  if (inbound.deliveryMode === 'WAREHOUSE_TRANSPORT' && TENANT_ROLES.includes(actor?.role)) {
-    throw new AppError('Tenant cannot edit warehouse transport delivery', 403, 'FORBIDDEN');
-  }
 
   const requirePlate = !body.assignedDriverUserId && !existing?.vehiclePlate;
   const data = normalizeDispatchPayload(body, {
@@ -228,6 +299,9 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
       data.assignedDriverUserId,
       inbound.warehouseId
     );
+    const transporter = await User.findById(data.assignedDriverUserId);
+    const merged = applyTransporterProfileToDelivery(transporter, data, existing);
+    Object.assign(data, merged);
   }
 
   if (existing) {
@@ -244,22 +318,39 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
     if (!updated) {
       throw new AppError('Inbound delivery not found', 404, 'NOT_FOUND');
     }
+    if (WAREHOUSE_DISPATCH_ROLES.includes(actor?.role) || actor?.role === 'SYSTEM_ADMIN') {
+      void fireTransportAssignedNotify(inbound, updated, previousAssignedDriverUserId);
+    }
     return updated;
   }
 
-  if (!data.vehiclePlate && !data.assignedDriverUserId) {
+  const pickupFromBody = normalizePickupPayload(body);
+  const hasPickup = Boolean(pickupFromBody.pickupAddress);
+  const hasDispatch = Boolean(data.vehiclePlate || data.assignedDriverUserId);
+
+  if (!hasDispatch && !hasPickup) {
     throw new AppError(
-      'vehiclePlate or assignedDriverUserId is required',
+      'vehiclePlate, assignedDriverUserId, or pickupAddress is required',
       400,
       'VALIDATION_ERROR'
     );
   }
 
-  return InboundDelivery.create({
+  const created = await InboundDelivery.create({
     inboundRequestId: id,
     tenantId: inbound.tenantId,
+    ...pickupFromBody,
     ...data,
   });
+
+  if (
+    created?.assignedDriverUserId &&
+    (WAREHOUSE_DISPATCH_ROLES.includes(actor?.role) || actor?.role === 'SYSTEM_ADMIN')
+  ) {
+    void fireTransportAssignedNotify(inbound, created, null);
+  }
+
+  return created;
 }
 
 export async function deleteInboundDelivery(inboundRequestId, actor = null) {
@@ -300,9 +391,21 @@ export async function reportInboundArrival(inboundRequestId, actor) {
 
   assertInboundStatusTransition(inbound.status, 'ARRIVED');
 
-  return InboundRequest.updateById(id, {
+  const updated = await InboundRequest.updateById(id, {
     status: 'ARRIVED',
     actualArrivalAt: new Date(),
     receivedBy: actor.userId,
   });
+
+  try {
+    await notifyInboundArrivalReported({
+      inbound: updated,
+      delivery,
+      actor,
+    });
+  } catch {
+    /* email optional */
+  }
+
+  return updated;
 }

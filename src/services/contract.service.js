@@ -14,6 +14,10 @@ import { getWarehouseById } from './warehouse.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { seedDefaultContractItems } from './contractDefaultItems.service.js';
 import { notifyWarehouseAdminContractSigned } from './contractNotify.service.js';
+import {
+  assertInitialInvoicePaid,
+  createInitialInvoice,
+} from './contractInvoice.service.js';
 
 const CREATE_FIELDS = [
   'contractCode',
@@ -314,17 +318,14 @@ function applySignatureWorkflow(existing, data) {
     );
   }
 
-  if (
+  const bothSigned = tenantSigned && whSigned;
+  const tenantJustSigning =
     data.tenantSignature !== undefined &&
-    data.tenantSignature &&
-    data.status === undefined &&
-    whSigned
-  ) {
-    data.status = 'ACTIVE';
-  }
+    Boolean(String(data.tenantSignature ?? '').trim()) &&
+    !Boolean(String(existing.tenantSignature ?? '').trim());
 
-  if (tenantSigned && whSigned && data.status === undefined && existing.status === 'PENDING_APPROVAL') {
-    data.status = 'ACTIVE';
+  if (bothSigned && (tenantJustSigning || existing.status === 'PENDING_APPROVAL')) {
+    data.status = 'PENDING_PAYMENT';
   }
 }
 
@@ -353,16 +354,34 @@ export async function updateContract(contractId, body) {
     Boolean(String(data.tenantSignature ?? '').trim()) &&
     !Boolean(String(existing.tenantSignature ?? '').trim());
 
+  if (data.status === 'ACTIVE' && existing.status !== 'ACTIVE') {
+    await assertInitialInvoicePaid(id);
+  }
+
   applySignatureWorkflow(existing, data);
   const updated = await Contract.updateById(id, data);
 
-  if (tenantJustSigned) {
+  if (tenantJustSigned && updated.status === 'PENDING_PAYMENT') {
+    await createInitialInvoice(updated);
     void notifyWarehouseAdminContractSigned(updated).catch((err) => {
       console.warn('[contract] WH admin notify failed:', err?.message ?? err);
     });
   }
 
   return updated;
+}
+
+export async function assertContractOperational(contractId) {
+  const contract = await getContract(contractId);
+  if (contract.status !== 'ACTIVE') {
+    throw new AppError(
+      'Contract must be ACTIVE to create an inbound request',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+  await assertInitialInvoicePaid(contractId);
+  return contract;
 }
 
 export async function deleteContract(contractId) {

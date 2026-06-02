@@ -2,10 +2,9 @@ import pool from '../config/db.js';
 import AppError from '../utils/AppError.js';
 import { parseUuid } from '../utils/validate.js';
 import Batch from '../models/Batch.js';
-import Contract from '../models/Contract.js';
 import InboundRequestItem from '../models/InboundRequestItem.js';
 import ContractItem from '../models/ContractItem.js';
-import RentalRequest from '../models/RentalRequest.js';
+import { pickLargestBoxTypeForZoneTypes } from '../constants/binCapacityDefaults.js';
 import { BOX_TYPE, BOX_VOLUME_UNITS } from '../constants/warehouseStructure.js';
 import {
   DAYS_PER_BILLING_MONTH,
@@ -16,16 +15,21 @@ import {
   STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE,
 } from '../constants/pricingDefaults.js';
 import { getInboundRequest } from './inboundRequest.service.js';
-
-/** Ngưỡng cảnh báo theo % so với estimate trong rental request. */
-const ESTIMATE_SOFT_WARN_PCT = 100; // > 100% estimate → cảnh báo mềm
-const ESTIMATE_HARD_WARN_PCT = 120; // > 120% estimate → cảnh báo mạnh
+import { getSku } from './sku.service.js';
+import {
+  computeInboundLpnEstimate,
+  legacyPiecesPerLpnForBoxType,
+} from '../utils/skuVolumeUnits.js';
 
 /** Giả định khi chưa biết cách đóng thùng thật (ước tính duyệt inbound). */
 export const DEFAULT_PIECES_PER_LPN = 25;
 export const DEFAULT_VOLUME_UNITS_PER_LPN = 2;
 
 const BOX_TYPE_PRIORITY = ['EXTRA', 'LARGE', 'MEDIUM', 'SMALL'];
+
+function piecesPerLpnForBoxType(boxType) {
+  return legacyPiecesPerLpnForBoxType(boxType);
+}
 
 function buildProjectedBoxTypeCapacity(projectedBinSlots) {
   const byType = {};
@@ -354,140 +358,23 @@ async function queryWarehousePutawayCapacity(warehouseId) {
   };
 }
 
-/**
- * Tính mức sử dụng so với estimate trên rental request gốc.
- * Trả về null nếu hợp đồng không gắn rental request, hoặc rental không có estimate.
- */
-async function getRentalEstimateUsage(contractId, currentInboundId) {
-  if (!contractId) return null;
+async function queryContractZoneTypes(contractId, warehouseId) {
+  if (!contractId) return ['SHARED'];
 
-  const contract = await Contract.findById(contractId);
-  if (!contract?.rentalRequestId) return null;
-
-  const rental = await RentalRequest.findById(contract.rentalRequestId);
-  if (!rental) return null;
-
-  const estimatedBoxCount = Number(rental.estimatedBoxCount ?? 0);
-  const estimatedSkuCount = Number(rental.estimatedSkuCount ?? 0);
-
-  if (estimatedBoxCount <= 0 && estimatedSkuCount <= 0) return null;
-
-  // Sum cumulative expected quantity across all non-CANCELLED inbound requests
-  // for this contract (bao gồm cả inbound hiện tại đang xét duyệt).
-  const totalsResult = await pool.query(
-    `SELECT
-       COALESCE(SUM(iri.expected_quantity), 0)::int AS cumulative_pieces,
-       COUNT(DISTINCT iri.sku_id)::int AS distinct_skus
-     FROM inbound_request_items iri
-     INNER JOIN inbound_requests ir ON ir.inbound_request_id = iri.inbound_request_id
-     WHERE ir.contract_id = $1
-       AND ir.status != 'CANCELLED'`,
-    [contractId]
+  const result = await pool.query(
+    `SELECT DISTINCT z.zone_type
+     FROM storage_reservations sr
+     LEFT JOIN warehouse_zones z ON z.zone_id = sr.zone_id
+     WHERE sr.contract_id = $1
+       AND sr.warehouse_id = $2
+       AND sr.status = 'ACTIVE'
+       AND sr.start_date <= CURRENT_DATE
+       AND sr.end_date >= CURRENT_DATE`,
+    [contractId, warehouseId]
   );
 
-  const totals = totalsResult.rows[0] ?? {};
-  const cumulativePieces = totals.cumulative_pieces ?? 0;
-  const distinctSkus = totals.distinct_skus ?? 0;
-
-  // Tính chi tiết riêng cho inbound hiện tại để hiển thị "đợt này đóng góp bao nhiêu".
-  const currentResult = await pool.query(
-    `SELECT COALESCE(SUM(expected_quantity), 0)::int AS current_pieces
-     FROM inbound_request_items
-     WHERE inbound_request_id = $1`,
-    [currentInboundId]
-  );
-  const currentPieces = currentResult.rows[0]?.current_pieces ?? 0;
-  const previousPieces = Math.max(0, cumulativePieces - currentPieces);
-
-  const boxUtilizationPercent =
-    estimatedBoxCount > 0
-      ? Math.round((cumulativePieces / estimatedBoxCount) * 100)
-      : null;
-  const skuUtilizationPercent =
-    estimatedSkuCount > 0
-      ? Math.round((distinctSkus / estimatedSkuCount) * 100)
-      : null;
-
-  const overageBoxes = Math.max(0, cumulativePieces - estimatedBoxCount);
-  const overageSkus = Math.max(0, distinctSkus - estimatedSkuCount);
-
-  let severity = 'ok';
-  if (
-    (boxUtilizationPercent != null && boxUtilizationPercent > ESTIMATE_HARD_WARN_PCT) ||
-    (skuUtilizationPercent != null && skuUtilizationPercent > ESTIMATE_HARD_WARN_PCT)
-  ) {
-    severity = 'hard';
-  } else if (
-    (boxUtilizationPercent != null && boxUtilizationPercent > ESTIMATE_SOFT_WARN_PCT) ||
-    (skuUtilizationPercent != null && skuUtilizationPercent > ESTIMATE_SOFT_WARN_PCT)
-  ) {
-    severity = 'soft';
-  } else if (
-    (boxUtilizationPercent != null && boxUtilizationPercent >= 80) ||
-    (skuUtilizationPercent != null && skuUtilizationPercent >= 80)
-  ) {
-    severity = 'near';
-  }
-
-  return {
-    rentalRequestId: rental.rentalRequestId,
-    requestCode: rental.requestCode ?? null,
-    estimatedBoxCount: estimatedBoxCount > 0 ? estimatedBoxCount : null,
-    estimatedSkuCount: estimatedSkuCount > 0 ? estimatedSkuCount : null,
-    cumulativePieces,
-    currentInboundPieces: currentPieces,
-    previousInboundPieces: previousPieces,
-    distinctSkus,
-    boxUtilizationPercent,
-    skuUtilizationPercent,
-    overageBoxes,
-    overageSkus,
-    softThresholdPercent: ESTIMATE_SOFT_WARN_PCT,
-    hardThresholdPercent: ESTIMATE_HARD_WARN_PCT,
-    severity,
-  };
-}
-
-function buildEstimateWarnings(usage) {
-  if (!usage) return [];
-  const lines = [];
-
-  if (usage.severity === 'hard') {
-    if (usage.estimatedBoxCount != null && usage.cumulativePieces > usage.estimatedBoxCount) {
-      lines.push(
-        `Lượng hàng inbound lũy kế (${usage.cumulativePieces.toLocaleString(
-          'vi-VN'
-        )} cái) đã vượt ${usage.boxUtilizationPercent}% ước tính hợp đồng (${usage.estimatedBoxCount.toLocaleString(
-          'vi-VN'
-        )} cái/tháng). Cân nhắc yêu cầu tenant mở rộng hợp đồng hoặc tạo rental request bổ sung trước khi duyệt.`
-      );
-    }
-    if (usage.estimatedSkuCount != null && usage.distinctSkus > usage.estimatedSkuCount) {
-      lines.push(
-        `Số SKU đang dùng (${usage.distinctSkus}) vượt ${usage.skuUtilizationPercent}% so với estimate (${usage.estimatedSkuCount}).`
-      );
-    }
-  } else if (usage.severity === 'soft') {
-    if (usage.estimatedBoxCount != null) {
-      lines.push(
-        `Lượng inbound lũy kế đã đạt ${usage.boxUtilizationPercent}% estimate (${usage.cumulativePieces.toLocaleString(
-          'vi-VN'
-        )}/${usage.estimatedBoxCount.toLocaleString(
-          'vi-VN'
-        )} cái). Có thể duyệt nhưng nên thông báo cho tenant để cập nhật quy mô.`
-      );
-    }
-  } else if (usage.severity === 'near') {
-    if (usage.estimatedBoxCount != null) {
-      lines.push(
-        `Sắp chạm trần estimate: ${usage.boxUtilizationPercent}% (${usage.cumulativePieces.toLocaleString(
-          'vi-VN'
-        )}/${usage.estimatedBoxCount.toLocaleString('vi-VN')} cái).`
-      );
-    }
-  }
-
-  return lines;
+  const types = result.rows.map((row) => row.zone_type).filter(Boolean);
+  return types.length ? types : ['SHARED'];
 }
 
 export async function getInboundApprovalReadiness(inboundRequestId) {
@@ -495,73 +382,48 @@ export async function getInboundApprovalReadiness(inboundRequestId) {
   const inbound = await getInboundRequest(id);
   const items = await InboundRequestItem.findAll({ inboundRequestId: id });
   const batches = await Batch.findAll({ inboundRequestId: id });
-  const estimateUsage = await getRentalEstimateUsage(inbound.contractId, id);
 
   const totalExpectedPieces = items.reduce(
     (sum, item) => sum + Number(item.expectedQuantity ?? 0),
     0
   );
 
-  const boxTypeCapacity = await queryBoxTypeCapacity(inbound.warehouseId);
+  const [boxTypeCapacity, contractZoneTypes] = await Promise.all([
+    queryBoxTypeCapacity(inbound.warehouseId),
+    queryContractZoneTypes(inbound.contractId, inbound.warehouseId),
+  ]);
   const byType = boxTypeCapacity.byType ?? {};
 
-  const piecesPerLpnForBoxType = (boxType) => {
-    const volumeUnits = BOX_VOLUME_UNITS[boxType] ?? DEFAULT_VOLUME_UNITS_PER_LPN;
-    // Heuristic: bigger carton holds more pieces (ước tính để suggest “extra” khi hàng nhiều).
-    const ratio = volumeUnits / DEFAULT_VOLUME_UNITS_PER_LPN;
-    return Math.max(1, Math.round(DEFAULT_PIECES_PER_LPN * ratio));
+  const assumedBoxType = pickLargestBoxTypeForZoneTypes(contractZoneTypes);
+
+  const skuCache = new Map();
+  for (const item of items) {
+    if (!skuCache.has(item.skuId)) {
+      skuCache.set(item.skuId, await getSku(item.skuId));
+    }
+  }
+
+  const assumedCandidate = byType[assumedBoxType] ?? {
+    candidateBins: 0,
+    totalFreeLpnSlots: 0,
+    totalFreeVolumeUnits: 0,
+    volumeUnits: BOX_VOLUME_UNITS[assumedBoxType] ?? DEFAULT_VOLUME_UNITS_PER_LPN,
   };
+  const assumedVolumeUnitsPerLpn =
+    assumedCandidate.volumeUnits ??
+    BOX_VOLUME_UNITS[assumedBoxType] ??
+    DEFAULT_VOLUME_UNITS_PER_LPN;
 
-  const evaluate = (boxType) => {
-    const cand = byType[boxType] ?? {
-      candidateBins: 0,
-      totalFreeLpnSlots: 0,
-      totalFreeVolumeUnits: 0,
-      volumeUnits: BOX_VOLUME_UNITS[boxType] ?? DEFAULT_VOLUME_UNITS_PER_LPN,
-    };
-    const piecesPerLpn = piecesPerLpnForBoxType(boxType);
-    const volumeUnitsPerLpn = cand.volumeUnits;
-    const estimatedLpnNeeded =
-      totalExpectedPieces > 0 ? Math.ceil(totalExpectedPieces / piecesPerLpn) : 0;
-    const estimatedVolumeUnitsNeeded = estimatedLpnNeeded * volumeUnitsPerLpn;
-
-    const sufficientLpnSlots = cand.totalFreeLpnSlots >= estimatedLpnNeeded;
-    const sufficientVolume = cand.totalFreeVolumeUnits >= estimatedVolumeUnitsNeeded;
-    const sufficient = sufficientLpnSlots && sufficientVolume;
-
-    const scoreLpn = estimatedLpnNeeded > 0 ? cand.totalFreeLpnSlots / estimatedLpnNeeded : 0;
-    const scoreVol =
-      estimatedVolumeUnitsNeeded > 0 ? cand.totalFreeVolumeUnits / estimatedVolumeUnitsNeeded : 0;
-    const score = (scoreLpn + scoreVol) / 2;
-
-    return {
-      boxType,
-      piecesPerLpn,
-      volumeUnitsPerLpn,
-      estimatedLpnNeeded,
-      estimatedVolumeUnitsNeeded,
-      candidateBins: cand.candidateBins ?? 0,
-      cand,
-      sufficient,
-      score,
-    };
-  };
-
-  const evaluations = BOX_TYPE.map((t) => evaluate(t));
-  const best = evaluations.sort((a, b) => {
-    if (a.sufficient !== b.sufficient) return a.sufficient ? -1 : 1;
-    if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
-    if ((a.estimatedLpnNeeded ?? 0) !== (b.estimatedLpnNeeded ?? 0))
-      return (a.estimatedLpnNeeded ?? 0) - (b.estimatedLpnNeeded ?? 0);
-    return (b.candidateBins ?? 0) - (a.candidateBins ?? 0);
-  })[0];
-
-  const assumedBoxType = best?.boxType ?? 'MEDIUM';
-  const assumedPiecesPerLpn = best?.piecesPerLpn ?? DEFAULT_PIECES_PER_LPN;
-  const assumedVolumeUnitsPerLpn = best?.volumeUnitsPerLpn ?? DEFAULT_VOLUME_UNITS_PER_LPN;
-  const estimatedLpnNeeded = best?.estimatedLpnNeeded ?? 0;
-  const estimatedVolumeUnitsNeeded = best?.estimatedVolumeUnitsNeeded ?? 0;
-  const assumedCandidate = best?.cand ?? byType[assumedBoxType] ?? {};
+  const lpnEstimate = await computeInboundLpnEstimate(items, skuCache, assumedBoxType);
+  const {
+    estimatedLpnNeeded,
+    estimatedVolumeUnitsNeeded,
+    piecesPerLpn: assumedPiecesPerLpn,
+    totalVolumeUnitsFromPieces,
+    volumeBasedEstimate,
+    boxAllocation = [],
+    avgVolumeUnitsPerPiece = 0,
+  } = lpnEstimate;
 
   const warehouseStorage = await queryWarehousePutawayCapacity(inbound.warehouseId);
   const pricing = await computePricingEstimate(inbound, assumedBoxType, estimatedLpnNeeded);
@@ -574,8 +436,12 @@ export async function getInboundApprovalReadiness(inboundRequestId) {
         )
       : 0;
 
-  const sufficientLpnSlots = assumedCandidate.totalFreeLpnSlots >= estimatedLpnNeeded;
-  const sufficientVolume = assumedCandidate.totalFreeVolumeUnits >= estimatedVolumeUnitsNeeded;
+  const sufficientLpnSlots =
+    warehouseStorage.freeLpnSlots >= estimatedLpnNeeded ||
+    assumedCandidate.totalFreeLpnSlots >= estimatedLpnNeeded;
+  const sufficientVolume =
+    warehouseStorage.freeVolumeUnits >= estimatedVolumeUnitsNeeded ||
+    assumedCandidate.totalFreeVolumeUnits >= estimatedVolumeUnitsNeeded;
   const sufficient = sufficientLpnSlots && sufficientVolume;
 
   const warnings = [];
@@ -613,9 +479,6 @@ export async function getInboundApprovalReadiness(inboundRequestId) {
     warnings.push('Không có bin EMPTY/PARTIAL khả dụng trong kho.');
   }
 
-  const estimateWarnings = buildEstimateWarnings(estimateUsage);
-  for (const w of estimateWarnings) warnings.push(w);
-
   const batchCount = batches.length;
   const status = inbound.status;
 
@@ -645,14 +508,19 @@ export async function getInboundApprovalReadiness(inboundRequestId) {
       boxType: assumedBoxType,
       binMaxLpnCount: DEFAULT_BIN_MAX_LPN_COUNT,
       binMaxVolumeUnits: DEFAULT_BIN_MAX_VOLUME_UNITS,
+      totalVolumeUnitsFromPieces: totalVolumeUnitsFromPieces ?? 0,
+      volumeBasedEstimate: Boolean(volumeBasedEstimate),
+      avgVolumeUnitsPerPiece: avgVolumeUnitsPerPiece ?? 0,
     },
+    boxAllocation,
     estimatedBinsNeeded,
     boxTypeCapacity: boxTypeCapacity.byType,
     boxTypeSuggestion: {
       recommendedBoxType: assumedBoxType,
-      reason: best?.sufficient
-        ? `Ước tính dùng ~${estimatedLpnNeeded} LPN với giả định ~${assumedPiecesPerLpn} cái/thùng. Loại thùng này vẫn đủ slot LPN & volume cho boxType.`
-        : `Đề xuất ${assumedBoxType} vì giả định ~${assumedPiecesPerLpn} cái/thùng giúp cần ít LPN hơn; có thể thiếu slot LPN/volume cho loại thùng này.`,
+      reason: volumeBasedEstimate
+        ? `Tổng ${totalVolumeUnitsFromPieces} U — gợi ý đóng thùng theo phân bổ bên dưới (${estimatedLpnNeeded} LPN).`
+        : `Ước tính ${assumedBoxType} theo công thức cũ (~${assumedPiecesPerLpn} cái/thùng, ${estimatedLpnNeeded} LPN) — SKU thiếu loại hàng/size.`,
+      contractZoneTypes,
     },
     estimatedLpnNeeded,
     estimatedVolumeUnitsNeeded,
@@ -671,7 +539,6 @@ export async function getInboundApprovalReadiness(inboundRequestId) {
       estimatedTotalCost: pricing.hasPricing ? estimatedOneTimeOpsCost : null,
     },
     warnings,
-    estimateUsage,
     batchCount,
     canRevokeApproval: status === 'APPROVED' && batchCount === 0,
     canWarehouseCancel: ['PENDING', 'APPROVED', 'ARRIVED'].includes(status),

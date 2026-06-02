@@ -153,7 +153,12 @@ const spec = {
       '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
       '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/guest/lookup` — public (guest onboarding)',
   },
-  servers: [{ url: 'http://localhost:3000', description: 'Local development' }],
+  servers: [
+    {
+      url: 'http://127.0.0.1:3000',
+      description: 'Local development (Windows: không dùng localhost:3000)',
+    },
+  ],
   tags: [
     { name: 'System', description: 'Health check' },
     { name: 'Auth', description: 'Login' },
@@ -178,6 +183,11 @@ const spec = {
     { name: 'RentalRequest', description: 'Flow 1 — Guest gửi yêu cầu thuê theo city/district; WH claim khi approve' },
     { name: 'TenantCompany', description: 'Flow 1 — Tenant company (bước 1 guest onboarding)' },
     { name: 'Contract', description: 'Tenant contracts (Flow 1)' },
+    {
+      name: 'PayOS',
+      description:
+        'Thanh toán invoice HĐ qua PayOS. Test Swagger: login → `POST .../payos/create-link` → mở `checkoutUrl`. Webhook `POST /payos/webhook` do PayOS gọi (không test body rỗng trên Swagger).',
+    },
     { name: 'ContractItem', description: 'Contract line items (Flow 1)' },
     { name: 'StorageReservation', description: 'Storage reservations (Flow 1)' },
   ],
@@ -1548,7 +1558,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
+            enum: ['MONTHLY', 'YEARLY'],
             nullable: true,
           },
           allowDynamicRelocation: { type: 'boolean' },
@@ -1563,6 +1573,7 @@ const spec = {
             enum: [
               'DRAFT',
               'PENDING_APPROVAL',
+              'PENDING_PAYMENT',
               'ACTIVE',
               'EXPIRED',
               'TERMINATED',
@@ -1610,7 +1621,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
+            enum: ['MONTHLY', 'YEARLY'],
             default: 'MONTHLY',
           },
           allowDynamicRelocation: { type: 'boolean', default: true },
@@ -1625,6 +1636,7 @@ const spec = {
             enum: [
               'DRAFT',
               'PENDING_APPROVAL',
+              'PENDING_PAYMENT',
               'ACTIVE',
               'EXPIRED',
               'TERMINATED',
@@ -1641,10 +1653,11 @@ const spec = {
       ContractUpdate: {
         type: 'object',
         description:
-          'Workflow ký HĐ:\n' +
+          'Workflow ký HĐ + PayOS:\n' +
           '- Submit: `{ status: PENDING_APPROVAL }`\n' +
-          '- Tenant ký: `{ tenantSignature }`\n' +
-          '- Warehouse ký + active: `{ warehouseSignature, approvedBy, status: ACTIVE }`\n' +
+          '- Tenant ký: `{ tenantSignature }` → `PENDING_PAYMENT` + invoice INITIAL\n' +
+          '- Thanh toán: `POST .../payos/create-link` → PayOS → webhook → `ACTIVE`\n' +
+          '- Dev ghi nhận tay: `POST .../mark-paid` (không qua PayOS)\n' +
           '- Huỷ/kết thúc: `{ status: TERMINATED }` hoặc `{ status: CANCELLED }`',
         properties: {
           contractName: { type: 'string' },
@@ -1663,7 +1676,7 @@ const spec = {
           },
           billingCycle: {
             type: 'string',
-            enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
+            enum: ['MONTHLY', 'YEARLY'],
           },
           allowDynamicRelocation: { type: 'boolean' },
           autoRenew: { type: 'boolean' },
@@ -1677,6 +1690,7 @@ const spec = {
             enum: [
               'DRAFT',
               'PENDING_APPROVAL',
+              'PENDING_PAYMENT',
               'ACTIVE',
               'EXPIRED',
               'TERMINATED',
@@ -1686,6 +1700,102 @@ const spec = {
           tenantSignature: { type: 'string' },
           warehouseSignature: { type: 'string' },
           approvedBy: uuid,
+        },
+      },
+
+      ContractInvoice: {
+        type: 'object',
+        properties: {
+          invoiceId: uuid,
+          tenantId: uuid,
+          contractId: uuid,
+          invoiceCode: { type: 'string', example: 'INV-M2ABC-01' },
+          billingStartDate: { type: 'string', format: 'date' },
+          billingEndDate: { type: 'string', format: 'date' },
+          subtotal: { type: 'number', nullable: true },
+          tax: { type: 'number', nullable: true },
+          totalAmount: { type: 'number', nullable: true },
+          paymentStatus: {
+            type: 'string',
+            enum: ['PENDING', 'PAID', 'OVERDUE', 'CANCELLED'],
+          },
+          invoiceCategory: {
+            type: 'string',
+            enum: ['INITIAL', 'RECURRING_RENT', 'OPERATIONAL', 'TERMINATION_SETTLEMENT'],
+            nullable: true,
+          },
+          issuedAt: { type: 'string', format: 'date-time', nullable: true },
+          dueDate: { type: 'string', format: 'date-time', nullable: true },
+          ...timestamps,
+        },
+      },
+      PayOSCreateLinkRequest: {
+        type: 'object',
+        properties: {
+          returnUrl: {
+            type: 'string',
+            format: 'uri',
+            description: 'Optional — mặc định FE /staff/contracts/payment/return',
+          },
+          cancelUrl: {
+            type: 'string',
+            format: 'uri',
+            description: 'Optional — mặc định FE /staff/contracts/payment/cancel',
+          },
+        },
+      },
+      PayOSPaymentLink: {
+        type: 'object',
+        properties: {
+          orderCode: { type: 'integer', example: 1717334400123 },
+          amount: { type: 'integer', example: 10000000 },
+          checkoutUrl: {
+            type: 'string',
+            format: 'uri',
+            description: 'Mở URL này trên trình duyệt để thanh toán PayOS',
+          },
+          paymentLinkId: { type: 'string', nullable: true },
+          returnUrl: { type: 'string', format: 'uri' },
+          cancelUrl: { type: 'string', format: 'uri' },
+          invoiceId: uuid,
+          contractId: uuid,
+          reusedExistingLink: {
+            type: 'boolean',
+            description:
+              'true khi trả lại link PayOS đã tạo (bấm lại nút thanh toán, không tạo order mới)',
+          },
+        },
+      },
+      ContractTerminationPreview: {
+        type: 'object',
+        properties: {
+          contractId: uuid,
+          contractStatus: { type: 'string' },
+          billingCycle: { type: 'string', enum: ['MONTHLY', 'YEARLY'] },
+          hasInbound: { type: 'boolean' },
+          totalPaid: { type: 'number' },
+          monthlyRate: { type: 'number' },
+          contractMonths: { type: 'integer' },
+          usedMonths: { type: 'integer' },
+          unusedMonths: { type: 'integer' },
+          processingFee: { type: 'number' },
+          terminationFee: { type: 'number' },
+          refundAmount: { type: 'number' },
+          processingRatePercent: { type: 'number', nullable: true },
+        },
+      },
+      ContractTerminationRequestCreate: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string' },
+          requestedBy: { ...uuid, description: 'Optional user UUID' },
+        },
+      },
+      PayOSWebhookPing: {
+        type: 'object',
+        properties: {
+          ok: { type: 'boolean', example: true },
+          path: { type: 'string', example: '/api/payos/webhook' },
         },
       },
 
@@ -4318,6 +4428,7 @@ const spec = {
               enum: [
                 'DRAFT',
                 'PENDING_APPROVAL',
+                'PENDING_PAYMENT',
                 'ACTIVE',
                 'EXPIRED',
                 'TERMINATED',
@@ -4408,6 +4519,172 @@ const spec = {
           ),
           400: stdErrors[400],
           404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/contracts/{contractId}/invoices': {
+      get: {
+        tags: ['PayOS'],
+        summary: 'List invoices of contract',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({
+            type: 'array',
+            items: { $ref: '#/components/schemas/ContractInvoice' },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/invoices/{invoiceId}/payos/create-link': {
+      post: {
+        tags: ['PayOS'],
+        summary: 'Create PayOS checkout link (test thanh toán trên Swagger)',
+        description:
+          'HĐ `PENDING_PAYMENT`, invoice INITIAL `PENDING`. Response `checkoutUrl` — mở tab thanh toán. Gọi lại endpoint trả cùng link nếu đơn PayOS đã tồn tại (`reusedExistingLink: true`). Sau khi trả, webhook → HĐ `ACTIVE`.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'invoiceId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/PayOSCreateLinkRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/PayOSPaymentLink' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          503: {
+            description: 'PayOS chưa cấu hình (.env)',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+        },
+      },
+    },
+    '/api/contracts/{contractId}/invoices/{invoiceId}/mark-paid': {
+      post: {
+        tags: ['PayOS'],
+        summary: 'Mark invoice paid manually (dev / không qua PayOS)',
+        description:
+          'Bỏ qua cổng PayOS — invoice INITIAL `PAID`, HĐ `PENDING_PAYMENT` → `ACTIVE`. Dùng khi chưa có ngrok/webhook.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'invoiceId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              invoice: { $ref: '#/components/schemas/ContractInvoice' },
+              contract: { $ref: '#/components/schemas/Contract' },
+            },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/termination/preview': {
+      get: {
+        tags: ['PayOS'],
+        summary: 'Preview contract termination fees / refund',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractTerminationPreview' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/termination/request': {
+      post: {
+        tags: ['PayOS'],
+        summary: 'Request early contract termination',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractTerminationRequestCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({
+            type: 'object',
+            properties: {
+              request: { type: 'object' },
+              settlement: { $ref: '#/components/schemas/ContractTerminationPreview' },
+            },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+
+    '/api/payos/webhook': {
+      get: {
+        tags: ['PayOS'],
+        summary: 'Webhook ping (kiểm tra URL / ngrok)',
+        description: 'Public — không cần JWT. Dùng kiểm tra tunnel: phải trả `ok: true`.',
+        responses: {
+          200: {
+            description: 'Webhook reachable',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/PayOSWebhookPing' },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ['PayOS'],
+        summary: 'PayOS payment webhook (PayOS server → BE)',
+        description:
+          '**Không test trên Swagger** (body rỗng → 400). PayOS gọi sau thanh toán. Dev: `npm run payos:test-webhook`.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Payload có code, desc, success, data, signature từ PayOS',
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Webhook accepted',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    data: { type: 'object' },
+                  },
+                },
+              },
+            },
+          },
+          400: stdErrors[400],
         },
       },
     },

@@ -44,6 +44,10 @@ export const invoiceSchema = {
     type: 'string',
     required: false,
   },
+  invoiceCategory: {
+    type: 'string',
+    required: false,
+  },
   issuedAt: {
     type: 'datetime',
     required: false,

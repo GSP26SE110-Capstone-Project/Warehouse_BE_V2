@@ -16,3 +16,15 @@ export function buildLoginUrl() {
 export function buildAdminContractsUrl() {
   return `${getFrontendBaseUrl()}/admin/contract`;
 }
+
+export function buildTenantInboundUrl(inboundRequestId) {
+  return `${getFrontendBaseUrl()}/staff/inbound/${inboundRequestId}`;
+}
+
+export function buildWhAdminInboundUrl(inboundRequestId) {
+  return `${getFrontendBaseUrl()}/admin/inbound/${inboundRequestId}`;
+}
+
+export function buildTransporterTripUrl(inboundRequestId) {
+  return `${getFrontendBaseUrl()}/staff/my-deliveries/${inboundRequestId}`;
+}

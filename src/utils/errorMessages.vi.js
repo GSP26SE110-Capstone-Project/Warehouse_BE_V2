@@ -117,6 +117,8 @@ const EXACT = Object.freeze({
   'Use transporter delivery update for this role': 'Vui lòng dùng luồng cập nhật dành cho tài xế',
   'Transporter cannot reassign driver': 'Tài xế không thể tự gán lại người khác',
   'WH_TRANSPORTER only': 'Chỉ tài xế kho mới thực hiện được thao tác này',
+  'Warehouse transport arrivals must be reported by the assigned transporter':
+    'Inbound kho đi lấy hàng — chỉ tài xế được gán mới báo xe đã đến',
   'assignedToMe requires WH_TRANSPORTER': 'Chỉ tài xế kho mới dùng được bộ lọc assignedToMe',
   'SYSTEM_ADMIN only': 'Chỉ System Admin mới thực hiện được thao tác này',
   'Cannot reactivate blocked user': 'Không thể kích hoạt lại tài khoản đã bị khóa',

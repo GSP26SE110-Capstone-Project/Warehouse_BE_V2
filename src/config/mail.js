@@ -212,7 +212,7 @@ export async function sendTenantAdminWelcomeEmail({
 }
 
 /**
- * WH Admin — tenant vừa ký hợp đồng, HĐ chuyển ACTIVE.
+ * WH Admin — tenant vừa ký hợp đồng, chờ thanh toán invoice đầu.
  */
 export async function sendContractSignedByTenantEmail({
   to,
@@ -242,7 +242,7 @@ export async function sendContractSignedByTenantEmail({
       <p>Xin chào <strong>${safeWhName}</strong>,</p>
       <p>
         <strong>${safeTenant}</strong> vừa ký hợp đồng thuê kho. Hợp đồng đã chuyển sang trạng thái
-        <strong style="color: #059669">ACTIVE</strong> — tenant có thể tạo yêu cầu nhập kho.
+        <strong style="color: #d97706">Chờ thanh toán invoice đầu</strong> — sau khi trả, HĐ ACTIVE và mở inbound.
       </p>
       <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
         <p style="margin: 0 0 8px"><strong>Thông tin hợp đồng</strong></p>
@@ -266,7 +266,7 @@ export async function sendContractSignedByTenantEmail({
   const text = [
     `Xin chào ${whAdminName || 'Warehouse Admin'},`,
     '',
-    `${tenantName || 'Tenant'} vừa ký hợp đồng ${contractCode || ''}. HĐ đã ACTIVE.`,
+    `${tenantName || 'Tenant'} vừa ký hợp đồng ${contractCode || ''}. Chờ thanh toán invoice đầu (PENDING_PAYMENT).`,
     '',
     `Kho: ${warehouseName || ''}`,
     `Thời hạn: ${startDate} → ${endDate}`,
@@ -278,6 +278,271 @@ export async function sendContractSignedByTenantEmail({
     from: FROM_ADDRESS,
     to,
     subject: `Tenant đã ký HĐ ${contractCode || ''} — NEXSPACE Smart Warehouse`,
+    text,
+    html,
+  });
+}
+
+/**
+ * WH Admin — tenant đã thanh toán invoice đầu (PayOS), HĐ ACTIVE.
+ */
+export async function sendContractInitialPaymentReceivedEmail({
+  to,
+  whAdminName,
+  tenantName,
+  contractCode,
+  contractName,
+  warehouseName,
+  warehouseCode,
+  invoiceCode,
+  amountPaid,
+  paidAt,
+  contractsUrl,
+}) {
+  assertMailConfigured();
+
+  const safeWhName = escapeHtml(whAdminName || 'Warehouse Admin');
+  const safeTenant = escapeHtml(tenantName || 'Tenant');
+  const safeCode = escapeHtml(contractCode || '—');
+  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
+  const safeInvoice = escapeHtml(invoiceCode || '—');
+  const safeAmount = escapeHtml(amountPaid || '—');
+  const safePaidAt = escapeHtml(paidAt || '—');
+  const safeWarehouse = escapeHtml(
+    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : 'kho'
+  );
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Tenant đã thanh toán invoice đầu</h2>
+      <p>Xin chào <strong>${safeWhName}</strong>,</p>
+      <p>
+        <strong>${safeTenant}</strong> vừa thanh toán thành công invoice đầu qua PayOS.
+        Hợp đồng đã chuyển sang <strong style="color: #059669">ACTIVE</strong> — tenant có thể tạo yêu cầu nhập kho.
+      </p>
+      <div style="background: #ecfdf5; border-radius: 8px; padding: 16px; margin: 20px 0; border: 1px solid #a7f3d0">
+        <p style="margin: 0 0 8px"><strong>Chi tiết thanh toán</strong></p>
+        <p style="margin: 4px 0">Mã HĐ: <code>${safeCode}</code></p>
+        <p style="margin: 4px 0">Tên: ${safeTitle}</p>
+        <p style="margin: 4px 0">Kho: ${safeWarehouse}</p>
+        <p style="margin: 4px 0">Invoice: <code>${safeInvoice}</code></p>
+        <p style="margin: 4px 0">Số tiền: <strong>${safeAmount}</strong></p>
+        <p style="margin: 4px 0">Thời điểm: ${safePaidAt}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(contractsUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem quản lý hợp đồng
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${whAdminName || 'Warehouse Admin'},`,
+    '',
+    `${tenantName || 'Tenant'} đã thanh toán invoice đầu cho HĐ ${contractCode || ''}. HĐ đã ACTIVE.`,
+    '',
+    `Invoice: ${invoiceCode || ''}`,
+    `Số tiền: ${amountPaid || ''}`,
+    `Thời điểm: ${paidAt || ''}`,
+    '',
+    `Xem hợp đồng: ${contractsUrl}`,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Đã thanh toán HĐ ${contractCode || ''} — HĐ ACTIVE — NEXSPACE`,
+    text,
+    html,
+  });
+}
+
+/** Tenant admin — kho đã gán tài xế cho inbound (kho đi lấy hàng). */
+export async function sendInboundTransportAssignedEmail({
+  to,
+  tenantAdminName,
+  inboundCode,
+  expectedArrivalDate,
+  driverName,
+  driverPhone,
+  vehiclePlate,
+  pickupAddress,
+  pickupContactName,
+  pickupContactPhone,
+  warehouseName,
+  warehouseAddress,
+  inboundUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Kho đã gán tài xế lấy hàng</h2>
+      <p>Xin chào <strong>${escapeHtml(tenantAdminName || 'Tenant Admin')}</strong>,</p>
+      <p>
+        Yêu cầu nhập kho <strong>${escapeHtml(inboundCode)}</strong> đã có tài xế kho được gán.
+        Tài xế sẽ đến điểm lấy hàng theo thông tin bạn đã cung cấp.
+      </p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Tài xế / xe</strong></p>
+        <p style="margin: 4px 0">Tài xế: ${escapeHtml(driverName)}</p>
+        <p style="margin: 4px 0">SĐT: ${escapeHtml(driverPhone)}</p>
+        <p style="margin: 4px 0">Biển số: ${escapeHtml(vehiclePlate)}</p>
+        <p style="margin: 4px 0">Dự kiến: ${escapeHtml(expectedArrivalDate)}</p>
+      </div>
+      <div style="background: #ecfdf5; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Điểm lấy hàng (của bạn)</strong></p>
+        <p style="margin: 4px 0">${escapeHtml(pickupAddress)}</p>
+        <p style="margin: 4px 0">Liên hệ: ${escapeHtml(pickupContactName)} · ${escapeHtml(pickupContactPhone)}</p>
+      </div>
+      <div style="background: #eff6ff; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Đích — kho nhận hàng</strong></p>
+        <p style="margin: 4px 0">${escapeHtml(warehouseName)}</p>
+        <p style="margin: 4px 0">${escapeHtml(warehouseAddress || '—')}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(inboundUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem chi tiết inbound
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
+    '',
+    `Inbound ${inboundCode} đã được gán tài xế: ${driverName}, ${driverPhone}, biển số ${vehiclePlate}.`,
+    `Điểm lấy: ${pickupAddress}. Liên hệ: ${pickupContactName} ${pickupContactPhone}.`,
+    `Kho đích: ${warehouseName} — ${warehouseAddress || ''}.`,
+    '',
+    inboundUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Đã gán tài xế cho ${inboundCode} — NEXSPACE Smart Warehouse`,
+    text,
+    html,
+  });
+}
+
+/** WH Admin — tài xế báo xe đã đến cổng kho (inbound kho đi lấy). */
+export async function sendInboundArrivalWhAdminEmail({
+  to,
+  whAdminName,
+  inboundCode,
+  actualArrivalAt,
+  driverName,
+  driverPhone,
+  vehiclePlate,
+  companyName,
+  warehouseName,
+  inboundUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Xe đã đến cổng kho</h2>
+      <p>Xin chào <strong>${escapeHtml(whAdminName || 'WH Admin')}</strong>,</p>
+      <p>
+        Tài xế đã báo xe tới kho cho inbound <strong>${escapeHtml(inboundCode)}</strong>
+        (tenant: ${escapeHtml(companyName)}).
+        Bạn có thể chuyển sang bước nhận hàng.
+      </p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 4px 0">Thời điểm: ${escapeHtml(actualArrivalAt)}</p>
+        <p style="margin: 4px 0">Tài xế: ${escapeHtml(driverName)} · ${escapeHtml(driverPhone)}</p>
+        <p style="margin: 4px 0">Biển số: ${escapeHtml(vehiclePlate)}</p>
+        <p style="margin: 4px 0">Kho: ${escapeHtml(warehouseName)}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(inboundUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem inbound
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xe đã đến kho — inbound ${inboundCode} (${companyName}).`,
+    `Thời điểm: ${actualArrivalAt}. Tài xế: ${driverName}, ${driverPhone}, biển số ${vehiclePlate}.`,
+    inboundUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Xe đã đến kho — ${inboundCode}`,
+    text,
+    html,
+  });
+}
+
+/** Tenant admin — hàng đã tới cổng kho (tài xế kho báo đến). */
+export async function sendInboundArrivalTenantEmail({
+  to,
+  tenantAdminName,
+  inboundCode,
+  actualArrivalAt,
+  driverName,
+  vehiclePlate,
+  warehouseName,
+  warehouseAddress,
+  inboundUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Hàng đã tới kho</h2>
+      <p>Xin chào <strong>${escapeHtml(tenantAdminName || 'Tenant Admin')}</strong>,</p>
+      <p>
+        Tài xế kho đã báo xe mang hàng inbound <strong>${escapeHtml(inboundCode)}</strong>
+        đã tới cổng kho. Kho sẽ tiến hành nhận và kiểm đếm.
+      </p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 4px 0">Thời điểm: ${escapeHtml(actualArrivalAt)}</p>
+        <p style="margin: 4px 0">Tài xế: ${escapeHtml(driverName)} · ${escapeHtml(vehiclePlate)}</p>
+        <p style="margin: 4px 0">Kho: ${escapeHtml(warehouseName)}</p>
+        <p style="margin: 4px 0">${escapeHtml(warehouseAddress || '—')}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(inboundUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem chi tiết inbound
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Hàng inbound ${inboundCode} đã tới kho lúc ${actualArrivalAt}.`,
+    `Tài xế: ${driverName}, biển số ${vehiclePlate}. Kho: ${warehouseName}.`,
+    inboundUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Hàng đã tới kho — ${inboundCode}`,
     text,
     html,
   });

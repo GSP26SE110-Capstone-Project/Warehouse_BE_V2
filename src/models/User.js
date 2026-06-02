@@ -32,6 +32,18 @@ export const userSchema = {
     type: 'string',
     required: false,
   },
+  defaultVehiclePlate: {
+    type: 'string',
+    required: false,
+  },
+  defaultDriverIdNumber: {
+    type: 'string',
+    required: false,
+  },
+  defaultCarrierName: {
+    type: 'string',
+    required: false,
+  },
   role: {
     type: 'string',
     required: true,
