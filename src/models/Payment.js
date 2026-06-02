@@ -26,6 +26,14 @@ export const paymentSchema = {
     type: 'string',
     required: false,
   },
+  payosOrderCode: {
+    type: 'number',
+    required: false,
+  },
+  payosPaymentLinkId: {
+    type: 'string',
+    required: false,
+  },
   paidAt: {
     type: 'datetime',
     required: false,

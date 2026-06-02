@@ -42,6 +42,7 @@ function mapItemRow(row) {
         skuId: row.sku_id,
         skuCode: row.sku_code,
         productName: row.product_name,
+        productKind: row.product_kind ?? null,
         color: row.color,
         size: row.size,
       }
@@ -138,7 +139,7 @@ export async function getInboundRequestItemWithSku(inboundRequestItemId) {
   const result = await pool.query(
     `SELECT i.inbound_request_item_id, i.inbound_request_id, i.sku_id,
             i.expected_quantity, i.received_quantity, i.discrepancy_quantity, i.created_at,
-            s.sku_code, s.product_name, s.color, s.size
+            s.sku_code, s.product_name, s.product_kind, s.color, s.size
      FROM inbound_request_items i
      INNER JOIN skus s ON s.sku_id = i.sku_id
      WHERE i.inbound_request_item_id = $1`,
@@ -168,7 +169,7 @@ export async function listInboundRequestItems(inboundRequestId, { page, limit, o
     pool.query(
       `SELECT i.inbound_request_item_id, i.inbound_request_id, i.sku_id,
               i.expected_quantity, i.received_quantity, i.discrepancy_quantity, i.created_at,
-              s.sku_code, s.product_name, s.color, s.size
+              s.sku_code, s.product_name, s.product_kind, s.color, s.size
        FROM inbound_request_items i
        INNER JOIN skus s ON s.sku_id = i.sku_id
        WHERE i.inbound_request_id = $1

@@ -4,12 +4,23 @@ import bodyParser from 'body-parser';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger.js';
 import apiRoutes from './routes/index.js';
+import asyncHandler from './middleware/asyncHandler.js';
+import * as payosController from './controllers/payos.controller.js';
 import notFound from './middleware/notFound.js';
 import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 
 app.use(cors());
+
+/** PayOS webhook — đăng ký trước bodyParser; PayOS gọi POST khi confirm + khi thanh toán. */
+app.get('/api/payos/webhook', asyncHandler(payosController.webhookPing));
+app.post(
+  '/api/payos/webhook',
+  express.json({ limit: '1mb' }),
+  asyncHandler(payosController.webhook)
+);
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 

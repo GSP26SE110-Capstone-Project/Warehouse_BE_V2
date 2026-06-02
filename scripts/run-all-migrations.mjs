@@ -34,6 +34,8 @@ const MIGRATION_FILES = [
   'scripts/sql/garment_category_product_kind_catalog.sql',
   'scripts/sql/size_factor_rental_product_lines.sql',
   'scripts/sql/skus_add_product_kind.sql',
+  'scripts/sql/contract_billing_termination.sql',
+  'scripts/sql/payos_payments.sql',
 ];
 
 console.log(`Running ${MIGRATION_FILES.length} migrations...\n`);

@@ -2,7 +2,7 @@ import OutboundRequest from '../models/OutboundRequest.js';
 import AppError from '../utils/AppError.js';
 import { OUTBOUND_STATUS } from '../constants/outbound.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
-import { getContract } from './contract.service.js';
+import { assertContractOperational } from './contract.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
 
@@ -59,20 +59,13 @@ function parseOptionalUserId(value, fieldName) {
 }
 
 async function assertContractForOutbound(tenantId, contractId, warehouseId) {
-  const contract = await getContract(contractId);
+  const contract = await assertContractOperational(contractId);
 
   if (contract.tenantId !== tenantId) {
     throw new AppError('contractId does not belong to this tenant', 400, 'VALIDATION_ERROR');
   }
   if (contract.warehouseId !== warehouseId) {
     throw new AppError('contractId does not belong to this warehouse', 400, 'VALIDATION_ERROR');
-  }
-  if (contract.status !== 'ACTIVE') {
-    throw new AppError(
-      'Contract must be ACTIVE to create an outbound request',
-      400,
-      'VALIDATION_ERROR'
-    );
   }
 
   return contract;

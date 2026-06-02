@@ -313,3 +313,45 @@ export async function deleteBin(binId) {
   }
   return deleted;
 }
+
+export async function deleteBinsBulk(body) {
+  const rawIds = body.binIds;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new AppError('binIds must be a non-empty array', 400, 'VALIDATION_ERROR');
+  }
+  if (rawIds.length > 500) {
+    throw new AppError('Maximum 500 bins per bulk request', 400, 'VALIDATION_ERROR');
+  }
+
+  const deleted = [];
+  const failed = [];
+
+  for (const rawId of rawIds) {
+    try {
+      const bin = await deleteBin(rawId);
+      deleted.push(bin);
+    } catch (err) {
+      failed.push({
+        binId: String(rawId),
+        message: err.message ?? 'Delete failed',
+        code: err.code,
+        statusCode: err.statusCode,
+      });
+    }
+  }
+
+  if (deleted.length === 0) {
+    const first = failed[0];
+    throw new AppError(
+      first?.message ?? 'No bins deleted',
+      first?.statusCode ?? 400,
+      first?.code ?? 'BULK_DELETE_FAILED'
+    );
+  }
+
+  return {
+    items: deleted,
+    meta: { deleted: deleted.length, failed: failed.length },
+    failed,
+  };
+}

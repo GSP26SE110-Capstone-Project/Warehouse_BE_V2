@@ -45,6 +45,11 @@ export async function createBulk(req, res) {
   created(res, result);
 }
 
+export async function removeBulk(req, res) {
+  const result = await binService.deleteBinsBulk(req.body);
+  success(res, result, 'Bulk delete completed');
+}
+
 export async function update(req, res) {
   const bin = await binService.updateBin(req.params.binId, req.body);
   success(res, bin, 'Updated successfully');

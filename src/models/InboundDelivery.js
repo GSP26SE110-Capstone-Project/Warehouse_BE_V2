@@ -43,6 +43,22 @@ export const inboundDeliverySchema = {
     type: 'string',
     required: false,
   },
+  pickupAddress: {
+    type: 'string',
+    required: false,
+  },
+  pickupContactName: {
+    type: 'string',
+    required: false,
+  },
+  pickupContactPhone: {
+    type: 'string',
+    required: false,
+  },
+  pickupNotes: {
+    type: 'string',
+    required: false,
+  },
   assignedDriverUserId: {
     type: 'string',
     required: false,
