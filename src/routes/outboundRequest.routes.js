@@ -1,10 +1,24 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
+import authenticate from '../middleware/authenticate.js';
+import AppError from '../utils/AppError.js';
 import * as outboundRequestController from '../controllers/outboundRequest.controller.js';
 
 const router = Router();
+const blockWhAdminCreate = (req, _res, next) => {
+  if (req.user?.role === 'WH_ADMIN') {
+    throw new AppError(
+      'Warehouse admin không được tạo outbound request',
+      403,
+      'FORBIDDEN'
+    );
+  }
+  next();
+};
 
-router.post('/', asyncHandler(outboundRequestController.create));
+router.use(authenticate);
+
+router.post('/', blockWhAdminCreate, asyncHandler(outboundRequestController.create));
 router.get('/', asyncHandler(outboundRequestController.list));
 router.get('/:outboundRequestId', asyncHandler(outboundRequestController.getById));
 router.patch('/:outboundRequestId', asyncHandler(outboundRequestController.update));

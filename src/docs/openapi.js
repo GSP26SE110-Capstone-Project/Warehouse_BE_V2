@@ -217,6 +217,8 @@ const spec = {
       description: 'Local development (Windows: không dùng localhost:3000)',
     },
   ],
+  // Default: mọi API dùng Bearer token trong Swagger (Authorize).
+  security: bearerSecurity,
   tags: [
     { name: 'System', description: 'Health check' },
     { name: 'Auth', description: 'Login' },

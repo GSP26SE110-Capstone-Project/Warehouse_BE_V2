@@ -1,15 +1,26 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
 import authenticate from '../middleware/authenticate.js';
+import AppError from '../utils/AppError.js';
 import * as inboundRequestController from '../controllers/inboundRequest.controller.js';
 import * as inboundRequestItemController from '../controllers/inboundRequestItem.controller.js';
 import * as inboundDeliveryController from '../controllers/inboundDelivery.controller.js';
 
 const router = Router();
+const blockWhAdminCreate = (req, _res, next) => {
+  if (req.user?.role === 'WH_ADMIN') {
+    throw new AppError(
+      'Warehouse admin không được tạo inbound request',
+      403,
+      'FORBIDDEN'
+    );
+  }
+  next();
+};
 
 router.use(authenticate);
 
-router.post('/', asyncHandler(inboundRequestController.create));
+router.post('/', blockWhAdminCreate, asyncHandler(inboundRequestController.create));
 router.get('/', asyncHandler(inboundRequestController.list));
 
 router.get(
