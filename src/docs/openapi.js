@@ -123,6 +123,64 @@ const timestamps = {
   updatedAt: { type: 'string', format: 'date-time', nullable: true },
 };
 
+// Synced with scripts/seed-locations.mjs so Swagger shows dropdowns.
+const SEEDED_CITIES = ['TP.HCM', 'Hà Nội'];
+const SEEDED_DISTRICTS = [
+  'Quận 1',
+  'Quận 2',
+  'Quận 3',
+  'Quận 4',
+  'Quận 5',
+  'Quận 6',
+  'Quận 7',
+  'Quận 8',
+  'Quận 9',
+  'Quận 10',
+  'Quận 11',
+  'Quận 12',
+  'Bình Thạnh',
+  'Bình Tân',
+  'Gò Vấp',
+  'Phú Nhuận',
+  'Tân Bình',
+  'Tân Phú',
+  'Thủ Đức',
+  'Hóc Môn',
+  'Củ Chi',
+  'Nhà Bè',
+  'Cần Giờ',
+  'Bình Chánh',
+  'Ba Đình',
+  'Hoàn Kiếm',
+  'Tây Hồ',
+  'Long Biên',
+  'Cầu Giấy',
+  'Đống Đa',
+  'Hai Bà Trưng',
+  'Hoàng Mai',
+  'Thanh Xuân',
+  'Hà Đông',
+  'Nam Từ Liêm',
+  'Bắc Từ Liêm',
+  'Sơn Tây',
+  'Ba Vì',
+  'Phúc Thọ',
+  'Đan Phượng',
+  'Hoài Đức',
+  'Quốc Oai',
+  'Thạch Thất',
+  'Chương Mỹ',
+  'Thanh Oai',
+  'Thường Tín',
+  'Phú Xuyên',
+  'Ứng Hòa',
+  'Mỹ Đức',
+  'Gia Lâm',
+  'Đông Anh',
+  'Sóc Sơn',
+  'Mê Linh',
+];
+
 const spec = {
   openapi: '3.0.0',
   info: {
@@ -4882,6 +4940,370 @@ const spec = {
           400: stdErrors[400],
           404: stdErrors[404],
         },
+      },
+    },
+
+    '/api/auth/reset-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Reset password bằng token',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['token', 'newPassword'],
+                properties: {
+                  token: { type: 'string' },
+                  newPassword: { type: 'string', minLength: 8 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ type: 'object' }, 'Password updated successfully'),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/admin/notifications/guest-account-alerts': {
+      get: {
+        tags: ['User'],
+        summary: 'SYSTEM_ADMIN: guest account alerts',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 403: stdErrors[403] },
+      },
+    },
+    '/api/admin/notifications/wh-pending-rentals': {
+      get: {
+        tags: ['Warehouse'],
+        summary: 'WH_ADMIN: pending rental alerts',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 403: stdErrors[403] },
+      },
+    },
+    '/api/admin/notifications/wh-pending-inbounds': {
+      get: {
+        tags: ['Warehouse'],
+        summary: 'WH_ADMIN: pending inbound alerts',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 403: stdErrors[403] },
+      },
+    },
+    '/api/admin/notifications/wh-arrived-inbounds': {
+      get: {
+        tags: ['Warehouse'],
+        summary: 'WH_ADMIN: arrived inbound alerts',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 403: stdErrors[403] },
+      },
+    },
+    '/api/admin/notifications/wh-contract-payments': {
+      get: {
+        tags: ['Contract'],
+        summary: 'WH_ADMIN: recent contract payment alerts',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 403: stdErrors[403] },
+      },
+    },
+    '/api/admin/notifications/transporter-trips': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'WH_TRANSPORTER: assigned trip alerts',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 403: stdErrors[403] },
+      },
+    },
+    '/api/admin/notifications/tenant-inbound-transport': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'TENANT_ADMIN: inbound transport alerts',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 403: stdErrors[403] },
+      },
+    },
+
+    '/api/locations': {
+      get: {
+        tags: ['System'],
+        summary: 'List city/district tree',
+        responses: { 200: successEnvelope({ type: 'array', items: { type: 'object' } }) },
+      },
+    },
+    '/api/locations/warehouses': {
+      get: {
+        tags: ['Warehouse'],
+        summary: 'List warehouses by city/district',
+        parameters: [
+          {
+            in: 'query',
+            name: 'city',
+            required: true,
+            schema: { type: 'string', enum: SEEDED_CITIES, example: 'TP.HCM' },
+          },
+          {
+            in: 'query',
+            name: 'district',
+            required: true,
+            schema: { type: 'string', enum: SEEDED_DISTRICTS, example: 'Quận 7' },
+          },
+        ],
+        responses: {
+          200: successEnvelope({ type: 'array', items: { type: 'object' } }),
+          400: stdErrors[400],
+        },
+      },
+    },
+
+    '/api/product-kinds': {
+      get: {
+        tags: ['Category'],
+        summary: 'List product kind catalog',
+        responses: { 200: successEnvelope({ type: 'array', items: { type: 'object' } }) },
+      },
+    },
+    '/api/product-kinds/tree': {
+      get: {
+        tags: ['Category'],
+        summary: 'Product kind tree',
+        responses: { 200: successEnvelope({ type: 'array', items: { type: 'object' } }) },
+      },
+    },
+    '/api/product-kinds/groups': {
+      get: {
+        tags: ['Category'],
+        summary: 'List product kind groups',
+        responses: { 200: successEnvelope({ type: 'array', items: { type: 'string' } }) },
+      },
+    },
+    '/api/product-kinds/{productKind}': {
+      get: {
+        tags: ['Category'],
+        summary: 'Get product kind by code',
+        parameters: [{ in: 'path', name: 'productKind', required: true, schema: { type: 'string' } }],
+        responses: { 200: successEnvelope({ type: 'object' }), 404: stdErrors[404] },
+      },
+    },
+    '/api/size-factors': {
+      get: {
+        tags: ['Category'],
+        summary: 'List size factor catalog',
+        responses: { 200: successEnvelope({ type: 'array', items: { type: 'object' } }) },
+      },
+    },
+    '/api/size-factors/{sizeGroup}': {
+      get: {
+        tags: ['Category'],
+        summary: 'Get size factors by group',
+        parameters: [{ in: 'path', name: 'sizeGroup', required: true, schema: { type: 'string' } }],
+        responses: { 200: successEnvelope({ type: 'array', items: { type: 'object' } }) },
+      },
+    },
+
+    '/api/zones/planning': {
+      get: {
+        tags: ['Zone'],
+        summary: 'Planning list for zones',
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'array', items: { type: 'object' } }) },
+      },
+    },
+    '/api/zones/bulk': {
+      post: {
+        tags: ['Zone'],
+        summary: 'Create zones in bulk',
+        security: bearerSecurity,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { type: 'object' } },
+          },
+        },
+        responses: { 201: successEnvelope({ type: 'array', items: { type: 'object' } }), 400: stdErrors[400] },
+      },
+    },
+    '/api/racks/bulk': {
+      post: {
+        tags: ['Rack'],
+        summary: 'Create racks in bulk',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 201: successEnvelope({ type: 'array', items: { type: 'object' } }), 400: stdErrors[400] },
+      },
+    },
+    '/api/bins/bulk': {
+      post: {
+        tags: ['Bin'],
+        summary: 'Create bins in bulk',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 201: successEnvelope({ type: 'array', items: { type: 'object' } }), 400: stdErrors[400] },
+      },
+    },
+    '/api/bins/bulk-delete': {
+      post: {
+        tags: ['Bin'],
+        summary: 'Bulk delete bins',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
+      },
+    },
+
+    '/api/inbound-requests/{inboundRequestId}/approval-readiness': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'Check inbound approval readiness',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400], 404: stdErrors[404] },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}/delivery': {
+      get: {
+        tags: ['InboundRequest'],
+        summary: 'Get inbound delivery info',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 404: stdErrors[404] },
+      },
+      put: {
+        tags: ['InboundRequest'],
+        summary: 'Upsert inbound delivery info',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
+      },
+      delete: {
+        tags: ['InboundRequest'],
+        summary: 'Delete inbound delivery info',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        responses: { 200: successEnvelope({ type: 'object' }), 404: stdErrors[404] },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}/bulk-putaway': {
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Bulk putaway inbound items',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}/auto-putaway': {
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Auto putaway inbound items',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        requestBody: {
+          required: false,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
+      },
+    },
+    '/api/inbound-requests/{inboundRequestId}/report-arrival': {
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Report driver arrival at warehouse',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        requestBody: {
+          required: false,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
+      },
+    },
+
+    '/api/shipments': {
+      get: {
+        tags: ['OutboundRequest'],
+        summary: 'List shipments',
+        parameters: [{ $ref: '#/components/parameters/page' }, { $ref: '#/components/parameters/limit' }],
+        responses: { 200: paginatedEnvelope({ type: 'object' }), 400: stdErrors[400] },
+      },
+      post: {
+        tags: ['OutboundRequest'],
+        summary: 'Create shipment',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 201: successEnvelope({ type: 'object' }, 'Created successfully'), 400: stdErrors[400] },
+      },
+    },
+    '/api/shipments/{shipmentId}': {
+      get: {
+        tags: ['OutboundRequest'],
+        summary: 'Get shipment by ID',
+        parameters: [{ in: 'path', name: 'shipmentId', required: true, schema: uuid }],
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400], 404: stdErrors[404] },
+      },
+      patch: {
+        tags: ['OutboundRequest'],
+        summary: 'Update shipment',
+        parameters: [{ in: 'path', name: 'shipmentId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 200: successEnvelope({ type: 'object' }, 'Updated successfully'), 400: stdErrors[400] },
+      },
+      delete: {
+        tags: ['OutboundRequest'],
+        summary: 'Delete shipment',
+        parameters: [{ in: 'path', name: 'shipmentId', required: true, schema: uuid }],
+        responses: { 200: successEnvelope({ type: 'object' }, 'Deleted successfully'), 400: stdErrors[400], 404: stdErrors[404] },
+      },
+    },
+
+    '/api/warehouses/{warehouseId}/zone-planning': {
+      get: {
+        tags: ['Warehouse'],
+        summary: 'Warehouse zone planning',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'warehouseId', required: true, schema: uuid }],
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400], 404: stdErrors[404] },
+      },
+    },
+    '/api/warehouses/{warehouseId}/capacity-snapshot': {
+      get: {
+        tags: ['Warehouse'],
+        summary: 'Warehouse capacity snapshot',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'warehouseId', required: true, schema: uuid }],
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400], 404: stdErrors[404] },
+      },
+    },
+
+    '/api/rental-requests/{rentalRequestId}/price-estimate': {
+      get: {
+        tags: ['RentalRequest'],
+        summary: 'Get rental request price estimate',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'rentalRequestId', required: true, schema: uuid }],
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400], 404: stdErrors[404] },
       },
     },
   },
