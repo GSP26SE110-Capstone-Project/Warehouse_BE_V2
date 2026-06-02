@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import asyncHandler from '../middleware/asyncHandler.js';
 import authenticate from '../middleware/authenticate.js';
+import authenticateOptional from '../middleware/authenticateOptional.js';
 import { authorize } from '../middleware/authorize.js';
 import * as rentalRequestController from '../controllers/rentalRequest.controller.js';
 
@@ -10,7 +11,7 @@ const rentalReaders = [...rentalManagers, 'TENANT_ADMIN', 'TENANT_STAFF'];
 
 // Must be before /:rentalRequestId — Express 5 treats "lookup" as :id otherwise (400 Invalid UUID)
 router.get('/guest/lookup', asyncHandler(rentalRequestController.lookupByCode));
-router.post('/', asyncHandler(rentalRequestController.create));
+router.post('/', authenticateOptional, asyncHandler(rentalRequestController.create));
 router.get('/', authenticate, authorize(...rentalReaders), asyncHandler(rentalRequestController.list));
 router.get(
   '/:rentalRequestId/price-estimate',

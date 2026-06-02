@@ -51,7 +51,6 @@ const CREATE_FIELDS = [
   'expectedStartDate',
   'expectedEndDate',
   'status',
-  'createdBy',
 ];
 
 const UPDATE_FIELDS = [
@@ -300,7 +299,7 @@ async function assertKnownCityDistrict(data) {
   data.district = resolved.district;
 }
 
-function normalizeCreatePayload(body, { productLineSummary = null } = {}) {
+function normalizeCreatePayload(body, { productLineSummary = null, actor = null } = {}) {
   const data = pickFields(body, CREATE_FIELDS);
 
   if (!data.tenantId) {
@@ -321,6 +320,7 @@ function normalizeCreatePayload(body, { productLineSummary = null } = {}) {
   if (data.status == null) data.status = 'PENDING';
   if (data.requiresFastPicking == null) data.requiresFastPicking = false;
   if (data.requiresPremiumStorage == null) data.requiresPremiumStorage = false;
+  data.createdBy = actor?.userId ?? null;
 
   normalizeNumericFields(data);
   validateEnums(data);
@@ -550,7 +550,7 @@ export async function listRentalRequests({
   };
 }
 
-export async function createRentalRequest(body) {
+export async function createRentalRequest(body, actor = null) {
   const { productLines, selectedBoxTypeHint } = body;
   let productLineSummary = null;
 
@@ -563,7 +563,7 @@ export async function createRentalRequest(body) {
     }
   }
 
-  const data = normalizeCreatePayload(body, { productLineSummary });
+  const data = normalizeCreatePayload(body, { productLineSummary, actor });
   await assertKnownCityDistrict(data);
   await getTenantCompany(data.tenantId);
 
