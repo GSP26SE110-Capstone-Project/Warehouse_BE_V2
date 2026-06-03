@@ -69,6 +69,7 @@ router.use('/inbound-request-items', inboundRequestItemRoutes);
 router.use('/inventories', inventoryRoutes);
 router.use('/outbound-requests', outboundRequestRoutes);
 router.use('/shipments', shipmentRoutes);
+router.use('/ai/slot-recommendations', aiSlotRecommendationRoutes);
 
 router.get(
   '/health',
