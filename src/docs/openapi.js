@@ -338,7 +338,7 @@ const spec = {
     {
       name: 'Contract',
       description:
-        'Hợp đồng thuê · Roles: CRUD/ký: `WH_ADMIN`, `SYSTEM_ADMIN`; xem/ký tenant: `TENANT_ADMIN`; xem: `TENANT_STAFF`',
+        'Hợp đồng thuê · CRUD/ký: `WH_ADMIN`, `SYSTEM_ADMIN`; tenant: `TENANT_ADMIN`. **Chấm dứt sớm:** `GET/POST …/termination/*` (HĐ `ACTIVE`, xem `docs/contract-billing-termination.md`)',
     },
     {
       name: 'PayOS',
@@ -2098,8 +2098,12 @@ const spec = {
       ContractTerminationRequestCreate: {
         type: 'object',
         properties: {
-          reason: { type: 'string' },
-          requestedBy: { ...uuid, description: 'Optional user UUID' },
+          reason: { type: 'string', description: 'Lý do chấm dứt (optional)' },
+          requestedBy: { ...uuid, description: 'UUID user gửi yêu cầu (optional)' },
+        },
+        example: {
+          reason: 'Ngừng kinh doanh mùa hè',
+          requestedBy: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
         },
       },
       PayOSWebhookPing: {
@@ -4928,6 +4932,52 @@ const spec = {
       },
     },
 
+    '/api/contracts/{contractId}/termination/preview': {
+      get: {
+        tags: ['Contract'],
+        summary: 'Xem trước phí / hoàn tiền khi chấm dứt HĐ',
+        description:
+          'HĐ `ACTIVE` hoặc `PENDING_PAYMENT`. Tính settlement theo `billingCycle` (MONTHLY/YEARLY), inbound, tổng đã trả. Không tạo bản ghi yêu cầu.',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractTerminationPreview' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/termination/request': {
+      post: {
+        tags: ['Contract'],
+        summary: 'Gửi yêu cầu chấm dứt hợp đồng sớm',
+        description:
+          'Chỉ HĐ `ACTIVE` (đã thanh toán invoice INITIAL). Tạo `contract_termination_requests` trạng thái `PENDING`. 409 nếu đã có yêu cầu chờ duyệt. Duyệt WH (→ `TERMINATED`) chưa có endpoint public.',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractTerminationRequestCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({
+            type: 'object',
+            properties: {
+              request: { type: 'object' },
+              settlement: { $ref: '#/components/schemas/ContractTerminationPreview' },
+            },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+
     '/api/contracts/{contractId}/invoices': {
       get: {
         tags: ['PayOS'],
@@ -4997,47 +5047,6 @@ const spec = {
           }),
           400: stdErrors[400],
           404: stdErrors[404],
-        },
-      },
-    },
-    '/api/contracts/{contractId}/termination/preview': {
-      get: {
-        tags: ['PayOS'],
-        summary: 'Preview contract termination fees / refund',
-        security: bearerSecurity,
-        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
-        responses: {
-          200: successEnvelope({ $ref: '#/components/schemas/ContractTerminationPreview' }),
-          400: stdErrors[400],
-          404: stdErrors[404],
-        },
-      },
-    },
-    '/api/contracts/{contractId}/termination/request': {
-      post: {
-        tags: ['PayOS'],
-        summary: 'Request early contract termination',
-        security: bearerSecurity,
-        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
-        requestBody: {
-          required: false,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/ContractTerminationRequestCreate' },
-            },
-          },
-        },
-        responses: {
-          201: successEnvelope({
-            type: 'object',
-            properties: {
-              request: { type: 'object' },
-              settlement: { $ref: '#/components/schemas/ContractTerminationPreview' },
-            },
-          }),
-          400: stdErrors[400],
-          404: stdErrors[404],
-          409: stdErrors[409],
         },
       },
     },
