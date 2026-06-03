@@ -1,55 +1,55 @@
-import defineModel from './defineModel.js';
+import defineModel from "./defineModel.js";
 
 export const contractItemSchema = {
   contractItemId: {
-    type: 'string',
+    type: "string",
     primaryKey: true,
   },
   contractId: {
-    type: 'string',
+    type: "string",
     required: true,
-    foreignKey: 'contract_id',
+    foreignKey: "contract_id",
   },
   appendixId: {
-    type: 'string',
+    type: "string",
     required: false,
-    foreignKey: 'appendix_id',
+    foreignKey: "appendix_id",
   },
   itemType: {
-    type: 'string',
+    type: "string",
     required: true,
   },
   storageLevel: {
-    type: 'string',
+    type: "string",
     required: false,
   },
   billingUnit: {
-    type: 'string',
+    type: "string",
     required: true,
   },
   quantity: {
-    type: 'decimal',
+    type: "decimal",
     required: false,
   },
   reservedQuantity: {
-    type: 'number',
+    type: "number",
     required: false,
   },
   boxType: {
-    type: 'string',
+    type: "string",
     required: false,
   },
   unitPrice: {
-    type: 'decimal',
+    type: "decimal",
     required: true,
   },
   createdAt: {
-    type: 'datetime',
-    default: 'NOW()',
+    type: "datetime",
+    default: "NOW()",
   },
 };
 
-export const tableName = 'contract_items';
+export const tableName = "contract_items";
 
 const ContractItem = defineModel(tableName, contractItemSchema);
 

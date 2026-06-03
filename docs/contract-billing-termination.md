@@ -4,27 +4,27 @@ Tài liệu chốt nghiệp vụ (tháng 6/2026). Tham chiếu schema: `scripts/
 
 ## 1. Billing cycle (chỉ MONTHLY & YEARLY)
 
-| Giá trị | Cho phép API/FE | Ghi chú |
-|---------|-----------------|--------|
-| `MONTHLY` | Có | Thuê theo tháng |
-| `YEARLY` | Có | Trả trước cả kỳ HĐ (thường 12 tháng) |
-| `DAILY`, `QUARTERLY` | Không (legacy DB) | Migration ép bản ghi cũ → `MONTHLY` |
+| Giá trị              | Cho phép API/FE   | Ghi chú                              |
+| -------------------- | ----------------- | ------------------------------------ |
+| `MONTHLY`            | Có                | Thuê theo tháng                      |
+| `YEARLY`             | Có                | Trả trước cả kỳ HĐ (thường 12 tháng) |
+| `DAILY`, `QUARTERLY` | Không (legacy DB) | Migration ép bản ghi cũ → `MONTHLY`  |
 
 ### 1.1 Sau khi ký đủ hai bên
 
-| Chu kỳ | Invoice đầu (`INITIAL`) | Kích hoạt HĐ |
-|--------|-------------------------|--------------|
+| Chu kỳ      | Invoice đầu (`INITIAL`)                                        | Kích hoạt HĐ                                          |
+| ----------- | -------------------------------------------------------------- | ----------------------------------------------------- |
 | **MONTHLY** | Tiền thuê **tháng đầu** = `estimatedTotalAmount ÷ số tháng HĐ` | `PENDING_PAYMENT` → thanh toán invoice đầu → `ACTIVE` |
-| **YEARLY** | **Toàn bộ** `estimatedTotalAmount` (full kỳ) | Cùng luồng |
+| **YEARLY**  | **Toàn bộ** `estimatedTotalAmount` (full kỳ)                   | Cùng luồng                                            |
 
 **Không** chuyển thẳng `ACTIVE` khi tenant ký; trạng thái `PENDING_PAYMENT` cho đến khi invoice đầu `PAID`.
 
 ### 1.2 Phụ phí vận hành (inbound/outbound/handling…)
 
-| Chu kỳ | Lịch phát hành | Nội dung invoice |
-|--------|----------------|------------------|
-| **MONTHLY** | **Đầu mỗi tháng** | Tiền thuê tháng mới (`RECURRING_RENT`) + phụ phí tháng trước (`OPERATIONAL`) |
-| **YEARLY** | **Cuối mỗi tháng** | Chỉ phụ phí tháng đó (`OPERATIONAL`) — tiền thuê năm đã thu ở invoice đầu |
+| Chu kỳ      | Lịch phát hành     | Nội dung invoice                                                             |
+| ----------- | ------------------ | ---------------------------------------------------------------------------- |
+| **MONTHLY** | **Đầu mỗi tháng**  | Tiền thuê tháng mới (`RECURRING_RENT`) + phụ phí tháng trước (`OPERATIONAL`) |
+| **YEARLY**  | **Cuối mỗi tháng** | Chỉ phụ phí tháng đó (`OPERATIONAL`) — tiền thuê năm đã thu ở invoice đầu    |
 
 > Cron/job phát hành định kỳ: phase sau; schema đã có `invoice_category` để phân loại.
 
@@ -84,29 +84,29 @@ Bảng: `contract_termination_requests`.
 
 ### 3.4 Luồng API
 
-| Method | Path | Mô tả |
-|--------|------|--------|
-| `GET` | `/contracts/:contractId/termination/preview` | Xem phí / hoàn trước khi gửi |
-| `POST` | `/contracts/:contractId/termination/request` | Tạo yêu cầu `PENDING` |
-| `GET` | `/contracts/:contractId/termination/requests` | Danh sách yêu cầu (query `status`) |
-| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/approve` | WH duyệt → `TERMINATED` |
-| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/reject` | WH từ chối → HĐ vẫn `ACTIVE` |
-| `POST` | `/contracts/:contractId/invoices/:invoiceId/payos/create-link` | Link thanh toán PayOS |
-| `POST` | `/api/payos/webhook` | Webhook PayOS |
-| `POST` | `/contracts/:contractId/invoices/:invoiceId/mark-paid` | Ghi nhận thủ công (dev) |
+| Method | Path                                                                        | Mô tả                              |
+| ------ | --------------------------------------------------------------------------- | ---------------------------------- |
+| `GET`  | `/contracts/:contractId/termination/preview`                                | Xem phí / hoàn trước khi gửi       |
+| `POST` | `/contracts/:contractId/termination/request`                                | Tạo yêu cầu `PENDING`              |
+| `GET`  | `/contracts/:contractId/termination/requests`                               | Danh sách yêu cầu (query `status`) |
+| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/approve` | WH duyệt → `TERMINATED`            |
+| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/reject`  | WH từ chối → HĐ vẫn `ACTIVE`       |
+| `POST` | `/contracts/:contractId/invoices/:invoiceId/payos/create-link`              | Link thanh toán PayOS              |
+| `POST` | `/api/payos/webhook`                                                        | Webhook PayOS                      |
+| `POST` | `/contracts/:contractId/invoices/:invoiceId/mark-paid`                      | Ghi nhận thủ công (dev)            |
 
 Duyệt (`approve`): roles `WH_ADMIN` / `SYSTEM_ADMIN`; `reviewedBy` lấy từ JWT. **`WH_ADMIN` chỉ được duyệt/từ chối HĐ có `warehouse_id` trùng `warehouseId` trong JWT** (403 nếu kho khác).
 
 ### 3.5 Hàng còn trong kho sau khi duyệt chấm dứt
 
-| Hạng mục | Xử lý |
-|----------|--------|
-| **Tồn kho (`inventories`)** | **Không** tự xóa / trừ kho. Hàng vẫn thuộc tenant cho đến khi xuất hết qua outbound. |
-| **Inbound mới** | **Chặn** — chỉ HĐ `ACTIVE` mới tạo inbound. |
-| **Outbound (lấy hàng)** | **Cho phép** — HĐ `TERMINATED` vẫn tạo phiếu xuất để tenant thu hồi hàng (liquidation). |
-| **Storage reservation** | `ACTIVE` → `CANCELLED` (không giữ chỗ bin sau chấm dứt). |
-| **Inbound DRAFT/PENDING** | Tự `CANCELLED` khi duyệt. Inbound đã `APPROVED` trở đi — WH xử lý thủ công. |
-| **Response approve** | Trả `inventoryRemainder` (tổng qty, SKU count) + `nextSteps` hướng dẫn tạo outbound. |
+| Hạng mục                    | Xử lý                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| **Tồn kho (`inventories`)** | **Không** tự xóa / trừ kho. Hàng vẫn thuộc tenant cho đến khi xuất hết qua outbound.    |
+| **Inbound mới**             | **Chặn** — chỉ HĐ `ACTIVE` mới tạo inbound.                                             |
+| **Outbound (lấy hàng)**     | **Cho phép** — HĐ `TERMINATED` vẫn tạo phiếu xuất để tenant thu hồi hàng (liquidation). |
+| **Storage reservation**     | `ACTIVE` → `CANCELLED` (không giữ chỗ bin sau chấm dứt).                                |
+| **Inbound DRAFT/PENDING**   | Tự `CANCELLED` khi duyệt. Inbound đã `APPROVED` trở đi — WH xử lý thủ công.             |
+| **Response approve**        | Trả `inventoryRemainder` (tổng qty, SKU count) + `nextSteps` hướng dẫn tạo outbound.    |
 
 Hoàn tiền (`refundAmount` trên request) — xử lý kế toán ngoài WMS (chưa tạo invoice `TERMINATION_SETTLEMENT` tự động).
 
@@ -153,20 +153,19 @@ initialInvoice   = MONTHLY ? monthlyRent : estimatedTotalAmount
    Menu **Kênh thanh toán** → **Tạo kênh thanh toán** → điền tên, logo → chọn ngân hàng chính → **Hoàn tất**.  
    Sau bước này PayOS hiển thị **3 key** (copy ngay, chỉ hiện đầy đủ lúc tạo / trong chi tiết kênh):
 
-   | Key trên PayOS | Biến `.env` project |
-   |----------------|---------------------|
-   | Client ID | `PAYOS_CLIENT_ID` |
-   | API Key | `PAYOS_API_KEY` |
-   | Checksum Key | `PAYOS_CHECKSUM_KEY` |
+   | Key trên PayOS | Biến `.env` project  |
+   | -------------- | -------------------- |
+   | Client ID      | `PAYOS_CLIENT_ID`    |
+   | API Key        | `PAYOS_API_KEY`      |
+   | Checksum Key   | `PAYOS_CHECKSUM_KEY` |
 
 5. **Cấu hình Webhook URL (quan trọng)**  
    Vào **chi tiết kênh thanh toán** vừa tạo → mục **Webhook** → nhập URL:
 
-   | Môi trường | Webhook URL |
-   |------------|-------------|
+   | Môi trường  | Webhook URL                                            |
+   | ----------- | ------------------------------------------------------ |
    | Dev (ngrok) | `https://<subdomain>.ngrok-free.app/api/payos/webhook` |
-   | Production | `https://<domain-api-của-bạn>/api/payos/webhook` |
-
+   | Production  | `https://<domain-api-của-bạn>/api/payos/webhook`       |
    - URL phải là **HTTPS**, trỏ tới **backend** (port 3000), **không** trỏ FE (5173).
    - PayOS có thể gửi **giao dịch mẫu** để test — server phải trả **HTTP 200**.
    - Nếu dashboard có nút **Lưu / Xác nhận webhook**, bấm sau khi BE đang chạy và ngrok bật.
@@ -175,7 +174,6 @@ initialInvoice   = MONTHLY ? monthlyRent : estimatedTotalAmount
 
 6. **Return / Cancel URL**  
    **Không** cấu hình cố định trên PayOS cho từng đơn — project **tự gửi** khi tạo link:
-
    - Thành công: `{PAYOS_RETURN_ORIGIN}/staff/contracts/payment/return?contractId=...&invoiceId=...`
    - Hủy: `{PAYOS_RETURN_ORIGIN}/staff/contracts/payment/cancel?...`
 
@@ -208,23 +206,23 @@ npm run payos:confirm-webhook   # hoặc dán webhook thủ công trên my.payos
 
 #### C. Kiểm tra luồng
 
-| Bước | Việc cần thấy |
-|------|----------------|
-| 1 | Tenant ký HĐ → status `PENDING_PAYMENT`, có invoice INITIAL |
-| 2 | **Thanh toán PayOS** → mở trang checkout PayOS (QR / chuyển khoản) |
-| 3 | Thanh toán xong → redirect về `/staff/contracts/payment/return` |
-| 4 | Vài giây sau webhook chạy → invoice `PAID`, HĐ `ACTIVE` |
-| 5 | Tạo được inbound |
+| Bước | Việc cần thấy                                                      |
+| ---- | ------------------------------------------------------------------ |
+| 1    | Tenant ký HĐ → status `PENDING_PAYMENT`, có invoice INITIAL        |
+| 2    | **Thanh toán PayOS** → mở trang checkout PayOS (QR / chuyển khoản) |
+| 3    | Thanh toán xong → redirect về `/staff/contracts/payment/return`    |
+| 4    | Vài giây sau webhook chạy → invoice `PAID`, HĐ `ACTIVE`            |
+| 5    | Tạo được inbound                                                   |
 
 **Lỗi thường gặp**
 
-| Triệu chứng | Cách xử lý |
-|-------------|------------|
-| `PayOS chưa cấu hình` | Thiếu 1 trong 3 biến `.env` hoặc chưa restart BE |
-| Mở PayOS lỗi 401 | Sai Client ID / API Key hoặc nhầm kênh |
+| Triệu chứng                               | Cách xử lý                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| `PayOS chưa cấu hình`                     | Thiếu 1 trong 3 biến `.env` hoặc chưa restart BE                         |
+| Mở PayOS lỗi 401                          | Sai Client ID / API Key hoặc nhầm kênh                                   |
 | Trả tiền xong nhưng HĐ vẫn chờ thanh toán | Webhook sai URL, ngrok tắt, hoặc BE không nhận POST `/api/payos/webhook` |
-| Return về FE nhưng không ACTIVE | Chờ webhook; refresh trang Hợp đồng; xem log BE khi PayOS gọi webhook |
-| Số tiền &lt; 1000 VND | Invoice `estimatedTotalAmount` quá nhỏ — PayOS tối thiểu ~1000 |
+| Return về FE nhưng không ACTIVE           | Chờ webhook; refresh trang Hợp đồng; xem log BE khi PayOS gọi webhook    |
+| Số tiền &lt; 1000 VND                     | Invoice `estimatedTotalAmount` quá nhỏ — PayOS tối thiểu ~1000           |
 
 **Sandbox / test:** Nếu PayOS bật chế độ thử nghiệm trên kênh, dùng tài khoản / số tiền theo hướng dẫn sandbox của PayOS (xem mục kênh trên my.payos.vn).
 
