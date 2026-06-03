@@ -4,6 +4,7 @@ import AppError from '../utils/AppError.js';
 import { parseUuid } from '../utils/validate.js';
 import { getInboundRequest } from './inboundRequest.service.js';
 import { getSku } from './sku.service.js';
+import { assertContractInboundWithinCommittedPieces } from './contractInboundCommitment.service.js';
 import { assertInboundInReceivingPhase } from '../utils/inboundStatus.js';
 
 const CREATE_FIELDS = ['inboundRequestId', 'skuId', 'expectedQuantity'];
@@ -218,6 +219,10 @@ export async function createInboundRequestItem(body, inboundRequestIdFromPath = 
       'DUPLICATE'
     );
   }
+
+  await assertContractInboundWithinCommittedPieces(inbound.contractId, {
+    additionalPieces: data.expectedQuantity,
+  });
 
   data.discrepancyQuantity = data.expectedQuantity;
   const created = await InboundRequestItem.create(data);

@@ -4,9 +4,8 @@
 #   API_HOST_PORT=3005
 # rồi mở Swagger: http://localhost:3005/api-docs
 #
-# Lưu ý init DB: ./init-scripts chạy chỉ khi volume Postgres mới. File 02-schema-improvements.sql
-# ALTER bảng legacy ("User", …) — nếu init lỗi, xem logs container postgres; thường cần bỏ qua/đổi tên 02
-# hoặc chạy tay 03-complete-schema-with-fk.sql như đã làm trước đó.
+# Schema: container app chạy npm run db:migrate:all khi start (Dockerfile entrypoint).
+# init-scripts chỉ chạy lần đầu volume Postgres mới; migrate:all idempotent bổ sung patch.
 
 services:
   postgres:
@@ -41,6 +40,11 @@ services:
       - .env
     environment:
       NODE_ENV: development
+      RUN_DB_MIGRATE: "1"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: warehouse_admin
+      POSTGRES_DB: smart_warehouse
       # Ghi đè .env: trong container phải dùng hostname service Docker, không dùng localhost
       DATABASE_URL: postgresql://warehouse_admin:SP26SE040%40%21@postgres:5432/smart_warehouse
       PORT: 3000
