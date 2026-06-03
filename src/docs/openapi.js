@@ -1473,10 +1473,73 @@ const spec = {
         },
       },
 
+      RentalRequestProductLineInput: {
+        type: 'object',
+        description:
+          'Một dòng **Quy mô hàng hóa** (loại hàng + size + số cái/tháng). Mã `productKind` lấy từ `GET /api/product-kinds`.',
+        required: ['productKind', 'quantity'],
+        properties: {
+          productKind: {
+            type: 'string',
+            example: 'T_SHIRT',
+            description: 'Mã loại hàng (catalog product kind), uppercase',
+          },
+          size: {
+            type: 'string',
+            example: 'M',
+            description: 'Size (bắt buộc nếu loại hàng có size trong catalog)',
+          },
+          sizeGroup: {
+            type: 'string',
+            example: 'ADULT_TOP',
+            description: 'Optional — server resolve từ `size` nếu bỏ qua',
+          },
+          quantity: {
+            type: 'integer',
+            minimum: 1,
+            example: 200,
+            description: 'Số cái cam kết trung bình **mỗi tháng** (peak inventory)',
+          },
+          sortOrder: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Thứ tự hiển thị (mặc định theo index mảng)',
+          },
+        },
+      },
+      RentalRequestProductLine: {
+        type: 'object',
+        description: 'Dòng hàng đã lưu — server tính volume units (U) và phân bổ thùng.',
+        properties: {
+          lineId: uuid,
+          rentalRequestId: uuid,
+          productKind: { type: 'string', example: 'T_SHIRT' },
+          size: { type: 'string', nullable: true, example: 'M' },
+          sizeGroup: { type: 'string', nullable: true },
+          quantity: { type: 'integer', example: 200 },
+          baseVolumeUnitsPerPiece: { type: 'number', example: 1 },
+          sizeFactor: { type: 'number', example: 1 },
+          finalVolumeUnitsPerPiece: { type: 'number', example: 1 },
+          lineVolumeUnits: { type: 'number', example: 200 },
+          sortOrder: { type: 'integer' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      RentalRequestBoxAllocationRow: {
+        type: 'object',
+        properties: {
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          count: { type: 'integer', minimum: 0 },
+        },
+      },
       RentalRequest: {
         type: 'object',
         description:
-          'Guest chọn khu vực; `warehouseId` null cho đến khi một warehouse approve (claim).',
+          'Guest chọn khu vực; `warehouseId` null cho đến khi một warehouse approve (claim). `GET` by id luôn kèm `productLines`; list dùng `includeProductLines=true`.',
         properties: {
           rentalRequestId: uuid,
           requestCode: { type: 'string', example: 'RR-LX1A2B-0C' },
@@ -1516,6 +1579,20 @@ const spec = {
             nullable: true,
             description: 'Diện tích mong muốn (m²) — DEDICATED_WAREHOUSE / DEDICATED_ZONE',
           },
+          totalCommittedVolumeUnits: {
+            type: 'number',
+            nullable: true,
+            description: 'Tổng U từ productLines (server tính)',
+          },
+          boxAllocation: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestBoxAllocationRow' },
+            description: 'Phân bổ số thùng theo loại (từ tổng U)',
+          },
+          productLines: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestProductLine' },
+          },
           averageStorageDays: { type: 'integer', nullable: true },
           estimatedInboundPerWeek: { type: 'integer', nullable: true },
           estimatedOutboundPerWeek: { type: 'integer', nullable: true },
@@ -1549,7 +1626,9 @@ const spec = {
       RentalRequestCreate: {
         type: 'object',
         description:
-          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve. Required fields: `tenantId`, `city`, `district`. `createdBy` được server tự gán: có token thì lấy `userId`, guest thì `null`.',
+          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve. Required: `tenantId`, `city`, `district`.\n\n' +
+          '**Quy mô hàng hóa**: gửi `productLines[]` (loại + size + quantity/tháng) **hoặc** `requestedAreaM2` > 0 **hoặc** các ước tính legacy (`estimatedVolume`, `estimatedBoxCount`, …) — cần ít nhất một nguồn capacity.\n\n' +
+          '`createdBy`: có Bearer token thì lấy `userId`, guest thì `null`.',
         required: ['tenantId', 'city', 'district'],
         properties: {
           tenantId: uuid,
@@ -1572,13 +1651,18 @@ const spec = {
             type: 'string',
             enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
+          productLines: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestProductLineInput' },
+            description: 'Hàng theo loại + size — UI "Quy mô hàng hóa"',
+          },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
           estimatedVolume: { type: 'number', minimum: 0 },
           requestedAreaM2: {
             type: 'number',
             minimum: 0,
-            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone',
+            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone (thay cho productLines)',
           },
           averageStorageDays: { type: 'integer', minimum: 0 },
           estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
@@ -1601,6 +1685,23 @@ const spec = {
             enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
             default: 'PENDING',
           },
+        },
+        example: {
+          tenantId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          city: 'TP.HCM',
+          district: 'Quận 7',
+          contractType: 'SHARED_STORAGE',
+          pricingModel: 'USAGE_BASED',
+          billingCycle: 'MONTHLY',
+          expectedStartDate: '2026-06-02T00:00:00.000Z',
+          expectedEndDate: '2026-12-02T00:00:00.000Z',
+          productLines: [
+            { productKind: 'T_SHIRT', size: 'M', quantity: 200 },
+            { productKind: 'JEANS', size: 'L', quantity: 80 },
+          ],
+          requiresFastPicking: false,
+          requiresPremiumStorage: false,
+          notes: 'Brand mùa hè — cần fast-moving zone',
         },
       },
       Contract: {
@@ -2126,6 +2227,7 @@ const spec = {
           '- APPROVE + claim (first wins): `{ status: APPROVED, warehouseId, reviewedBy, reviewedAt?, reviewNote? }`\n' +
           '- REJECT: `{ status: REJECTED, reviewedBy, rejectionReason }`\n' +
           '- CONVERTED: sau khi tạo contract\n' +
+          'Cập nhật `productLines` chỉ khi `status` là `PENDING` hoặc `UNDER_REVIEW` (thay thế toàn bộ dòng).\n' +
           'Cập nhật thông tin công ty qua `PATCH /tenants/{tenantId}`.',
         properties: {
           contractType: {
@@ -2144,6 +2246,10 @@ const spec = {
           billingCycle: {
             type: 'string',
             enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
+          },
+          productLines: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestProductLineInput' },
           },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
@@ -4265,12 +4371,19 @@ const spec = {
           'Query filters:\n' +
           '- `warehouseId` + `regionMatch=true` — inbox kho: yêu cầu **chưa claim** cùng city/district\n' +
           '- `warehouseId` (không regionMatch) — yêu cầu **đã gán** cho kho đó\n' +
-          '- `city`, `district`, `tenantId`, `status`, `contractType`, `pricingModel`',
+          '- `city`, `district`, `tenantId`, `status`, `contractType`, `pricingModel`\n' +
+          '- `includeProductLines=true` — kèm mảng `productLines` + `boxAllocation` mỗi item',
         parameters: [
           {
             in: 'query',
             name: 'tenantId',
             schema: uuid,
+          },
+          {
+            in: 'query',
+            name: 'includeProductLines',
+            schema: { type: 'boolean', default: false },
+            description: 'Embed product lines and box allocation per rental request',
           },
           {
             in: 'query',
@@ -4325,7 +4438,10 @@ const spec = {
         tags: ['RentalRequest'],
         summary: 'Create rental request (guest — by region)',
         description:
-          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê. Public endpoint: guest không cần token; nếu có Bearer token thì server tự gán `createdBy` từ user đăng nhập.',
+          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê.\n\n' +
+          '**Quy mô hàng hóa**: `productLines[]` với `productKind`, `size?`, `quantity` (cái/tháng). Catalog: `GET /api/product-kinds`.\n\n' +
+          'Cần ít nhất một: `productLines`, `requestedAreaM2`, hoặc ước tính volume/box/sku.\n\n' +
+          'Public: guest không cần token; Bearer token → `createdBy` = user hiện tại.',
         security: [],
         requestBody: {
           required: true,
@@ -4437,6 +4553,7 @@ const spec = {
       get: {
         tags: ['RentalRequest'],
         summary: 'Get rental request by ID',
+        description: 'Response includes `productLines`, `boxAllocation`, `totalCommittedVolumeUnits`.',
         parameters: [
           { in: 'path', name: 'rentalRequestId', required: true, schema: uuid },
         ],
