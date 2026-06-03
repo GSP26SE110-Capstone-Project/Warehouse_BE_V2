@@ -1243,11 +1243,24 @@ const spec = {
           lpnId: uuid,
           warehouseId: uuid,
           inboundRequestId: uuid,
-          explainWithLlm: {
-            type: 'boolean',
-            default: false,
-            description:
-              'If true, call Ollama (llama3.2:3b) for Vietnamese explanation. Bin choice stays rule-based.',
+        },
+      },
+      AiSlotExplainRequest: {
+        type: 'object',
+        required: ['llmProvider'],
+        properties: {
+          llmProvider: {
+            type: 'string',
+            enum: ['gemini', 'ollama'],
+            description: 'Required. No fallback to the other provider.',
+          },
+          recommendationId: uuid,
+          lpnId: uuid,
+          warehouseId: uuid,
+          inboundRequestId: uuid,
+          slot: {
+            type: 'object',
+            description: 'Optional: full preview response to explain without re-running rule engine',
           },
         },
       },
@@ -1285,8 +1298,12 @@ const spec = {
         type: 'object',
         properties: {
           recommendedZoneId: uuid,
+          recommendedRackId: uuid,
+          recommendedRackLevelId: uuid,
           recommendedBinId: uuid,
           zoneCode: { type: 'string' },
+          rackCode: { type: 'string' },
+          levelNumber: { type: 'integer', nullable: true },
           binCode: { type: 'string' },
           score: { type: 'number' },
           reasons: { type: 'array', items: { type: 'string' } },
@@ -1300,6 +1317,8 @@ const spec = {
           lpnId: { ...uuid, nullable: true },
           skuId: { ...uuid, nullable: true },
           recommendedZoneId: { ...uuid, nullable: true },
+          recommendedRackId: { ...uuid, nullable: true },
+          recommendedRackLevelId: { ...uuid, nullable: true },
           recommendedBinId: { ...uuid, nullable: true },
           recommendationScore: { type: 'number', nullable: true },
           reason: {
@@ -1314,6 +1333,8 @@ const spec = {
             items: { $ref: '#/components/schemas/AiSlotAlternative' },
           },
           zoneCode: { type: 'string', nullable: true },
+          rackCode: { type: 'string', nullable: true },
+          levelNumber: { type: 'integer', nullable: true },
           binCode: { type: 'string', nullable: true },
           suggestedRackType: {
             type: 'string',
@@ -1325,6 +1346,7 @@ const spec = {
           modelVersion: { type: 'string', example: 'slotting-v1-rule' },
           llmExplanation: { type: 'string', nullable: true },
           llmModel: { type: 'string', nullable: true },
+          llmProvider: { type: 'string', enum: ['gemini', 'ollama'], nullable: true },
           llmError: { type: 'string', nullable: true },
           llmErrorCode: { type: 'string', nullable: true },
         },
@@ -1337,8 +1359,12 @@ const spec = {
           tenantId: uuid,
           warehouseId: uuid,
           recommendedZoneId: uuid,
+          recommendedRackId: uuid,
+          recommendedRackLevelId: uuid,
           recommendedBinId: uuid,
           zoneCode: { type: 'string' },
+          rackCode: { type: 'string' },
+          levelNumber: { type: 'integer', nullable: true },
           binCode: { type: 'string' },
           score: { type: 'number' },
           reasons: { type: 'array', items: { type: 'string' } },
@@ -1351,6 +1377,7 @@ const spec = {
           },
           llmExplanation: { type: 'string', nullable: true },
           llmModel: { type: 'string', nullable: true },
+          llmProvider: { type: 'string', enum: ['gemini', 'ollama'], nullable: true },
           llmError: { type: 'string', nullable: true },
           llmErrorCode: { type: 'string', nullable: true },
         },
@@ -4235,10 +4262,52 @@ const spec = {
         },
       },
     },
+    '/api/ai/slot-recommendations/gemini/health': {
+      get: {
+        tags: ['AI'],
+        summary: 'Check Gemini API key and model availability',
+        description: 'Requires GEMINI_API_KEY. Model default gemini-2.0-flash.',
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              reachable: { type: 'boolean' },
+              enabled: { type: 'boolean' },
+              model: { type: 'string' },
+              message: { type: 'string' },
+            },
+          }),
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/explain': {
+      post: {
+        tags: ['AI'],
+        summary: 'Explain slot recommendation (Gemini or Ollama only)',
+        description:
+          'Separate from preview. llmProvider required. Use recommendationId, or lpnId+warehouseId, or slot object from preview.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotExplainRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotLlmExplanation' },
+            'Explanation generated'
+          ),
+          400: stdErrors[400],
+          503: stdErrors[503],
+        },
+      },
+    },
     '/api/ai/slot-recommendations/preview': {
       post: {
         tags: ['AI'],
-        summary: 'Preview putaway slot recommendation (no DB write)',
+        summary: 'Preview putaway slot recommendation (rule engine only, no LLM)',
         requestBody: {
           required: true,
           content: {
@@ -4299,11 +4368,17 @@ const spec = {
     '/api/ai/slot-recommendations/{recommendationId}/explain': {
       get: {
         tags: ['AI'],
-        summary: 'Explain recommendation in Vietnamese (Ollama / Llama)',
+        summary: 'Explain saved recommendation (Gemini or Ollama)',
         description:
-          'Calls local Ollama. Does not change recommended bin — rule engine decision only.',
+          'Query llmProvider=gemini or ollama (required). Prefer POST /explain for new integrations.',
         parameters: [
           { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'llmProvider',
+            required: true,
+            schema: { type: 'string', enum: ['gemini', 'ollama'] },
+          },
         ],
         responses: {
           200: successEnvelope(

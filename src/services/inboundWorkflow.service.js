@@ -26,6 +26,7 @@ import {
   assertNoInventoryForLpn,
   createPutawayInventoryRecords,
 } from './inventory.service.js';
+import { resolveRecommendationOnPutaway } from './aiSlotRecommendation.service.js';
 
 function parseOptionalUserId(value, fieldName) {
   if (value == null || value === '') return undefined;
@@ -178,10 +179,10 @@ async function executePutawayLpnCore(
 
   await applyBinPutaway(bin, lpn.volumeUnits, client);
 
-  if (recommendationId) {
-    const recId = parseUuid(recommendationId, 'recommendationId');
-    await AiSlotRecommendation.updateById(recId, { isApplied: true }, client);
-  }
+  return resolveRecommendationOnPutaway(lpn.lpnId, bin.binId, {
+    recommendationId,
+    client,
+  });
 }
 
 function planAutoPutawayAssignments(lpns, bins) {
@@ -382,13 +383,6 @@ export async function putawayLpn(lpnId, body) {
     if (rec.lpnId && rec.lpnId !== lpn.lpnId) {
       throw new AppError('recommendationId does not match this LPN', 400, 'VALIDATION_ERROR');
     }
-    if (rec.recommendedBinId && rec.recommendedBinId !== binId) {
-      throw new AppError(
-        'binId does not match recommended bin on this recommendation',
-        400,
-        'VALIDATION_ERROR'
-      );
-    }
   }
 
   const movedBy =
@@ -401,7 +395,7 @@ export async function putawayLpn(lpnId, body) {
   try {
     await client.query('BEGIN');
 
-    await executePutawayLpnCore(
+    const recommendationFeedback = await executePutawayLpnCore(
       {
         lpn,
         bin,
@@ -415,16 +409,17 @@ export async function putawayLpn(lpnId, body) {
     );
 
     await client.query('COMMIT');
+
+    return {
+      lpn: await getLpnWithDetails(lpn.lpnId),
+      inboundRequestId: inbound.inboundRequestId,
+      inboundStatus: inbound.status,
+      recommendationFeedback,
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();
   }
-
-  return {
-    lpn: await getLpnWithDetails(lpn.lpnId),
-    inboundRequestId: inbound.inboundRequestId,
-    inboundStatus: inbound.status,
-  };
 }

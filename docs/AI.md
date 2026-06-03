@@ -36,7 +36,7 @@ Mục tiêu AI trong hệ thống:
 | Queue / cache | **Chưa có** Redis, BullMQ | Phase sau MVP |
 | Bảng `ai_slot_recommendations` | Có schema **cơ bản** + model | Migration mở rộng (§5) |
 | API AI putaway (rule engine) | **Có** Phase 1a | Phase 1b feedback schema |
-| Ollama / Llama giải thích | **Có** — `explain`, `explainWithLlm` | Không dùng LLM chọn bin |
+| Ollama / Gemini giải thích | **Có** — `explain`, `explainWithLlm`; Gemini ưu tiên nếu có `GEMINI_API_KEY` | Không dùng LLM chọn bin |
 | Gợi ý rack theo weight | Có: `GET /api/lpns/:lpnId/rack-suggestion` | Gắn slotting |
 | `occupancy_snapshots`, `sku_movement_analytics` | Có bảng + model, **chưa pipeline đầy đủ** | Feed rule engine |
 | ML / OR-Tools / Prometheus | **Chưa có** | Phase 2–4 |
@@ -198,27 +198,31 @@ scripts/sql/
 Express API  →  REST  →  Python FastAPI (xgboost, pandas)
 ```
 
-## 3.5 Ollama / Llama (as-built — giải thích tiếng Việt)
+## 3.5 Gemini / Ollama (as-built — giải thích tiếng Việt)
 
-**Chọn bin = rule engine.** Ollama chỉ paraphrase lý do cho nhân viên.
+**Chọn bin = rule engine.** LLM chỉ paraphrase lý do cho nhân viên.
 
 | Env | Mặc định |
 |-----|----------|
+| `LLM_PROVIDER` | `auto` (Gemini nếu có key, else Ollama) |
+| `GEMINI_API_KEY` | — (Google AI Studio) |
+| `GEMINI_MODEL` | `gemini-2.0-flash` |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` | `llama3.2:3b` |
-| `OLLAMA_ENABLED` | `true` (set `false` để tắt) |
-| `OLLAMA_TIMEOUT_MS` | `60000` |
 
 **API:**
 
 ```http
+GET  /api/ai/slot-recommendations/gemini/health
 GET  /api/ai/slot-recommendations/ollama/health
-GET  /api/ai/slot-recommendations/{recommendationId}/explain
 POST /api/ai/slot-recommendations/preview
-     { "lpnId", "warehouseId", "explainWithLlm": true }
+     { "lpnId", "warehouseId" }   — rule engine only
+POST /api/ai/slot-recommendations/explain
+     { "llmProvider": "gemini", "lpnId", "warehouseId" }
+GET  /api/ai/slot-recommendations/{id}/explain?llmProvider=gemini
 ```
 
-File: `src/services/ollama.service.js`, `src/config/ollama.js`.
+File: `src/services/gemini.service.js`, `src/services/aiExplain.service.js`, `src/services/ollama.service.js`.
 
 ---
 

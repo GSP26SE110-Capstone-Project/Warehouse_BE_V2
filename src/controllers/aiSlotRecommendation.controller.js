@@ -1,5 +1,6 @@
 import * as aiSlotRecommendationService from '../services/aiSlotRecommendation.service.js';
 import { checkOllamaHealth } from '../services/ollama.service.js';
+import { checkGeminiHealth } from '../services/gemini.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -8,9 +9,24 @@ export async function ollamaHealth(req, res) {
   success(res, status, status.message);
 }
 
-export async function explain(req, res) {
+export async function geminiHealth(req, res) {
+  const status = await checkGeminiHealth();
+  success(res, status, status.message);
+}
+
+/** POST /explain — llmProvider required in body (gemini | ollama). */
+export async function explainBody(req, res) {
+  const result = await aiSlotRecommendationService.explainSlotRecommendationBody(
+    req.body
+  );
+  success(res, result, 'Slot recommendation explained');
+}
+
+/** GET /:id/explain?llmProvider=gemini|ollama (required). */
+export async function explainById(req, res) {
   const result = await aiSlotRecommendationService.explainRecommendation(
-    req.params.recommendationId
+    req.params.recommendationId,
+    { llmProvider: req.query.llmProvider }
   );
   success(res, result, 'Slot recommendation explained');
 }
