@@ -2,7 +2,7 @@ import OutboundRequest from '../models/OutboundRequest.js';
 import AppError from '../utils/AppError.js';
 import { OUTBOUND_STATUS } from '../constants/outbound.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
-import { assertContractOperational } from './contract.service.js';
+import { assertContractAllowsOutbound } from './contract.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
 import {
@@ -64,7 +64,7 @@ function actorUserId(actor) {
 }
 
 async function assertContractForOutbound(tenantId, contractId, warehouseId) {
-  const contract = await assertContractOperational(contractId);
+  const contract = await assertContractAllowsOutbound(contractId);
 
   if (contract.tenantId !== tenantId) {
     throw new AppError('contractId does not belong to this tenant', 400, 'VALIDATION_ERROR');

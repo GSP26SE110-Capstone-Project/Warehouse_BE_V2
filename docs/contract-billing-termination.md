@@ -80,11 +80,27 @@ Bảng: `contract_termination_requests`.
 |--------|------|--------|
 | `GET` | `/contracts/:contractId/termination/preview` | Xem phí / hoàn trước khi gửi |
 | `POST` | `/contracts/:contractId/termination/request` | Tạo yêu cầu `PENDING` |
+| `GET` | `/contracts/:contractId/termination/requests` | Danh sách yêu cầu (query `status`) |
+| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/approve` | WH duyệt → `TERMINATED` |
+| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/reject` | WH từ chối → HĐ vẫn `ACTIVE` |
 | `POST` | `/contracts/:contractId/invoices/:invoiceId/payos/create-link` | Link thanh toán PayOS |
 | `POST` | `/api/payos/webhook` | Webhook PayOS |
 | `POST` | `/contracts/:contractId/invoices/:invoiceId/mark-paid` | Ghi nhận thủ công (dev) |
 
-WH admin duyệt request → `APPROVED` + `contract.status = TERMINATED` (bước confirm có thể mở rộng sau).
+Duyệt (`approve`): roles `WH_ADMIN` / `SYSTEM_ADMIN`; `reviewedBy` lấy từ JWT. **`WH_ADMIN` chỉ được duyệt/từ chối HĐ có `warehouse_id` trùng `warehouseId` trong JWT** (403 nếu kho khác).
+
+### 3.5 Hàng còn trong kho sau khi duyệt chấm dứt
+
+| Hạng mục | Xử lý |
+|----------|--------|
+| **Tồn kho (`inventories`)** | **Không** tự xóa / trừ kho. Hàng vẫn thuộc tenant cho đến khi xuất hết qua outbound. |
+| **Inbound mới** | **Chặn** — chỉ HĐ `ACTIVE` mới tạo inbound. |
+| **Outbound (lấy hàng)** | **Cho phép** — HĐ `TERMINATED` vẫn tạo phiếu xuất để tenant thu hồi hàng (liquidation). |
+| **Storage reservation** | `ACTIVE` → `CANCELLED` (không giữ chỗ bin sau chấm dứt). |
+| **Inbound DRAFT/PENDING** | Tự `CANCELLED` khi duyệt. Inbound đã `APPROVED` trở đi — WH xử lý thủ công. |
+| **Response approve** | Trả `inventoryRemainder` (tổng qty, SKU count) + `nextSteps` hướng dẫn tạo outbound. |
+
+Hoàn tiền (`refundAmount` trên request) — xử lý kế toán ngoài WMS (chưa tạo invoice `TERMINATION_SETTLEMENT` tự động).
 
 ## 4. Công thức tiền thuê tháng (dùng chung)
 
@@ -101,7 +117,8 @@ initialInvoice   = MONTHLY ? monthlyRent : estimatedTotalAmount
 - [x] `BILLING_CYCLE` chỉ `MONTHLY` | `YEARLY`
 - [x] `PENDING_PAYMENT` + invoice INITIAL + mark-paid → ACTIVE
 - [x] Inbound gate: ACTIVE + invoice INITIAL PAID
-- [x] Termination preview / request
+- [x] Termination preview / request / approve / reject
+- [x] Sau duyệt: outbound trên HĐ TERMINATED; tồn kho giữ nguyên đến khi xuất hết
 - [ ] Cron invoice định kỳ (MONTHLY đầu tháng / YEARLY cuối tháng)
 - [x] UI tenant: **Thanh toán PayOS** → redirect `checkoutUrl`; return `/staff/contracts/payment/return`
 - [x] BE: `@payos/node`, webhook `/api/payos/webhook`, bảng `payments.payos_order_code`

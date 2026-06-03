@@ -1180,6 +1180,9 @@ Chi tiết nghiệp vụ (MONTHLY/YEARLY, invoice đầu, phụ phí, chấm d�
 |--------|------|--------|
 | `GET` | `/contracts/:contractId/termination/preview` | Xem phí/hoàn trước chấm dứt |
 | `POST` | `/contracts/:contractId/termination/request` | Gửi yêu cầu chấm dứt |
+| `GET` | `/contracts/:contractId/termination/requests` | Danh sách yêu cầu (`?status=PENDING`) |
+| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/approve` | WH duyệt |
+| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/reject` | WH từ chối |
 | `POST` | `/contracts/:contractId/invoices/:invoiceId/payos/create-link` | Tạo link thanh toán PayOS |
 | `POST` | `/api/payos/webhook` | Webhook PayOS (không JWT) |
 | `POST` | `/contracts/:contractId/invoices/:invoiceId/mark-paid` | Ghi nhận thủ công (dev) |

@@ -384,6 +384,22 @@ export async function assertContractOperational(contractId) {
   return contract;
 }
 
+/** Outbound liquidation: ACTIVE (bình thường) hoặc TERMINATED (xuất hết hàng sau chấm dứt). */
+export async function assertContractAllowsOutbound(contractId) {
+  const contract = await getContract(contractId);
+  if (!['ACTIVE', 'TERMINATED'].includes(contract.status)) {
+    throw new AppError(
+      'Contract must be ACTIVE or TERMINATED to create an outbound request',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+  if (contract.status === 'ACTIVE') {
+    await assertInitialInvoicePaid(contractId);
+  }
+  return contract;
+}
+
 export async function deleteContract(contractId) {
   const id = parseUuid(contractId, 'contractId');
   await getContract(id);
