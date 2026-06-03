@@ -1,5 +1,6 @@
 import * as outboundRequestService from '../services/outboundRequest.service.js';
 import * as outboundRequestItemService from '../services/outboundRequestItem.service.js';
+import * as outboundWorkflowService from '../services/outboundWorkflow.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -34,16 +35,27 @@ export async function getById(req, res) {
 }
 
 export async function create(req, res) {
-  const outbound = await outboundRequestService.createOutboundRequest(req.body);
+  const outbound = await outboundRequestService.createOutboundRequest(
+    req.body,
+    req.user
+  );
   created(res, outbound);
 }
 
 export async function update(req, res) {
   const outbound = await outboundRequestService.updateOutboundRequest(
     req.params.outboundRequestId,
-    req.body
+    req.body,
+    req.user
   );
   success(res, outbound, 'Updated successfully');
+}
+
+export async function listPickingTasks(req, res) {
+  const tasks = await outboundWorkflowService.listPickingTasksForOutbound(
+    req.params.outboundRequestId
+  );
+  success(res, tasks);
 }
 
 export async function remove(req, res) {

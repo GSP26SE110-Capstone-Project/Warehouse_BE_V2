@@ -583,19 +583,41 @@ Lấy chi tiết 1 outbound request. Query `includeItems=true` để kèm `items
 
 ### `PATCH /outbound-requests/:outboundRequestId`
 
-Chỉ cập nhật: `requestedShipDate`, `actualShippedAt`, `status`, `approvedBy` (không đổi tenant/contract/warehouse). Chuyển `APPROVED` yêu cầu ≥1 dòng và đủ tồn kho.
+Chỉ cập nhật: `requestedShipDate`, `actualShippedAt`, `status` (không đổi tenant/contract/warehouse). **`approvedBy` / `createdBy` tự gán từ token** — không gửi trong body.
+
+**Luồng trạng thái (WH, Bearer token):**
+
+| `status` mới | Hành vi |
+|--------------|---------|
+| `APPROVED` | WH duyệt → gán `approvedBy` từ user login → reserve FIFO → `RESERVED` + tạo picking task |
+| `PICKING` | Bắt đầu pick |
+| `PACKING` | Xác nhận pick đủ (picked = quantity_to_pick) |
+| `SHIPPED` | Trừ tồn kho + movement `OUTBOUND`, gán `actualShippedAt` |
+| `CANCELLED` | Tenant: chỉ `DRAFT`/`PENDING`; WH: mọi trạng thái trước ship — giải phóng reserve nếu đã `RESERVED`+ |
+
+`GET /outbound-requests/:id/picking-tasks` — xem task + dòng pick (LPN/bin/batch).
 
 ```json
 {
-  "status": "APPROVED",
-  "approvedBy": "uuid-wh-admin"
+  "status": "APPROVED"
 }
 ```
 
 ```json
 {
-  "status": "SHIPPED",
-  "actualShippedAt": "2026-05-28T14:30:00.000Z"
+  "status": "PICKING"
+}
+```
+
+```json
+{
+  "status": "PACKING"
+}
+```
+
+```json
+{
+  "status": "SHIPPED"
 }
 ```
 

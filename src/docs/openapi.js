@@ -1152,12 +1152,12 @@ const spec = {
             items: { $ref: '#/components/schemas/OutboundRequestItemCreateNested' },
             description: 'Optional — tạo dòng SKU cùng phiếu xuất',
           },
-          createdBy: uuid,
-          approvedBy: uuid,
         },
       },
       OutboundRequestUpdate: {
         type: 'object',
+        description:
+          'Không gửi `approvedBy` — khi `status: APPROVED` server lấy user từ Bearer token, reserve FIFO, chuyển `RESERVED`. `PACKING`/`SHIPPED` chạy pick/ship workflow.',
         properties: {
           requestedShipDate: {
             type: 'string',
@@ -1168,6 +1168,7 @@ const spec = {
             type: 'string',
             format: 'date-time',
             nullable: true,
+            description: 'Tùy chọn; mặc định server set khi `SHIPPED`',
           },
           status: {
             type: 'string',
@@ -1183,7 +1184,6 @@ const spec = {
               'CANCELLED',
             ],
           },
-          approvedBy: { ...uuid, nullable: true },
         },
       },
       OutboundRequestWithItems: {
@@ -4148,6 +4148,32 @@ const spec = {
         },
       },
     },
+    '/api/outbound-requests/{outboundRequestId}/picking-tasks': {
+      get: {
+        tags: ['OutboundRequest'],
+        summary: 'List picking tasks and pick lines (LPN/bin/batch) for outbound',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                pickingTaskId: uuid,
+                outboundRequestId: uuid,
+                assignedTo: { ...uuid, nullable: true },
+                status: { type: 'string' },
+                items: { type: 'array', items: { type: 'object' } },
+              },
+            },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/outbound-requests/{outboundRequestId}/items': {
       get: {
         tags: ['OutboundRequest', 'OutboundRequestItem'],
@@ -4209,7 +4235,7 @@ const spec = {
       },
       patch: {
         tags: ['OutboundRequest'],
-        summary: 'Update outbound request (status, ship dates, approver)',
+        summary: 'Update outbound request (status workflow, ship dates)',
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
         ],
