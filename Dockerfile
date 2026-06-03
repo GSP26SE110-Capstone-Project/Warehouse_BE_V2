@@ -1,5 +1,5 @@
 # Smart Warehouse API — Node.js (Express 5)
-# On start: wait for Postgres → npm run db:migrate:all → CMD (default: npm run dev)
+# On start: wait for Postgres → migrate → seed:all → CMD (default: npm run dev)
 
 FROM node:20-alpine
 
@@ -11,7 +11,8 @@ WORKDIR /app
 
 ENV NODE_ENV=development \
     PORT=3000 \
-    RUN_DB_MIGRATE=1
+    RUN_DB_MIGRATE=1 \
+    RUN_DB_SEED=1
 
 COPY package*.json ./
 RUN npm install
