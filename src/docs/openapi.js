@@ -2236,11 +2236,55 @@ const spec = {
         type: 'object',
         properties: {
           reason: { type: 'string', description: 'Lý do chấm dứt (optional)' },
-          requestedBy: { ...uuid, description: 'UUID user gửi yêu cầu (optional)' },
         },
         example: {
           reason: 'Ngừng kinh doanh mùa hè',
-          requestedBy: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+        },
+      },
+      ContractTerminationRequestRow: {
+        type: 'object',
+        properties: {
+          terminationRequestId: uuid,
+          contractId: uuid,
+          tenantId: uuid,
+          status: {
+            type: 'string',
+            enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
+          },
+          billingCycle: { type: 'string' },
+          hasInbound: { type: 'boolean' },
+          refundAmount: { type: 'number' },
+          reason: { type: 'string', nullable: true },
+          reviewedBy: { ...uuid, nullable: true },
+          reviewedAt: { type: 'string', format: 'date-time', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      ContractTerminationInventoryRemainder: {
+        type: 'object',
+        properties: {
+          totalQuantity: { type: 'integer', description: 'Tổng quantity tồn AVAILABLE còn trong kho' },
+          availableQuantity: { type: 'integer' },
+          reservedQuantity: { type: 'integer' },
+          skuCount: { type: 'integer', description: 'Số SKU còn quantity > 0' },
+        },
+      },
+      ContractTerminationApproveResult: {
+        type: 'object',
+        properties: {
+          request: { $ref: '#/components/schemas/ContractTerminationRequestRow' },
+          contract: { type: 'object' },
+          inventoryRemainder: {
+            $ref: '#/components/schemas/ContractTerminationInventoryRemainder',
+          },
+          nextSteps: {
+            type: 'object',
+            properties: {
+              message: { type: 'string' },
+              outboundAllowed: { type: 'boolean' },
+              inboundAllowed: { type: 'boolean' },
+            },
+          },
         },
       },
       PayOSWebhookPing: {
@@ -5350,7 +5394,7 @@ const spec = {
         tags: ['Contract'],
         summary: 'Gửi yêu cầu chấm dứt hợp đồng sớm',
         description:
-          'Chỉ HĐ `ACTIVE` (đã thanh toán invoice INITIAL). Tạo `contract_termination_requests` trạng thái `PENDING`. 409 nếu đã có yêu cầu chờ duyệt. Duyệt WH (→ `TERMINATED`) chưa có endpoint public.',
+          'Chỉ HĐ `ACTIVE` (đã thanh toán invoice INITIAL). Tạo `contract_termination_requests` trạng thái `PENDING`. 409 nếu đã có yêu cầu chờ duyệt. WH duyệt: `POST …/termination/requests/{terminationRequestId}/approve`.',
         security: bearerSecurity,
         parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
         requestBody: {
@@ -5372,6 +5416,71 @@ const spec = {
           400: stdErrors[400],
           404: stdErrors[404],
           409: stdErrors[409],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/termination/requests': {
+      get: {
+        tags: ['Contract'],
+        summary: 'Danh sách yêu cầu chấm dứt theo HĐ',
+        description:
+          'Roles: `WH_ADMIN`, `SYSTEM_ADMIN`, `TENANT_ADMIN`, `TENANT_STAFF`. Query `status` optional (PENDING, APPROVED, …).',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] },
+          },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'array',
+            items: { $ref: '#/components/schemas/ContractTerminationRequestRow' },
+          }),
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/termination/requests/{terminationRequestId}/approve': {
+      post: {
+        tags: ['Contract'],
+        summary: 'WH duyệt chấm dứt HĐ',
+        description:
+          'Roles: `WH_ADMIN`, `SYSTEM_ADMIN`. `WH_ADMIN` chỉ duyệt HĐ thuộc `warehouseId` trong JWT (403 nếu kho khác). HĐ → `TERMINATED`; hủy reservation ACTIVE; hủy inbound DRAFT/PENDING. **Tồn kho không xóa** — tenant xuất hàng qua outbound. `reviewedBy` = user JWT.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'terminationRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractTerminationApproveResult' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/termination/requests/{terminationRequestId}/reject': {
+      post: {
+        tags: ['Contract'],
+        summary: 'WH từ chối yêu cầu chấm dứt',
+        description:
+          'Roles: `WH_ADMIN`, `SYSTEM_ADMIN`. `WH_ADMIN` chỉ từ chối yêu cầu HĐ thuộc kho mình (403 nếu kho khác). Request → `REJECTED`; HĐ giữ `ACTIVE`.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'terminationRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              request: { $ref: '#/components/schemas/ContractTerminationRequestRow' },
+            },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
         },
       },
     },

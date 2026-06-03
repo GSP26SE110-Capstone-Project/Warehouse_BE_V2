@@ -92,3 +92,32 @@ export async function requestTermination(req, res) {
   );
   created(res, result);
 }
+
+export async function listTerminationRequests(req, res) {
+  const items = await contractTerminationService.listTerminationRequests(
+    req.params.contractId,
+    { status: req.query.status },
+    req.user
+  );
+  success(res, items);
+}
+
+export async function approveTerminationRequest(req, res) {
+  const result = await contractTerminationService.approveTerminationRequest(
+    req.params.contractId,
+    req.params.terminationRequestId,
+    req.user?.userId,
+    req.user
+  );
+  success(res, result, 'Termination approved');
+}
+
+export async function rejectTerminationRequest(req, res) {
+  const result = await contractTerminationService.rejectTerminationRequest(
+    req.params.contractId,
+    req.params.terminationRequestId,
+    req.user?.userId,
+    req.user
+  );
+  success(res, result, 'Termination rejected');
+}

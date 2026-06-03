@@ -22,7 +22,39 @@ export function getScopedTenantId(user) {
 export function assertWarehouseAccess(user, warehouseId) {
   const scoped = getScopedWarehouseId(user);
   if (scoped && scoped !== warehouseId) {
-    throw new AppError('Forbidden: warehouse out of scope', 403, 'FORBIDDEN');
+    throw new AppError(
+      'Hợp đồng hoặc dữ liệu này thuộc kho khác. Bạn chỉ được thao tác tại kho mình quản lý.',
+      403,
+      'FORBIDDEN'
+    );
+  }
+}
+
+/** @param {{ tenantId?: string, warehouseId?: string }} contract */
+export function assertContractScopeAccess(user, contract) {
+  if (!user || !contract) return;
+
+  const scopedTenantId = getScopedTenantId(user);
+  if (scopedTenantId) {
+    if (contract.tenantId !== scopedTenantId) {
+      throw new AppError(
+        'Hợp đồng không thuộc công ty của bạn. Bạn không thể xem hoặc xử lý yêu cầu này.',
+        403,
+        'FORBIDDEN'
+      );
+    }
+    return;
+  }
+
+  if (WAREHOUSE_ROLES.includes(user.role)) {
+    if (!user.warehouseId) {
+      throw new AppError(
+        'Tài khoản kho của bạn chưa được gắn với kho làm việc. Vui lòng liên hệ quản trị hệ thống.',
+        403,
+        'FORBIDDEN'
+      );
+    }
+    assertWarehouseAccess(user, contract.warehouseId);
   }
 }
 
@@ -31,7 +63,11 @@ export async function assertTenantWarehouseAccess(user, warehouseId) {
   if (!user || !TENANT_ROLES.includes(user.role)) return;
   const tenantId = user.tenantId;
   if (!tenantId) {
-    throw new AppError('Tenant user missing tenantId', 403, 'FORBIDDEN');
+    throw new AppError(
+      'Tài khoản tenant chưa được gắn công ty. Vui lòng liên hệ quản trị.',
+      403,
+      'FORBIDDEN'
+    );
   }
   const whId = parseUuid(warehouseId, 'warehouseId');
   const row = await pool.query(
@@ -44,12 +80,16 @@ export async function assertTenantWarehouseAccess(user, warehouseId) {
     [tenantId, whId]
   );
   if (!row.rows[0]) {
-    throw new AppError('Forbidden: no contract with this warehouse', 403, 'FORBIDDEN');
+    throw new AppError(
+      'Công ty của bạn chưa có hợp đồng với kho này.',
+      403,
+      'FORBIDDEN'
+    );
   }
 }
 
 export function assertSystemAdmin(user) {
   if (user?.role !== 'SYSTEM_ADMIN') {
-    throw new AppError('SYSTEM_ADMIN only', 403, 'FORBIDDEN');
+    throw new AppError('Chỉ quản trị hệ thống mới được thực hiện thao tác này.', 403, 'FORBIDDEN');
   }
 }

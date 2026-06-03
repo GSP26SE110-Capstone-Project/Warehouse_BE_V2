@@ -13,6 +13,7 @@ import {
   usedContractMonths,
 } from '../utils/contractBilling.js';
 import { getContract } from './contract.service.js';
+import { assertContractScopeAccess } from '../utils/warehouseAccess.js';
 
 async function contractHasInbound(contractId) {
   const { rows } = await pool.query(
@@ -129,13 +130,9 @@ export async function requestTermination(contractId, body = {}) {
   const totalPaid = await sumPaidInvoiceTotal(id);
   const settlement = computeTerminationSettlement(contract, { hasInbound, totalPaid });
 
-  const requestedBy =
-    body.requestedBy != null ? parseUuid(body.requestedBy, 'requestedBy') : undefined;
-
   const row = await ContractTerminationRequest.create({
     contractId: id,
     tenantId: contract.tenantId,
-    requestedBy,
     status: 'PENDING',
     billingCycle: settlement.billingCycle,
     hasInbound: settlement.hasInbound,
@@ -153,27 +150,185 @@ export async function requestTermination(contractId, body = {}) {
   return { request: row, settlement };
 }
 
-export async function approveTermination(terminationRequestId, reviewedBy) {
-  const id = parseUuid(terminationRequestId, 'terminationRequestId');
-  const existing = await ContractTerminationRequest.findById(id);
+async function getTerminationRequestForContract(contractId, terminationRequestId) {
+  const cId = parseUuid(contractId, 'contractId');
+  const rId = parseUuid(terminationRequestId, 'terminationRequestId');
+  const existing = await ContractTerminationRequest.findById(rId);
   if (!existing) {
-    throw new AppError('Termination request not found', 404, 'NOT_FOUND');
+    throw new AppError('Không tìm thấy yêu cầu chấm dứt', 404, 'NOT_FOUND');
   }
+  if (existing.contractId !== cId) {
+    throw new AppError('Yêu cầu chấm dứt không thuộc hợp đồng này', 400, 'VALIDATION_ERROR');
+  }
+  return existing;
+}
+
+/** Tồn kho còn trong kho (tenant + warehouse của HĐ). */
+export async function sumTenantWarehouseInventoryRemainder(tenantId, warehouseId) {
+  const { rows } = await pool.query(
+    `SELECT
+       COALESCE(SUM(i.quantity), 0)::int AS total_quantity,
+       COALESCE(SUM(i.available_quantity), 0)::int AS available_quantity,
+       COALESCE(SUM(i.reserved_quantity), 0)::int AS reserved_quantity,
+       COUNT(DISTINCT CASE WHEN i.quantity > 0 THEN i.sku_id END)::int AS sku_count
+     FROM inventories i
+     INNER JOIN bins b ON b.bin_id = i.bin_id
+     INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
+     INNER JOIN racks r ON r.rack_id = rl.rack_id
+     INNER JOIN warehouse_zones z ON z.zone_id = r.zone_id
+     WHERE i.tenant_id = $1
+       AND z.warehouse_id = $2
+       AND i.status = 'AVAILABLE'
+       AND i.quantity > 0`,
+    [parseUuid(tenantId, 'tenantId'), parseUuid(warehouseId, 'warehouseId')]
+  );
+  const row = rows[0] ?? {};
+  return {
+    totalQuantity: Number(row.total_quantity ?? row.totalQuantity ?? 0),
+    availableQuantity: Number(row.available_quantity ?? row.availableQuantity ?? 0),
+    reservedQuantity: Number(row.reserved_quantity ?? row.reservedQuantity ?? 0),
+    skuCount: Number(row.sku_count ?? row.skuCount ?? 0),
+  };
+}
+
+async function applyTerminationApprovedSideEffects(client, contract) {
+  await client.query(
+    `UPDATE storage_reservations
+     SET status = 'CANCELLED', updated_at = NOW()
+     WHERE contract_id = $1 AND status = 'ACTIVE'`,
+    [contract.contractId]
+  );
+
+  await client.query(
+    `UPDATE inbound_requests
+     SET status = 'CANCELLED', updated_at = NOW()
+     WHERE contract_id = $1 AND status IN ('DRAFT', 'PENDING')`,
+    [contract.contractId]
+  );
+}
+
+export async function listTerminationRequests(contractId, { status } = {}, actor = null) {
+  const id = parseUuid(contractId, 'contractId');
+  const contract = await getContract(id);
+  assertContractScopeAccess(actor, contract);
+
+  const filters = { contractId: id };
+  if (status != null && String(status).trim() !== '') {
+    assertEnum(String(status).trim(), TERMINATION_REQUEST_STATUS, 'status');
+    filters.status = String(status).trim();
+  }
+
+  const items = await ContractTerminationRequest.findAll(filters, {
+    orderBy: 'created_at DESC',
+  });
+  return items;
+}
+
+export async function approveTerminationRequest(
+  contractId,
+  terminationRequestId,
+  reviewedBy,
+  actor = null
+) {
+  const existing = await getTerminationRequestForContract(contractId, terminationRequestId);
   assertEnum(existing.status, TERMINATION_REQUEST_STATUS, 'status');
   if (existing.status !== 'PENDING') {
     throw new AppError('Yêu cầu không ở trạng thái PENDING', 400, 'VALIDATION_ERROR');
   }
 
+  const contract = await getContract(existing.contractId);
+  assertContractScopeAccess(actor, contract);
+  if (contract.status !== 'ACTIVE') {
+    throw new AppError(
+      'Chỉ duyệt chấm dứt khi HĐ đang ACTIVE',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  const reviewerId =
+    reviewedBy != null ? parseUuid(reviewedBy, 'reviewedBy') : undefined;
+  const reviewedAt = new Date();
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: reqRows } = await client.query(
+      `UPDATE contract_termination_requests
+       SET status = 'APPROVED', reviewed_by = $2, reviewed_at = $3, updated_at = NOW()
+       WHERE termination_request_id = $1 AND status = 'PENDING'
+       RETURNING *`,
+      [existing.terminationRequestId, reviewerId ?? null, reviewedAt]
+    );
+    if (reqRows.length === 0) {
+      throw new AppError('Yêu cầu không ở trạng thái PENDING', 400, 'VALIDATION_ERROR');
+    }
+
+    await client.query(
+      `UPDATE contracts SET status = 'TERMINATED', updated_at = NOW() WHERE contract_id = $1`,
+      [contract.contractId]
+    );
+
+    await applyTerminationApprovedSideEffects(client, contract);
+
+    await client.query('COMMIT');
+
+    const inventoryRemainder = await sumTenantWarehouseInventoryRemainder(
+      contract.tenantId,
+      contract.warehouseId
+    );
+
+    const updated = await ContractTerminationRequest.findById(existing.terminationRequestId);
+    return {
+      request: updated,
+      contract: { ...contract, status: 'TERMINATED' },
+      inventoryRemainder,
+      nextSteps:
+        inventoryRemainder.totalQuantity > 0
+          ? {
+              message:
+                'Hàng vẫn còn trong kho. Tenant tạo phiếu xuất (outbound) trên HĐ TERMINATED để lấy hết; inbound mới bị chặn.',
+              outboundAllowed: true,
+              inboundAllowed: false,
+            }
+          : {
+              message: 'Không còn tồn kho AVAILABLE trên HĐ này.',
+              outboundAllowed: true,
+              inboundAllowed: false,
+            },
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function rejectTerminationRequest(
+  contractId,
+  terminationRequestId,
+  reviewedBy,
+  actor = null
+) {
+  const existing = await getTerminationRequestForContract(contractId, terminationRequestId);
+  assertEnum(existing.status, TERMINATION_REQUEST_STATUS, 'status');
+  if (existing.status !== 'PENDING') {
+    throw new AppError('Yêu cầu không ở trạng thái PENDING', 400, 'VALIDATION_ERROR');
+  }
+
+  const contract = await getContract(existing.contractId);
+  assertContractScopeAccess(actor, contract);
+
   const reviewerId =
     reviewedBy != null ? parseUuid(reviewedBy, 'reviewedBy') : undefined;
 
-  const updated = await ContractTerminationRequest.updateById(id, {
-    status: 'APPROVED',
+  const updated = await ContractTerminationRequest.updateById(existing.terminationRequestId, {
+    status: 'REJECTED',
     reviewedBy: reviewerId,
     reviewedAt: new Date(),
   });
 
-  await Contract.updateById(existing.contractId, { status: 'TERMINATED' });
-
-  return updated;
+  return { request: updated };
 }
