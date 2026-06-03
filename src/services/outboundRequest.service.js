@@ -3,6 +3,7 @@ import AppError from '../utils/AppError.js';
 import { OUTBOUND_STATUS } from '../constants/outbound.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertContractAllowsOutbound } from './contract.service.js';
+import { assertOutboundOperationalGate } from '../utils/contractOperationalGate.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
 import {
@@ -72,6 +73,8 @@ async function assertContractForOutbound(tenantId, contractId, warehouseId) {
   if (contract.warehouseId !== warehouseId) {
     throw new AppError('contractId does not belong to this warehouse', 400, 'VALIDATION_ERROR');
   }
+
+  await assertOutboundOperationalGate(contractId, tenantId, warehouseId);
 
   return contract;
 }

@@ -42,8 +42,16 @@ DRAFT
 
 ### Điều kiện inbound / outbound
 
+**Inbound**
+
 - `contract.status === 'ACTIVE'`
 - Invoice đầu (`invoice_category = 'INITIAL'`) có `payment_status = 'PAID'`
+
+**Outbound** (thêm so với inbound)
+
+- HĐ `ACTIVE` hoặc `TERMINATED` (xuất hết sau chấm dứt); `ACTIVE` cần invoice INITIAL `PAID`
+- ≥ 1 `inbound_requests` trên HĐ có `status = 'COMPLETED'`
+- Tồn kho tenant tại kho đó: `available_quantity > 0` (sau putaway)
 
 ## 3. Chấm dứt hợp đồng sớm
 

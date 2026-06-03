@@ -4209,9 +4209,9 @@ const spec = {
       post: {
         tags: ['OutboundRequest'],
         operationId: 'createOutboundRequest',
-        summary: 'Create outbound request (contract must be ACTIVE)',
+        summary: 'Create outbound request',
         description:
-          'Roles: tenant-side (`TENANT_ADMIN`, `TENANT_STAFF`). Gửi kèm `items[]` (SKU + requestedQuantity) hoặc thêm sau. `PENDING` cần ≥1 dòng. `createdBy` từ token. LPN/batch allocate khi WH duyệt (FIFO).',
+          'Roles: tenant-side (`TENANT_ADMIN`, `TENANT_STAFF`). HĐ `ACTIVE` (invoice INITIAL PAID) hoặc `TERMINATED`. **Bắt buộc:** ≥1 inbound `COMPLETED` trên HĐ + tồn `available_quantity > 0` tại kho (`OUTBOUND_NO_COMPLETED_INBOUND` / `OUTBOUND_NO_INVENTORY`). Gửi kèm `items[]` hoặc thêm sau. `PENDING` cần ≥1 dòng.',
         security: bearerSecurity,
         requestBody: {
           required: true,

@@ -176,6 +176,8 @@ COMPLETED — inventory deducted
 7.1 Create Outbound Request
 Tables: outbound_requests, outbound_request_items
 
+Điều kiện: HĐ ACTIVE (invoice INITIAL PAID) hoặc TERMINATED; ≥1 inbound COMPLETED trên HĐ; tồn available_quantity > 0 tại kho.
+
 7.2 FIFO Allocation
 Dựa trên: received_at, batch age (warehouse_received_at)
 
