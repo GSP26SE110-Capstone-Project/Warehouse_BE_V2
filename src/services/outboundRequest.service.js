@@ -5,6 +5,12 @@ import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertContractOperational } from './contract.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
+import {
+  assertOutboundHasAtLeastOneItem,
+  assertOutboundInventorySufficient,
+  createOutboundRequestItem,
+  getOutboundRequestWithItems,
+} from './outboundRequestItem.service.js';
 
 const CREATE_FIELDS = [
   'tenantId',
@@ -207,20 +213,59 @@ export async function listOutboundRequests({
 }
 
 export async function createOutboundRequest(body) {
-  const data = normalizeCreatePayload(body);
+  const rawItems = body?.items;
+  const headerBody = { ...body };
+  delete headerBody.items;
+
+  const data = normalizeCreatePayload(headerBody);
 
   await getTenantCompany(data.tenantId);
   await getWarehouseById(data.warehouseId);
   await assertContractForOutbound(data.tenantId, data.contractId, data.warehouseId);
 
-  return OutboundRequest.create(data);
+  const outbound = await OutboundRequest.create(data);
+
+  if (Array.isArray(rawItems) && rawItems.length > 0) {
+    try {
+      for (const entry of rawItems) {
+        await createOutboundRequestItem(
+          { skuId: entry.skuId, requestedQuantity: entry.requestedQuantity },
+          outbound.outboundRequestId
+        );
+      }
+    } catch (err) {
+      await OutboundRequest.deleteById(outbound.outboundRequestId);
+      throw err;
+    }
+  }
+
+  if (data.status === 'PENDING') {
+    await assertOutboundHasAtLeastOneItem(outbound.outboundRequestId);
+  }
+
+  if (Array.isArray(rawItems) && rawItems.length > 0) {
+    return getOutboundRequestWithItems(outbound.outboundRequestId);
+  }
+
+  return outbound;
 }
 
 export async function updateOutboundRequest(outboundRequestId, body) {
   const id = parseUuid(outboundRequestId, 'outboundRequestId');
-  await getOutboundRequest(id);
+  const existing = await getOutboundRequest(id);
 
   const data = normalizeUpdatePayload(body);
+
+  if (data.status !== undefined && data.status !== existing.status) {
+    if (data.status === 'PENDING') {
+      await assertOutboundHasAtLeastOneItem(id);
+    }
+    if (data.status === 'APPROVED') {
+      await assertOutboundHasAtLeastOneItem(id);
+      await assertOutboundInventorySufficient(id);
+    }
+  }
+
   return OutboundRequest.updateById(id, data);
 }
 

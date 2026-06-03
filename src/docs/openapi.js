@@ -306,6 +306,11 @@ const spec = {
         'Yêu cầu xuất kho (Flow 7) · Roles: tạo: `TENANT_ADMIN`, `TENANT_STAFF`; duyệt/xử lý: `WH_ADMIN`, `WH_STAFF`; `SYSTEM_ADMIN` (all)',
     },
     {
+      name: 'OutboundRequestItem',
+      description:
+        'Dòng SKU trên outbound (skuId + requestedQuantity) · Tenant thêm khi DRAFT/PENDING; kiểm tra tồn `INSUFFICIENT_INVENTORY`',
+    },
+    {
       name: 'Batch',
       description:
         'Lô nhận hàng (inbound) · Roles: `WH_ADMIN`, `WH_STAFF` (warehouse ops). Bearer khuyến nghị',
@@ -338,7 +343,7 @@ const spec = {
     {
       name: 'Contract',
       description:
-        'Hợp đồng thuê · Roles: CRUD/ký: `WH_ADMIN`, `SYSTEM_ADMIN`; xem/ký tenant: `TENANT_ADMIN`; xem: `TENANT_STAFF`',
+        'Hợp đồng thuê · CRUD/ký: `WH_ADMIN`, `SYSTEM_ADMIN`; tenant: `TENANT_ADMIN`. **Chấm dứt sớm:** `GET/POST …/termination/*` (HĐ `ACTIVE`, xem `docs/contract-billing-termination.md`)',
     },
     {
       name: 'PayOS',
@@ -1111,13 +1116,15 @@ const spec = {
       OutboundRequestCreate: {
         type: 'object',
         description:
-          'Required fields: `tenantId`, `contractId`, `warehouseId`. Field khác optional. Các field actor (`createdBy`, `approvedBy`) nên để server tự set.',
+          'Required: `tenantId`, `contractId`, `warehouseId`. Gửi `items[]` (SKU + qty) cùng lúc hoặc thêm sau qua `POST …/items`. Status `PENDING` bắt buộc có ít nhất 1 dòng.',
         required: ['tenantId', 'contractId', 'warehouseId'],
         example: {
           tenantId: '98cad623-9071-4f40-8f41-196940a9338d',
           contractId: 'a5f86099-adcf-4151-8c90-884d16b9e6e2',
           warehouseId: 'f2af9626-635b-4fe2-a149-3ab5b33b153e',
           requestedShipDate: '2026-06-20T08:00:00.000Z',
+          status: 'PENDING',
+          items: [{ skuId: 'b1c2d3e4-0000-4000-8000-000000000001', requestedQuantity: 10 }],
         },
         properties: {
           tenantId: uuid,
@@ -1139,6 +1146,11 @@ const spec = {
               'CANCELLED',
             ],
             default: 'PENDING',
+          },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/OutboundRequestItemCreateNested' },
+            description: 'Optional — tạo dòng SKU cùng phiếu xuất',
           },
           createdBy: uuid,
           approvedBy: uuid,
@@ -1172,6 +1184,68 @@ const spec = {
             ],
           },
           approvedBy: { ...uuid, nullable: true },
+        },
+      },
+      OutboundRequestWithItems: {
+        allOf: [
+          { $ref: '#/components/schemas/OutboundRequest' },
+          {
+            type: 'object',
+            properties: {
+              items: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/OutboundRequestItem' },
+              },
+            },
+          },
+        ],
+      },
+      OutboundRequestItem: {
+        type: 'object',
+        properties: {
+          outboundRequestItemId: uuid,
+          outboundRequestId: uuid,
+          skuId: uuid,
+          requestedQuantity: { type: 'integer', minimum: 1 },
+          allocatedQuantity: { type: 'integer', minimum: 0, default: 0 },
+          pickedQuantity: { type: 'integer', minimum: 0, default: 0 },
+          sku: {
+            type: 'object',
+            properties: {
+              skuId: uuid,
+              skuCode: { type: 'string' },
+              productName: { type: 'string' },
+              color: { type: 'string', nullable: true },
+              size: { type: 'string', nullable: true },
+            },
+          },
+        },
+      },
+      OutboundRequestItemCreateNested: {
+        type: 'object',
+        required: ['skuId', 'requestedQuantity'],
+        properties: {
+          skuId: uuid,
+          requestedQuantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      OutboundRequestItemCreate: {
+        type: 'object',
+        required: ['skuId', 'requestedQuantity'],
+        properties: {
+          outboundRequestId: {
+            ...uuid,
+            description:
+              'Required on POST /outbound-request-items; omitted when nested under outbound',
+          },
+          skuId: uuid,
+          requestedQuantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      OutboundRequestItemUpdate: {
+        type: 'object',
+        properties: {
+          requestedQuantity: { type: 'integer', minimum: 1 },
         },
       },
 
@@ -1243,11 +1317,24 @@ const spec = {
           lpnId: uuid,
           warehouseId: uuid,
           inboundRequestId: uuid,
-          explainWithLlm: {
-            type: 'boolean',
-            default: false,
-            description:
-              'If true, call Ollama (llama3.2:3b) for Vietnamese explanation. Bin choice stays rule-based.',
+        },
+      },
+      AiSlotExplainRequest: {
+        type: 'object',
+        required: ['llmProvider'],
+        properties: {
+          llmProvider: {
+            type: 'string',
+            enum: ['gemini', 'ollama'],
+            description: 'Required. No fallback to the other provider.',
+          },
+          recommendationId: uuid,
+          lpnId: uuid,
+          warehouseId: uuid,
+          inboundRequestId: uuid,
+          slot: {
+            type: 'object',
+            description: 'Optional: full preview response to explain without re-running rule engine',
           },
         },
       },
@@ -1285,8 +1372,12 @@ const spec = {
         type: 'object',
         properties: {
           recommendedZoneId: uuid,
+          recommendedRackId: uuid,
+          recommendedRackLevelId: uuid,
           recommendedBinId: uuid,
           zoneCode: { type: 'string' },
+          rackCode: { type: 'string' },
+          levelNumber: { type: 'integer', nullable: true },
           binCode: { type: 'string' },
           score: { type: 'number' },
           reasons: { type: 'array', items: { type: 'string' } },
@@ -1300,6 +1391,8 @@ const spec = {
           lpnId: { ...uuid, nullable: true },
           skuId: { ...uuid, nullable: true },
           recommendedZoneId: { ...uuid, nullable: true },
+          recommendedRackId: { ...uuid, nullable: true },
+          recommendedRackLevelId: { ...uuid, nullable: true },
           recommendedBinId: { ...uuid, nullable: true },
           recommendationScore: { type: 'number', nullable: true },
           reason: {
@@ -1314,6 +1407,8 @@ const spec = {
             items: { $ref: '#/components/schemas/AiSlotAlternative' },
           },
           zoneCode: { type: 'string', nullable: true },
+          rackCode: { type: 'string', nullable: true },
+          levelNumber: { type: 'integer', nullable: true },
           binCode: { type: 'string', nullable: true },
           suggestedRackType: {
             type: 'string',
@@ -1325,6 +1420,7 @@ const spec = {
           modelVersion: { type: 'string', example: 'slotting-v1-rule' },
           llmExplanation: { type: 'string', nullable: true },
           llmModel: { type: 'string', nullable: true },
+          llmProvider: { type: 'string', enum: ['gemini', 'ollama'], nullable: true },
           llmError: { type: 'string', nullable: true },
           llmErrorCode: { type: 'string', nullable: true },
         },
@@ -1337,8 +1433,12 @@ const spec = {
           tenantId: uuid,
           warehouseId: uuid,
           recommendedZoneId: uuid,
+          recommendedRackId: uuid,
+          recommendedRackLevelId: uuid,
           recommendedBinId: uuid,
           zoneCode: { type: 'string' },
+          rackCode: { type: 'string' },
+          levelNumber: { type: 'integer', nullable: true },
           binCode: { type: 'string' },
           score: { type: 'number' },
           reasons: { type: 'array', items: { type: 'string' } },
@@ -1351,6 +1451,7 @@ const spec = {
           },
           llmExplanation: { type: 'string', nullable: true },
           llmModel: { type: 'string', nullable: true },
+          llmProvider: { type: 'string', enum: ['gemini', 'ollama'], nullable: true },
           llmError: { type: 'string', nullable: true },
           llmErrorCode: { type: 'string', nullable: true },
         },
@@ -2098,8 +2199,12 @@ const spec = {
       ContractTerminationRequestCreate: {
         type: 'object',
         properties: {
-          reason: { type: 'string' },
-          requestedBy: { ...uuid, description: 'Optional user UUID' },
+          reason: { type: 'string', description: 'Lý do chấm dứt (optional)' },
+          requestedBy: { ...uuid, description: 'UUID user gửi yêu cầu (optional)' },
+        },
+        example: {
+          reason: 'Ngừng kinh doanh mùa hè',
+          requestedBy: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
         },
       },
       PayOSWebhookPing: {
@@ -4023,7 +4128,7 @@ const spec = {
         tags: ['OutboundRequest'],
         summary: 'Create outbound request (contract must be ACTIVE)',
         description:
-          'Roles: tenant-side create request (`TENANT_ADMIN`, `TENANT_STAFF`). `WH_ADMIN` bị chặn tạo. Chỉ cần gửi field bắt buộc; field khác optional.',
+          'Roles: tenant-side (`TENANT_ADMIN`, `TENANT_STAFF`). Gửi kèm `items[]` (SKU + requestedQuantity) hoặc thêm sau. `PENDING` cần ≥1 dòng. Duyệt `APPROVED` kiểm tra tồn (`INSUFFICIENT_INVENTORY`). LPN/batch do kho allocate khi pick (FIFO).',
         requestBody: {
           required: true,
           content: {
@@ -4043,15 +4148,61 @@ const spec = {
         },
       },
     },
+    '/api/outbound-requests/{outboundRequestId}/items': {
+      get: {
+        tags: ['OutboundRequest', 'OutboundRequestItem'],
+        summary: 'List line items on an outbound request',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/OutboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['OutboundRequest', 'OutboundRequestItem'],
+        summary: 'Add SKU line to outbound request',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestItemCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
+            'Outbound request item created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
     '/api/outbound-requests/{outboundRequestId}': {
       get: {
         tags: ['OutboundRequest'],
         summary: 'Get outbound request by ID',
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'includeItems',
+            schema: { type: 'boolean' },
+            description: 'If true, include `items[]` with SKU details',
+          },
         ],
         responses: {
-          200: successEnvelope({ $ref: '#/components/schemas/OutboundRequest' }),
+          200: successEnvelope({ $ref: '#/components/schemas/OutboundRequestWithItems' }),
           400: stdErrors[400],
           404: stdErrors[404],
         },
@@ -4088,6 +4239,95 @@ const spec = {
         responses: {
           200: successEnvelope(
             { $ref: '#/components/schemas/OutboundRequest' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/outbound-request-items': {
+      get: {
+        tags: ['OutboundRequestItem'],
+        summary: 'List outbound request items',
+        parameters: [
+          { in: 'query', name: 'outboundRequestId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/OutboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Create outbound request item',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestItemCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
+            'Outbound request item created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/outbound-request-items/{outboundRequestItemId}': {
+      get: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Get outbound request item',
+        parameters: [
+          { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/OutboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Update outbound request item (requestedQuantity)',
+        parameters: [
+          { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestItemUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Delete outbound request item',
+        parameters: [
+          { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
             'Deleted successfully'
           ),
           400: stdErrors[400],
@@ -4231,10 +4471,52 @@ const spec = {
         },
       },
     },
+    '/api/ai/slot-recommendations/gemini/health': {
+      get: {
+        tags: ['AI'],
+        summary: 'Check Gemini API key and model availability',
+        description: 'Requires GEMINI_API_KEY. Model default gemini-2.0-flash.',
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              reachable: { type: 'boolean' },
+              enabled: { type: 'boolean' },
+              model: { type: 'string' },
+              message: { type: 'string' },
+            },
+          }),
+        },
+      },
+    },
+    '/api/ai/slot-recommendations/explain': {
+      post: {
+        tags: ['AI'],
+        summary: 'Explain slot recommendation (Gemini or Ollama only)',
+        description:
+          'Separate from preview. llmProvider required. Use recommendationId, or lpnId+warehouseId, or slot object from preview.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiSlotExplainRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/AiSlotLlmExplanation' },
+            'Explanation generated'
+          ),
+          400: stdErrors[400],
+          503: stdErrors[503],
+        },
+      },
+    },
     '/api/ai/slot-recommendations/preview': {
       post: {
         tags: ['AI'],
-        summary: 'Preview putaway slot recommendation (no DB write)',
+        summary: 'Preview putaway slot recommendation (rule engine only, no LLM)',
         requestBody: {
           required: true,
           content: {
@@ -4295,11 +4577,17 @@ const spec = {
     '/api/ai/slot-recommendations/{recommendationId}/explain': {
       get: {
         tags: ['AI'],
-        summary: 'Explain recommendation in Vietnamese (Ollama / Llama)',
+        summary: 'Explain saved recommendation (Gemini or Ollama)',
         description:
-          'Calls local Ollama. Does not change recommended bin — rule engine decision only.',
+          'Query llmProvider=gemini or ollama (required). Prefer POST /explain for new integrations.',
         parameters: [
           { in: 'path', name: 'recommendationId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'llmProvider',
+            required: true,
+            schema: { type: 'string', enum: ['gemini', 'ollama'] },
+          },
         ],
         responses: {
           200: successEnvelope(
@@ -4928,6 +5216,52 @@ const spec = {
       },
     },
 
+    '/api/contracts/{contractId}/termination/preview': {
+      get: {
+        tags: ['Contract'],
+        summary: 'Xem trước phí / hoàn tiền khi chấm dứt HĐ',
+        description:
+          'HĐ `ACTIVE` hoặc `PENDING_PAYMENT`. Tính settlement theo `billingCycle` (MONTHLY/YEARLY), inbound, tổng đã trả. Không tạo bản ghi yêu cầu.',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractTerminationPreview' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/termination/request': {
+      post: {
+        tags: ['Contract'],
+        summary: 'Gửi yêu cầu chấm dứt hợp đồng sớm',
+        description:
+          'Chỉ HĐ `ACTIVE` (đã thanh toán invoice INITIAL). Tạo `contract_termination_requests` trạng thái `PENDING`. 409 nếu đã có yêu cầu chờ duyệt. Duyệt WH (→ `TERMINATED`) chưa có endpoint public.',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractTerminationRequestCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope({
+            type: 'object',
+            properties: {
+              request: { type: 'object' },
+              settlement: { $ref: '#/components/schemas/ContractTerminationPreview' },
+            },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+
     '/api/contracts/{contractId}/invoices': {
       get: {
         tags: ['PayOS'],
@@ -4997,47 +5331,6 @@ const spec = {
           }),
           400: stdErrors[400],
           404: stdErrors[404],
-        },
-      },
-    },
-    '/api/contracts/{contractId}/termination/preview': {
-      get: {
-        tags: ['PayOS'],
-        summary: 'Preview contract termination fees / refund',
-        security: bearerSecurity,
-        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
-        responses: {
-          200: successEnvelope({ $ref: '#/components/schemas/ContractTerminationPreview' }),
-          400: stdErrors[400],
-          404: stdErrors[404],
-        },
-      },
-    },
-    '/api/contracts/{contractId}/termination/request': {
-      post: {
-        tags: ['PayOS'],
-        summary: 'Request early contract termination',
-        security: bearerSecurity,
-        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
-        requestBody: {
-          required: false,
-          content: {
-            'application/json': {
-              schema: { $ref: '#/components/schemas/ContractTerminationRequestCreate' },
-            },
-          },
-        },
-        responses: {
-          201: successEnvelope({
-            type: 'object',
-            properties: {
-              request: { type: 'object' },
-              settlement: { $ref: '#/components/schemas/ContractTerminationPreview' },
-            },
-          }),
-          400: stdErrors[400],
-          404: stdErrors[404],
-          409: stdErrors[409],
         },
       },
     },

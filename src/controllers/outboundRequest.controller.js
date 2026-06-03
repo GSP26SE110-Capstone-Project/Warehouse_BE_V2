@@ -1,4 +1,5 @@
 import * as outboundRequestService from '../services/outboundRequest.service.js';
+import * as outboundRequestItemService from '../services/outboundRequestItem.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
@@ -20,9 +21,15 @@ export async function list(req, res) {
 }
 
 export async function getById(req, res) {
-  const outbound = await outboundRequestService.getOutboundRequest(
-    req.params.outboundRequestId
-  );
+  const includeItems =
+    req.query.includeItems === 'true' || req.query.includeItems === '1';
+
+  const outbound = includeItems
+    ? await outboundRequestItemService.getOutboundRequestWithItems(
+        req.params.outboundRequestId
+      )
+    : await outboundRequestService.getOutboundRequest(req.params.outboundRequestId);
+
   success(res, outbound);
 }
 

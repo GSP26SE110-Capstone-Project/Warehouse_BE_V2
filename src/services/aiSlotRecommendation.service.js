@@ -5,57 +5,59 @@ import { recommendSlotForLpn } from './aiSlotting/recommendation.service.js';
 import { getLpn } from './lpn.service.js';
 import { getWarehouseById } from './warehouse.service.js';
 import { getBin } from './bin.service.js';
+import { getRack } from './rack.service.js';
+import { getRackLevel } from './rackLevel.service.js';
 import { getZone } from './warehouseZone.service.js';
-import { explainSlotRecommendation as explainViaOllama } from './ollama.service.js';
+import { explainSlotRecommendationStrict } from './aiExplain.service.js';
 import InboundRequest from '../models/InboundRequest.js';
 
-function wantsLlmExplanation(body) {
-  return body.explainWithLlm === true || body.explainWithLlm === 'true';
+function rejectLegacyExplainOnSlotApi(body) {
+  if (body.explainWithLlm === true || body.explainWithLlm === 'true') {
+    throw new AppError(
+      'explainWithLlm is no longer supported on preview/create. Use POST /api/ai/slot-recommendations/explain with llmProvider "gemini" or "ollama".',
+      400,
+      'USE_EXPLAIN_ENDPOINT'
+    );
+  }
 }
 
-async function attachLlmExplanation(payload) {
-  try {
-    const llm = await explainViaOllama({
-      lpnCode: payload.lpnCode,
-      zoneCode: payload.zoneCode,
-      binCode: payload.binCode,
-      recommendedZoneId: payload.recommendedZoneId,
-      recommendedBinId: payload.recommendedBinId,
-      score: payload.score ?? payload.recommendationScore,
-      modelVersion: payload.modelVersion,
-      reasons: payload.reasons ?? payload.parsedReason?.reasons,
-      featureSnapshot: payload.featureSnapshot ?? payload.parsedReason?.featureSnapshot,
-      suggestedRackType: payload.suggestedRackType,
-      alternatives: payload.alternatives,
-    });
-    return {
-      ...payload,
-      llmExplanation: llm.explanation,
-      llmModel: llm.llmModel,
-      ollamaBaseUrl: llm.ollamaBaseUrl,
-    };
-  } catch (err) {
-    if (err instanceof AppError && (err.code === 'OLLAMA_UNAVAILABLE' || err.code === 'OLLAMA_DISABLED')) {
-      return {
-        ...payload,
-        llmExplanation: null,
-        llmError: err.message,
-        llmErrorCode: err.code,
-      };
-    }
-    throw err;
-  }
+function buildExplainContextFromSlotPayload(payload) {
+  return {
+    lpnCode: payload.lpnCode,
+    zoneCode: payload.zoneCode,
+    rackCode: payload.rackCode,
+    binCode: payload.binCode,
+    recommendedZoneId: payload.recommendedZoneId,
+    recommendedRackId: payload.recommendedRackId,
+    recommendedBinId: payload.recommendedBinId,
+    score: payload.score ?? payload.recommendationScore,
+    modelVersion: payload.modelVersion,
+    reasons: payload.reasons ?? payload.parsedReason?.reasons,
+    featureSnapshot: payload.featureSnapshot ?? payload.parsedReason?.featureSnapshot,
+    suggestedRackType: payload.suggestedRackType,
+    alternatives: payload.alternatives,
+  };
 }
 
 async function buildLlmContextFromRecommendationRow(row) {
   const formatted = formatRecommendation(row);
   let zoneCode = null;
+  let rackCode = null;
   let binCode = null;
 
   if (row.recommendedBinId) {
     try {
       const bin = await getBin(row.recommendedBinId);
       binCode = bin.binCode;
+      if (bin.rackLevelId) {
+        try {
+          const level = await getRackLevel(bin.rackLevelId);
+          const rack = await getRack(level.rackId);
+          rackCode = rack.rackCode;
+        } catch {
+          /* rack level may have been removed */
+        }
+      }
     } catch {
       /* bin may have been removed */
     }
@@ -86,6 +88,7 @@ async function buildLlmContextFromRecommendationRow(row) {
     recommendedZoneId: row.recommendedZoneId,
     recommendedBinId: row.recommendedBinId,
     zoneCode,
+    rackCode,
     binCode,
     recommendationScore: row.recommendationScore,
     score: row.recommendationScore,
@@ -178,6 +181,8 @@ export async function listRecommendations({
  * Run rule engine and persist top recommendation (Phase 1a).
  */
 export async function createRecommendation(body) {
+  rejectLegacyExplainOnSlotApi(body);
+
   const { lpnId, warehouseId, inboundRequestId } = body;
 
   if (!lpnId) {
@@ -211,17 +216,68 @@ export async function createRecommendation(body) {
     alternatives: preview.alternatives,
     suggestedRackType: preview.suggestedRackType,
     zoneCode: preview.zoneCode,
+    rackCode: preview.rackCode,
     binCode: preview.binCode,
+    recommendedRackId: preview.recommendedRackId,
+    recommendedRackLevelId: preview.recommendedRackLevelId,
+    levelNumber: preview.levelNumber,
     reasons: preview.reasons,
     featureSnapshot: preview.featureSnapshot,
     modelVersion: preview.modelVersion,
   };
 
-  if (wantsLlmExplanation(body)) {
-    result = await attachLlmExplanation(result);
+  return result;
+}
+
+/**
+ * After putaway: mark latest (or explicit) recommendation applied if bin matches AI suggestion.
+ */
+export async function resolveRecommendationOnPutaway(
+  lpnId,
+  actualBinId,
+  { recommendationId, client } = {}
+) {
+  const lpnUuid = parseUuid(lpnId, 'lpnId');
+  const binUuid = parseUuid(actualBinId, 'actualBinId');
+
+  let rec = null;
+
+  if (recommendationId) {
+    const recId = parseUuid(recommendationId, 'recommendationId');
+    rec = await AiSlotRecommendation.findById(recId, client);
+    if (!rec) {
+      return null;
+    }
+    if (rec.lpnId && rec.lpnId !== lpnUuid) {
+      throw new AppError('recommendationId does not match this LPN', 400, 'VALIDATION_ERROR');
+    }
+  } else {
+    const pending = await AiSlotRecommendation.findAll(
+      { lpnId: lpnUuid, isApplied: false },
+      { orderBy: 'created_at DESC', limit: 1 },
+      client
+    );
+    rec = pending[0] ?? null;
   }
 
-  return result;
+  if (!rec || rec.isApplied) {
+    return null;
+  }
+
+  const matchesAiBin = rec.recommendedBinId === binUuid;
+  const updated = await AiSlotRecommendation.updateById(
+    rec.recommendationId,
+    { isApplied: matchesAiBin },
+    client
+  );
+
+  return {
+    recommendationId: updated.recommendationId,
+    isApplied: updated.isApplied,
+    wasOverridden: !matchesAiBin,
+    recommendedBinId: rec.recommendedBinId,
+    actualBinId: binUuid,
+  };
 }
 
 export async function updateRecommendation(recommendationId, body) {
@@ -248,6 +304,8 @@ export async function updateRecommendation(recommendationId, body) {
  * Preview only — same as recommend without saving.
  */
 export async function previewRecommendation(body) {
+  rejectLegacyExplainOnSlotApi(body);
+
   const { lpnId, warehouseId, inboundRequestId } = body;
   if (!lpnId) {
     throw new AppError('lpnId is required', 400, 'VALIDATION_ERROR');
@@ -262,19 +320,59 @@ export async function previewRecommendation(body) {
   }
   await getWarehouseById(parseUuid(warehouseId, 'warehouseId'));
 
-  let result = await recommendSlotForLpn(lpnId, { warehouseId, inboundRequestId });
-
-  if (wantsLlmExplanation(body)) {
-    result = await attachLlmExplanation(result);
-  }
-
-  return result;
+  return recommendSlotForLpn(lpnId, { warehouseId, inboundRequestId });
 }
 
 /**
- * Llama (Ollama) explains an existing recommendation — bin choice stays from rule engine.
+ * Dedicated explain API — requires llmProvider; never calls the other provider.
+ *
+ * Mode A: { llmProvider, recommendationId }
+ * Mode B: { llmProvider, lpnId, warehouseId, inboundRequestId? } — runs rule engine then explains
+ * Mode C: { llmProvider, reasons, zoneCode, binCode, ... } — explains from preview payload
  */
-export async function explainRecommendation(recommendationId) {
+export async function explainSlotRecommendationBody(body) {
+  const { llmProvider } = body;
+
+  if (body.recommendationId) {
+    return explainRecommendation(body.recommendationId, { llmProvider });
+  }
+
+  let slotPayload = body.slot ?? body;
+
+  if (body.lpnId && body.warehouseId) {
+    const lpn = await getLpn(body.lpnId);
+    if (body.inboundRequestId) {
+      await assertInboundRequestForLpn(body.inboundRequestId, lpn);
+    }
+    await getWarehouseById(parseUuid(body.warehouseId, 'warehouseId'));
+    slotPayload = await recommendSlotForLpn(body.lpnId, {
+      warehouseId: body.warehouseId,
+      inboundRequestId: body.inboundRequestId,
+    });
+  }
+
+  const reasons = slotPayload.reasons ?? slotPayload.parsedReason?.reasons;
+  if (!reasons?.length) {
+    throw new AppError(
+      'Provide recommendationId, or lpnId+warehouseId, or slot preview fields (reasons, binCode, ...)',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  const context = buildExplainContextFromSlotPayload(slotPayload);
+  const llm = await explainSlotRecommendationStrict(context, { provider: llmProvider });
+
+  return {
+    ...context,
+    ...llm,
+  };
+}
+
+/**
+ * LLM explains an existing recommendation — bin choice stays from rule engine.
+ */
+export async function explainRecommendation(recommendationId, { llmProvider } = {}) {
   const id = parseUuid(recommendationId, 'recommendationId');
   const row = await AiSlotRecommendation.findById(id);
   if (!row) {
@@ -282,7 +380,7 @@ export async function explainRecommendation(recommendationId) {
   }
 
   const context = await buildLlmContextFromRecommendationRow(row);
-  const llm = await explainViaOllama(context);
+  const llm = await explainSlotRecommendationStrict(context, { provider: llmProvider });
 
   return {
     ...context,
