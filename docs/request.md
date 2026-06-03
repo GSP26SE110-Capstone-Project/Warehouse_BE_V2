@@ -633,7 +633,7 @@ Tenant khai báo **SKU + số lượng** (không chọn LPN/batch lúc tạo —
 
 - Status `PENDING`: bắt buộc ≥ 1 dòng (gửi kèm hoặc thêm sau).
 - Thêm/sửa dòng: chỉ khi outbound `DRAFT` hoặc `PENDING`.
-- Kiểm tra tồn: khi thêm/sửa dòng và khi WH chuyển `APPROVED` → `400` + `INSUFFICIENT_INVENTORY` nếu vượt `available_quantity`.
+- Kiểm tra tồn: khi thêm/sửa dòng và khi WH chuyển `APPROVED` → `400` + `INSUFFICIENT_INVENTORY` nếu vượt `available_quantity`. Cộng dồn `requestedQuantity` trên **mọi** phiếu xuất đang mở (cùng tenant + kho + SKU), không chỉ phiếu hiện tại.
 - `GET /outbound-requests/:id?includeItems=true` — trả kèm `items[]`.
 
 ---

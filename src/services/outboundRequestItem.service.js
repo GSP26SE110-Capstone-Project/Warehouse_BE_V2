@@ -217,7 +217,6 @@ export async function assertOutboundInventorySufficient(outboundRequestId) {
       warehouseId: outbound.warehouseId,
       skuId: item.skuId,
       requestedQuantity: item.requestedQuantity,
-      outboundRequestId: outbound.outboundRequestId,
       excludeOutboundRequestItemId: item.outboundRequestItemId,
     });
   }
@@ -244,7 +243,6 @@ export async function createOutboundRequestItem(body, outboundRequestIdFromPath 
     warehouseId: outbound.warehouseId,
     skuId: data.skuId,
     requestedQuantity: data.requestedQuantity,
-    outboundRequestId: data.outboundRequestId,
   });
 
   const created = await OutboundRequestItem.create(data);
@@ -267,7 +265,6 @@ export async function updateOutboundRequestItem(outboundRequestItemId, body) {
       warehouseId: outbound.warehouseId,
       skuId: existing.skuId,
       requestedQuantity,
-      outboundRequestId: outbound.outboundRequestId,
       excludeOutboundRequestItemId: id,
     });
   }

@@ -2,6 +2,15 @@ import pool from '../config/db.js';
 import AppError from './AppError.js';
 import { parseUuid } from './validate.js';
 
+const OPEN_OUTBOUND_STATUSES = [
+  'DRAFT',
+  'PENDING',
+  'APPROVED',
+  'RESERVED',
+  'PICKING',
+  'PACKING',
+];
+
 /**
  * Sum available_quantity for a SKU in a warehouse (tenant-scoped, status AVAILABLE).
  */
@@ -27,44 +36,59 @@ export async function sumAvailableInventoryForSku(tenantId, skuId, warehouseId) 
   return Number(rows[0]?.available ?? 0);
 }
 
+/**
+ * Sum requested qty on all open outbound lines for tenant + warehouse + SKU.
+ */
+export async function sumCommittedOutboundQuantity(
+  tenantId,
+  warehouseId,
+  skuId,
+  { excludeOutboundRequestItemId = null } = {}
+) {
+  const tenantUuid = parseUuid(tenantId, 'tenantId');
+  const warehouseUuid = parseUuid(warehouseId, 'warehouseId');
+  const skuUuid = parseUuid(skuId, 'skuId');
+
+  const values = [tenantUuid, warehouseUuid, skuUuid];
+  let excludeClause = '';
+  if (excludeOutboundRequestItemId) {
+    values.push(parseUuid(excludeOutboundRequestItemId, 'outboundRequestItemId'));
+    excludeClause = ` AND oi.outbound_request_item_id <> $${values.length}`;
+  }
+
+  const statusList = OPEN_OUTBOUND_STATUSES.map((s) => `'${s}'`).join(', ');
+
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(oi.requested_quantity), 0)::int AS qty
+     FROM outbound_request_items oi
+     INNER JOIN outbound_requests o ON o.outbound_request_id = oi.outbound_request_id
+     WHERE o.tenant_id = $1
+       AND o.warehouse_id = $2
+       AND oi.sku_id = $3
+       AND o.status IN (${statusList})
+       ${excludeClause}`,
+    values
+  );
+
+  return Number(rows[0]?.qty ?? 0);
+}
+
 export async function assertSufficientInventory({
   tenantId,
   warehouseId,
   skuId,
   requestedQuantity,
-  outboundRequestId = null,
   excludeOutboundRequestItemId = null,
 }) {
   const available = await sumAvailableInventoryForSku(tenantId, skuId, warehouseId);
+  const alreadyCommitted = await sumCommittedOutboundQuantity(tenantId, warehouseId, skuId, {
+    excludeOutboundRequestItemId,
+  });
+  const totalRequested = alreadyCommitted + requestedQuantity;
 
-  let otherOutboundReserved = 0;
-  if (outboundRequestId) {
-    const outboundUuid = parseUuid(outboundRequestId, 'outboundRequestId');
-    const values = [outboundUuid, skuId];
-    let excludeClause = '';
-    if (excludeOutboundRequestItemId) {
-      values.push(parseUuid(excludeOutboundRequestItemId, 'outboundRequestItemId'));
-      excludeClause = ` AND oi.outbound_request_item_id <> $${values.length}`;
-    }
-    const { rows } = await pool.query(
-      `SELECT COALESCE(SUM(oi.requested_quantity), 0)::int AS qty
-       FROM outbound_request_items oi
-       INNER JOIN outbound_requests o ON o.outbound_request_id = oi.outbound_request_id
-       WHERE oi.outbound_request_id = $1
-         AND oi.sku_id = $2
-         AND o.status IN ('DRAFT', 'PENDING', 'APPROVED', 'RESERVED', 'PICKING', 'PACKING')
-         ${excludeClause}`,
-      values
-    );
-    otherOutboundReserved = Number(rows[0]?.qty ?? 0);
-  }
-
-  const effectiveAvailable = available;
-  const totalRequestedOnOutbound = otherOutboundReserved + requestedQuantity;
-
-  if (totalRequestedOnOutbound > effectiveAvailable) {
+  if (totalRequested > available) {
     throw new AppError(
-      `Insufficient inventory for SKU (available: ${effectiveAvailable}, requested: ${totalRequestedOnOutbound})`,
+      `Insufficient inventory for SKU (available: ${available}, requested: ${totalRequested}, already committed on other outbound lines: ${alreadyCommitted})`,
       400,
       'INSUFFICIENT_INVENTORY'
     );

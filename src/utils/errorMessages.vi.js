@@ -269,5 +269,12 @@ export function toVietnameseErrorMessage(message) {
     return `Không đủ tồn kho cho SKU (còn: ${m[1]}, yêu cầu: ${m[2]})`;
   }
 
+  m = trimmed.match(
+    /^Insufficient inventory for SKU \(available: (\d+), requested: (\d+), already committed on other outbound lines: (\d+)\)$/
+  );
+  if (m) {
+    return `Không đủ tồn kho cho SKU (còn: ${m[1]}, tổng yêu cầu: ${m[2]}, đã cam kết trên phiếu xuất khác: ${m[3]})`;
+  }
+
   return trimmed;
 }
