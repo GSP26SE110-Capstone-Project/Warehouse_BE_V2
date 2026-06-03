@@ -7,6 +7,7 @@ import { INVOICE_CATEGORY } from '../constants/tenantOnboarding.js';
 import { initialInvoiceAmount } from '../utils/contractBilling.js';
 import { getContract } from './contract.service.js';
 import { notifyWarehouseAdminContractPaymentReceived } from './contractNotify.service.js';
+import { activateAppendixAfterPayment } from './contractAppendixInvoice.service.js';
 
 function generateInvoiceCode() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -105,10 +106,14 @@ export async function markInvoicePaid(contractId, invoiceId) {
 
   const activatingContract =
     invoice.invoiceCategory === 'INITIAL' && contract.status === 'PENDING_PAYMENT';
+  const activatingAppendix =
+    invoice.invoiceCategory === 'APPENDIX_INITIAL' && invoice.appendixId;
 
   const updatedInvoice = await Invoice.updateById(iId, { paymentStatus: 'PAID' });
 
   let updatedContract = contract;
+  let appendix = null;
+
   if (activatingContract) {
     updatedContract = await Contract.updateById(cId, { status: 'ACTIVE' });
     void notifyWarehouseAdminContractPaymentReceived({
@@ -119,7 +124,11 @@ export async function markInvoicePaid(contractId, invoiceId) {
     });
   }
 
-  return { invoice: updatedInvoice, contract: updatedContract };
+  if (activatingAppendix) {
+    appendix = await activateAppendixAfterPayment(invoice.appendixId);
+  }
+
+  return { invoice: updatedInvoice, contract: updatedContract, appendix };
 }
 
 export async function assertInitialInvoicePaid(contractId) {

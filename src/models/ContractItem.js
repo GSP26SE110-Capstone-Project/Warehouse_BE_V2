@@ -10,6 +10,11 @@ export const contractItemSchema = {
     required: true,
     foreignKey: 'contract_id',
   },
+  appendixId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'appendix_id',
+  },
   itemType: {
     type: 'string',
     required: true,

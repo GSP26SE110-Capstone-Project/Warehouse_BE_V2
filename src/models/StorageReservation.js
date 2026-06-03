@@ -10,6 +10,11 @@ export const storageReservationSchema = {
     required: true,
     foreignKey: 'contract_id',
   },
+  appendixId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'appendix_id',
+  },
   tenantId: {
     type: 'string',
     required: true,

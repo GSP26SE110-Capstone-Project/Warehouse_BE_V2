@@ -351,6 +351,11 @@ const spec = {
         'Hợp đồng thuê · CRUD/ký: `WH_ADMIN`, `SYSTEM_ADMIN`; tenant: `TENANT_ADMIN`. **Chấm dứt sớm:** `GET/POST …/termination/*` (HĐ `ACTIVE`, xem `docs/contract-billing-termination.md`)',
     },
     {
+      name: 'ContractAppendix',
+      description:
+        'Yêu cầu phụ lục: **TENANT_ADMIN** gửi → **WH_ADMIN** duyệt/từ chối → tenant ký → thanh toán → `ACTIVE`. Vượt trần cấp → `APPENDIX_NEED_NEW_CONTRACT`. Doc: `docs/contract-appendix.md`',
+    },
+    {
       name: 'PayOS',
       description:
         'Thanh toán invoice HĐ qua PayOS · Roles: `TENANT_ADMIN` (create-link). Webhook: PayOS server',
@@ -2151,12 +2156,195 @@ const spec = {
         },
       },
 
+      ContractAppendix: {
+        type: 'object',
+        properties: {
+          appendixId: uuid,
+          contractId: uuid,
+          appendixCode: { type: 'string', example: 'CTR-ABC-PL01' },
+          appendixNumber: { type: 'integer', example: 1 },
+          title: { type: 'string', nullable: true },
+          status: {
+            type: 'string',
+            enum: [
+              'PENDING',
+              'UNDER_REVIEW',
+              'REJECTED',
+              'PENDING_APPROVAL',
+              'PENDING_PAYMENT',
+              'ACTIVE',
+              'TERMINATED',
+              'CANCELLED',
+              'DRAFT',
+            ],
+          },
+          effectiveDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+          estimatedDeltaAmount: {
+            type: 'number',
+            description: 'Đơn giá/tháng — WH nhập khi duyệt',
+          },
+          maxStorageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+            nullable: true,
+            description: 'Trần cấp HĐ gốc tại thời điểm tạo yêu cầu',
+          },
+          requestedBy: { ...uuid, nullable: true },
+          requestedStorageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+            nullable: true,
+          },
+          rejectionReason: { type: 'string', nullable: true },
+          reviewNote: { type: 'string', nullable: true },
+          reviewedBy: { ...uuid, nullable: true },
+          reviewedAt: { type: 'string', format: 'date-time', nullable: true },
+          tenantSignature: { type: 'string', nullable: true },
+          warehouseSignature: { type: 'string', nullable: true },
+          createdBy: { ...uuid, nullable: true },
+          approvedBy: { ...uuid, nullable: true },
+          terminatedAt: { type: 'string', format: 'date-time', nullable: true },
+          terminationReason: { type: 'string', nullable: true },
+          ...timestamps,
+        },
+      },
+      ContractAppendixCreate: {
+        type: 'object',
+        required: ['effectiveDate', 'endDate'],
+        description:
+          '**TENANT_ADMIN** — gửi yêu cầu thuê thêm. Cấp > trần → `400` `APPENDIX_NEED_NEW_CONTRACT`. Giá do WH nhập khi duyệt.',
+        properties: {
+          title: { type: 'string' },
+          effectiveDate: { type: 'string', format: 'date' },
+          endDate: {
+            type: 'string',
+            format: 'date',
+            description: '≤ endDate HĐ gốc; có thể ngắn hơn HĐ',
+          },
+          requestedStorageLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+            items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['itemType', 'billingUnit'],
+              properties: {
+                itemType: {
+                  type: 'string',
+                  enum: ['STORAGE', 'INBOUND', 'OUTBOUND', 'HANDLING', 'REPACKING', 'SLA'],
+                },
+                storageLevel: {
+                  type: 'string',
+                  enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+                },
+                billingUnit: { type: 'string' },
+                quantity: { type: 'number' },
+                reservedQuantity: { type: 'integer' },
+                boxType: { type: 'string' },
+                unitPrice: { type: 'number' },
+              },
+            },
+          },
+          reservations: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StorageReservationCreate' },
+          },
+        },
+        example: {
+          title: 'Thuê thêm 2 bin',
+          effectiveDate: '2026-01-15',
+          endDate: '2026-03-31',
+          requestedStorageLevel: 'BIN',
+          items: [
+            {
+              itemType: 'STORAGE',
+              storageLevel: 'BIN',
+              billingUnit: 'BIN_DAY',
+              quantity: 2,
+            },
+          ],
+        },
+      },
+      ContractAppendixApprove: {
+        type: 'object',
+        required: ['estimatedDeltaAmount', 'warehouseSignature'],
+        description: '**WH_ADMIN** — duyệt, cấp giá/tháng, ký kho, gán reservation (tùy chọn).',
+        properties: {
+          estimatedDeltaAmount: { type: 'number', minimum: 0 },
+          warehouseSignature: { type: 'string' },
+          reviewNote: { type: 'string' },
+          items: { type: 'array', items: { type: 'object' } },
+          reservations: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StorageReservationCreate' },
+          },
+        },
+      },
+      ContractAppendixReject: {
+        type: 'object',
+        required: ['rejectionReason'],
+        properties: {
+          rejectionReason: { type: 'string' },
+          reviewNote: { type: 'string' },
+        },
+      },
+      ContractAppendixSign: {
+        type: 'object',
+        required: ['tenantSignature'],
+        description: '**TENANT_ADMIN** — ký khi `PENDING_APPROVAL`.',
+        properties: {
+          tenantSignature: { type: 'string' },
+        },
+      },
+      ContractAppendixCeiling: {
+        type: 'object',
+        properties: {
+          contractId: uuid,
+          ceilingLevel: {
+            type: 'string',
+            enum: ['WAREHOUSE', 'ZONE', 'RACK', 'RACK_LEVEL', 'BIN'],
+          },
+        },
+      },
+      ContractAppendixPaymentPreview: {
+        type: 'object',
+        properties: {
+          appendixId: uuid,
+          contractBillingCycle: { type: 'string', enum: ['MONTHLY', 'YEARLY'] },
+          monthlyRate: { type: 'number', description: 'estimatedDeltaAmount' },
+          billableMonths: {
+            type: 'number',
+            description: 'Số tháng thực tế (có thập phân), VD ~2.5',
+          },
+          initialInvoiceAmount: {
+            type: 'number',
+            description: 'round(monthlyRate × billableMonths)',
+          },
+          effectiveDate: { type: 'string', format: 'date' },
+          endDate: { type: 'string', format: 'date' },
+        },
+      },
+      ContractAppendixTerminate: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string', description: 'Lý do (optional)' },
+        },
+      },
+
       ContractInvoice: {
         type: 'object',
         properties: {
           invoiceId: uuid,
           tenantId: uuid,
           contractId: uuid,
+          appendixId: {
+            ...uuid,
+            nullable: true,
+            description: 'Có khi invoice thuộc phụ lục',
+          },
           invoiceCode: { type: 'string', example: 'INV-M2ABC-01' },
           billingStartDate: { type: 'string', format: 'date' },
           billingEndDate: { type: 'string', format: 'date' },
@@ -2169,7 +2357,13 @@ const spec = {
           },
           invoiceCategory: {
             type: 'string',
-            enum: ['INITIAL', 'RECURRING_RENT', 'OPERATIONAL', 'TERMINATION_SETTLEMENT'],
+            enum: [
+              'INITIAL',
+              'APPENDIX_INITIAL',
+              'RECURRING_RENT',
+              'OPERATIONAL',
+              'TERMINATION_SETTLEMENT',
+            ],
             nullable: true,
           },
           issuedAt: { type: 'string', format: 'date-time', nullable: true },
@@ -5374,6 +5568,334 @@ const spec = {
       },
     },
 
+    '/api/contracts/{contractId}/appendices/ceiling': {
+      get: {
+        tags: ['ContractAppendix'],
+        summary: 'Trần cấp không gian HĐ gốc',
+        description:
+          'Phụ lục chỉ thêm cấp ≤ `ceilingLevel`; vượt trần → tạo HĐ mới. Xem `docs/contract-appendix.md`.',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractAppendixCeiling' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices': {
+      get: {
+        tags: ['ContractAppendix'],
+        summary: 'Danh sách phụ lục',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'status',
+            schema: {
+              type: 'string',
+              enum: [
+                'PENDING',
+                'UNDER_REVIEW',
+                'REJECTED',
+                'PENDING_APPROVAL',
+                'PENDING_PAYMENT',
+                'ACTIVE',
+                'TERMINATED',
+                'CANCELLED',
+              ],
+            },
+          },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/ContractAppendix' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['ContractAppendix'],
+        summary: 'Tenant gửi yêu cầu phụ lục',
+        description: 'Role: **TENANT_ADMIN**. HĐ gốc `ACTIVE`.',
+        security: bearerSecurity,
+        parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractAppendixCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/ContractAppendix' },
+            'Appendix request submitted'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}': {
+      get: {
+        tags: ['ContractAppendix'],
+        summary: 'Chi tiết phụ lục',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractAppendix' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['ContractAppendix'],
+        summary: 'Tenant ký phụ lục',
+        description: 'Role: **TENANT_ADMIN**. `PENDING_APPROVAL` → `PENDING_PAYMENT` + invoice.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractAppendixSign' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractAppendix' },
+            'Signed successfully'
+          ),
+          400: stdErrors[400],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['ContractAppendix'],
+        summary: 'Xóa yêu cầu (PENDING / REJECTED)',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractAppendix' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/payment-preview': {
+      get: {
+        tags: ['ContractAppendix'],
+        summary: 'Xem trước tiền thanh toán phụ lục',
+        description:
+          '`initialInvoiceAmount = round(monthlyRate × billableMonths)` (một lần full theo hạn PL).',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/ContractAppendixPaymentPreview' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/invoices': {
+      get: {
+        tags: ['ContractAppendix'],
+        summary: 'Invoice phụ lục (APPENDIX_INITIAL)',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'array',
+            items: { $ref: '#/components/schemas/ContractInvoice' },
+          }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/approve': {
+      post: {
+        tags: ['ContractAppendix'],
+        summary: 'WH duyệt yêu cầu phụ lục',
+        description: 'Role: **WH_ADMIN** / SYSTEM_ADMIN. → `PENDING_APPROVAL` (chờ tenant ký).',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractAppendixApprove' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractAppendix' },
+            'Appendix approved'
+          ),
+          400: stdErrors[400],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/reject': {
+      post: {
+        tags: ['ContractAppendix'],
+        summary: 'WH từ chối yêu cầu phụ lục',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractAppendixReject' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractAppendix' },
+            'Appendix rejected'
+          ),
+          400: stdErrors[400],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/under-review': {
+      post: {
+        tags: ['ContractAppendix'],
+        summary: 'WH đánh dấu đang xem xét',
+        description: 'Role: **WH_ADMIN** / SYSTEM_ADMIN. `PENDING` → `UNDER_REVIEW`.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractAppendix' },
+            'Marked under review'
+          ),
+          400: stdErrors[400],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/invoices/{invoiceId}/payos/create-link': {
+      post: {
+        tags: ['ContractAppendix'],
+        summary: 'PayOS — thanh toán phụ lục',
+        description: 'Role: **TENANT_ADMIN**. Invoice `APPENDIX_INITIAL` của PL.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+          { in: 'path', name: 'invoiceId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/PayOSCreateLinkRequest' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/PayOSPaymentLink' }),
+          400: stdErrors[400],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/invoices/{invoiceId}/mark-paid': {
+      post: {
+        tags: ['ContractAppendix'],
+        summary: 'Ghi nhận đã thanh toán phụ lục (dev)',
+        description: 'Role: **TENANT_ADMIN**, WH_ADMIN, SYSTEM_ADMIN.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+          { in: 'path', name: 'invoiceId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              invoice: { $ref: '#/components/schemas/ContractInvoice' },
+              contract: { $ref: '#/components/schemas/Contract' },
+              appendix: { $ref: '#/components/schemas/ContractAppendix' },
+            },
+          }),
+          400: stdErrors[400],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/contracts/{contractId}/appendices/{appendixId}/terminate': {
+      post: {
+        tags: ['ContractAppendix'],
+        summary: 'Chấm dứt chỉ phụ lục',
+        description: 'Không phạt. HĐ gốc vẫn `ACTIVE`. Hủy reservation gắn PL.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'contractId', required: true, schema: uuid },
+          { in: 'path', name: 'appendixId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ContractAppendixTerminate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/ContractAppendix' },
+            'Appendix terminated'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+
     '/api/contracts/{contractId}/termination/preview': {
       get: {
         tags: ['Contract'],
@@ -5538,7 +6060,9 @@ const spec = {
         tags: ['PayOS'],
         summary: 'Mark invoice paid manually (dev / không qua PayOS)',
         description:
-          'Bỏ qua cổng PayOS — invoice INITIAL `PAID`, HĐ `PENDING_PAYMENT` → `ACTIVE`. Dùng khi chưa có ngrok/webhook.',
+          'Bỏ qua PayOS:\n' +
+          '- `INITIAL` → HĐ `PENDING_PAYMENT` → `ACTIVE`\n' +
+          '- `APPENDIX_INITIAL` → phụ lục `PENDING_PAYMENT` → `ACTIVE`',
         security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'contractId', required: true, schema: uuid },
@@ -5550,6 +6074,10 @@ const spec = {
             properties: {
               invoice: { $ref: '#/components/schemas/ContractInvoice' },
               contract: { $ref: '#/components/schemas/Contract' },
+              appendix: {
+                $ref: '#/components/schemas/ContractAppendix',
+                nullable: true,
+              },
             },
           }),
           400: stdErrors[400],

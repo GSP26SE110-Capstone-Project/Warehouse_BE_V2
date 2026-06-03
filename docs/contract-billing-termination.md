@@ -228,7 +228,11 @@ npm run payos:confirm-webhook   # hoặc dán webhook thủ công trên my.payos
 
 **Sandbox / test:** Nếu PayOS bật chế độ thử nghiệm trên kênh, dùng tài khoản / số tiền theo hướng dẫn sandbox của PayOS (xem mục kênh trên my.payos.vn).
 
-## 6. Liên kết
+## 6. Phụ lục
+
+Chi tiết: **[contract-appendix.md](./contract-appendix.md)** — mở rộng trong trần HĐ, invoice `APPENDIX_INITIAL`, chấm dứt PL riêng hoặc theo HĐ gốc.
+
+## 7. Liên kết
 
 - Giá ước tính HĐ: `contractPriceEstimate.service.js`, `docs/pricing.md`
 - Ký HĐ: `contract.service.js` — kho ký trước, tenant ký sau khi có `storage_reservations` ACTIVE

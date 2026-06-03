@@ -27,6 +27,7 @@ const CREATE_FIELDS = [
   'startDate',
   'endDate',
   'status',
+  'appendixId',
 ];
 
 const UPDATE_FIELDS = [
@@ -162,6 +163,9 @@ async function normalizeCreatePayload(body, contractId, tenantId) {
 
   data.contractId = contractId;
   data.tenantId = tenantId;
+  if (data.appendixId != null) {
+    data.appendixId = parseUuid(data.appendixId, 'appendixId');
+  }
   return data;
 }
 

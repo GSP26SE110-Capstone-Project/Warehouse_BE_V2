@@ -15,6 +15,11 @@ export const invoiceSchema = {
     required: true,
     foreignKey: 'contract_id',
   },
+  appendixId: {
+    type: 'string',
+    required: false,
+    foreignKey: 'appendix_id',
+  },
   invoiceCode: {
     type: 'string',
     required: true,

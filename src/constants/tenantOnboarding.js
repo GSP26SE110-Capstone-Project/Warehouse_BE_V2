@@ -42,9 +42,23 @@ export const CONTRACT_STATUS = Object.freeze([
 
 export const INVOICE_CATEGORY = Object.freeze([
   'INITIAL',
+  'APPENDIX_INITIAL',
   'RECURRING_RENT',
   'OPERATIONAL',
   'TERMINATION_SETTLEMENT',
+]);
+
+export const CONTRACT_APPENDIX_STATUS = Object.freeze([
+  'PENDING',
+  'UNDER_REVIEW',
+  'REJECTED',
+  'PENDING_APPROVAL',
+  'PENDING_PAYMENT',
+  'ACTIVE',
+  'TERMINATED',
+  'CANCELLED',
+  /** @deprecated Dùng PENDING — giữ để đọc bản ghi cũ */
+  'DRAFT',
 ]);
 
 export const TERMINATION_REQUEST_STATUS = Object.freeze([

@@ -17,6 +17,7 @@ const CREATE_FIELDS = [
   'reservedQuantity',
   'boxType',
   'unitPrice',
+  'appendixId',
 ];
 
 const UPDATE_FIELDS = [
@@ -94,6 +95,9 @@ function normalizeCreatePayload(body, contractId) {
   validateEnums(data);
 
   data.contractId = contractId;
+  if (data.appendixId != null) {
+    data.appendixId = parseUuid(data.appendixId, 'appendixId');
+  }
   return data;
 }
 
