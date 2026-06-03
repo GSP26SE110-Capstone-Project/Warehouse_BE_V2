@@ -8,6 +8,12 @@ Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), tu�
 
 ### Added
 
+- **Outbound request items API** — dòng SKU trên phiếu xuất:
+  - `GET/POST /api/outbound-requests/:outboundRequestId/items`
+  - `GET/POST/PATCH/DELETE /api/outbound-request-items` (+ `?outboundRequestId=`)
+  - `POST /api/outbound-requests` nhận `items[]` (SKU + `requestedQuantity`)
+  - `GET /api/outbound-requests/:id?includeItems=true`
+  - Kiểm tra tồn khi thêm/sửa dòng; khi `PATCH` → `APPROVED` (`INSUFFICIENT_INVENTORY`)
 - Tài liệu `README.md` đầy đủ (1185+ dòng) cho team mới onboarding.
 - Tài liệu `CONTRIBUTING.md` mô tả quy trình đóng góp.
 - Tài liệu `ARCHITECTURE.md` mô tả kiến trúc layered chi tiết.

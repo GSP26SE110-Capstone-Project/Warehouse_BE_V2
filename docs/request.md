@@ -556,6 +556,7 @@ Enum `status`: `DRAFT`, `PENDING`, `APPROVED`, `RESERVED`, `PICKING`, `PACKING`,
 | `requestedShipDate` | | — | ISO 8601 |
 | `actualShippedAt` | | — | ISO 8601 |
 | `status` | | `PENDING` | Xem enum phía trên |
+| `items` | | — | Mảng `{ skuId, requestedQuantity }` — tạo dòng cùng lúc |
 | `createdBy` | | — | UUID user |
 | `approvedBy` | | — | UUID user |
 
@@ -566,7 +567,9 @@ Enum `status`: `DRAFT`, `PENDING`, `APPROVED`, `RESERVED`, `PICKING`, `PACKING`,
   "warehouseId": "uuid-warehouse",
   "requestedShipDate": "2026-05-28T10:00:00.000Z",
   "status": "PENDING",
-  "createdBy": "uuid-user"
+  "items": [
+    { "skuId": "uuid-sku", "requestedQuantity": 50 }
+  ]
 }
 ```
 
@@ -576,11 +579,11 @@ Query tùy chọn: `tenantId`, `warehouseId`, `contractId`, `status`, `page`, `l
 
 ### `GET /outbound-requests/:outboundRequestId`
 
-Lấy chi tiết 1 outbound request.
+Lấy chi tiết 1 outbound request. Query `includeItems=true` để kèm `items[]`.
 
 ### `PATCH /outbound-requests/:outboundRequestId`
 
-Chỉ cập nhật: `requestedShipDate`, `actualShippedAt`, `status`, `approvedBy` (không đổi tenant/contract/warehouse).
+Chỉ cập nhật: `requestedShipDate`, `actualShippedAt`, `status`, `approvedBy` (không đổi tenant/contract/warehouse). Chuyển `APPROVED` yêu cầu ≥1 dòng và đủ tồn kho.
 
 ```json
 {
@@ -599,6 +602,39 @@ Chỉ cập nhật: `requestedShipDate`, `actualShippedAt`, `status`, `approvedB
 ### `DELETE /outbound-requests/:outboundRequestId`
 
 Xoá outbound request (kèm `outbound_request_items` cascade).
+
+### Outbound request items (dòng SKU)
+
+Tenant khai báo **SKU + số lượng** (không chọn LPN/batch lúc tạo — kho allocate FIFO khi pick).
+
+| Method | Path | Mô tả |
+|--------|------|--------|
+| `GET` | `/outbound-requests/:outboundRequestId/items` | Danh sách dòng |
+| `POST` | `/outbound-requests/:outboundRequestId/items` | Thêm dòng (`skuId`, `requestedQuantity`) |
+| `GET` | `/outbound-request-items?outboundRequestId=` | List (query) |
+| `POST` | `/outbound-request-items` | Tạo (body có `outboundRequestId`) |
+| `PATCH` | `/outbound-request-items/:outboundRequestItemId` | Sửa `requestedQuantity` |
+| `DELETE` | `/outbound-request-items/:outboundRequestItemId` | Xoá dòng |
+
+**Tạo phiếu kèm dòng** — `POST /outbound-requests` với `items[]`:
+
+```json
+{
+  "tenantId": "uuid-tenant",
+  "contractId": "uuid-contract-active",
+  "warehouseId": "uuid-warehouse",
+  "requestedShipDate": "2026-06-20T08:00:00.000Z",
+  "status": "PENDING",
+  "items": [
+    { "skuId": "uuid-sku", "requestedQuantity": 50 }
+  ]
+}
+```
+
+- Status `PENDING`: bắt buộc ≥ 1 dòng (gửi kèm hoặc thêm sau).
+- Thêm/sửa dòng: chỉ khi outbound `DRAFT` hoặc `PENDING`.
+- Kiểm tra tồn: khi thêm/sửa dòng và khi WH chuyển `APPROVED` → `400` + `INSUFFICIENT_INVENTORY` nếu vượt `available_quantity`.
+- `GET /outbound-requests/:id?includeItems=true` — trả kèm `items[]`.
 
 ---
 

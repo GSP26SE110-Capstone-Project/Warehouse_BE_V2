@@ -20,6 +20,8 @@ const FIELD_LABELS = Object.freeze({
   expectedEndDate: 'Ngày kết thúc dự kiến',
   inboundRequestId: 'Yêu cầu nhập kho',
   outboundRequestId: 'Yêu cầu xuất kho',
+  outboundRequestItemId: 'Dòng hàng xuất kho',
+  requestedQuantity: 'Số lượng yêu cầu xuất',
   skuId: 'SKU',
   lpnId: 'LPN',
   binId: 'Bin',
@@ -81,6 +83,16 @@ const EXACT = Object.freeze({
   'Inbound request item not found': 'Không tìm thấy dòng hàng nhập kho',
   'Inbound delivery not found': 'Không tìm thấy thông tin vận chuyển',
   'Outbound request not found': 'Không tìm thấy yêu cầu xuất kho',
+  'Outbound request item not found': 'Không tìm thấy dòng hàng xuất kho',
+  'skuId does not belong to this outbound tenant': 'SKU không thuộc tenant của phiếu xuất',
+  'Cannot modify items on outbound in current status':
+    'Không thể sửa dòng hàng khi phiếu xuất ở trạng thái hiện tại',
+  'Outbound request must have at least one line item (SKU + quantity)':
+    'Phiếu xuất phải có ít nhất một dòng (SKU và số lượng)',
+  'This SKU is already on the outbound request; update quantity instead':
+    'SKU đã có trên phiếu xuất; hãy cập nhật số lượng thay vì thêm dòng mới',
+  'Contract must be ACTIVE to create an outbound request':
+    'Hợp đồng phải ACTIVE mới tạo được yêu cầu xuất kho',
   'Batch not found': 'Không tìm thấy batch',
   'Zone not found': 'Không tìm thấy zone',
   'Collection not found': 'Không tìm thấy collection',
@@ -249,6 +261,13 @@ export function toVietnameseErrorMessage(message) {
 
   m = trimmed.match(/^(.+) does not belong to (.+)$/);
   if (m) return `${labelField(m[1])} không thuộc ${labelField(m[2])}`;
+
+  m = trimmed.match(
+    /^Insufficient inventory for SKU \(available: (\d+), requested: (\d+)\)$/
+  );
+  if (m) {
+    return `Không đủ tồn kho cho SKU (còn: ${m[1]}, yêu cầu: ${m[2]})`;
+  }
 
   return trimmed;
 }

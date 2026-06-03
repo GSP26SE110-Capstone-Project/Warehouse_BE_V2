@@ -306,6 +306,11 @@ const spec = {
         'Yêu cầu xuất kho (Flow 7) · Roles: tạo: `TENANT_ADMIN`, `TENANT_STAFF`; duyệt/xử lý: `WH_ADMIN`, `WH_STAFF`; `SYSTEM_ADMIN` (all)',
     },
     {
+      name: 'OutboundRequestItem',
+      description:
+        'Dòng SKU trên outbound (skuId + requestedQuantity) · Tenant thêm khi DRAFT/PENDING; kiểm tra tồn `INSUFFICIENT_INVENTORY`',
+    },
+    {
       name: 'Batch',
       description:
         'Lô nhận hàng (inbound) · Roles: `WH_ADMIN`, `WH_STAFF` (warehouse ops). Bearer khuyến nghị',
@@ -1111,13 +1116,15 @@ const spec = {
       OutboundRequestCreate: {
         type: 'object',
         description:
-          'Required fields: `tenantId`, `contractId`, `warehouseId`. Field khác optional. Các field actor (`createdBy`, `approvedBy`) nên để server tự set.',
+          'Required: `tenantId`, `contractId`, `warehouseId`. Gửi `items[]` (SKU + qty) cùng lúc hoặc thêm sau qua `POST …/items`. Status `PENDING` bắt buộc có ít nhất 1 dòng.',
         required: ['tenantId', 'contractId', 'warehouseId'],
         example: {
           tenantId: '98cad623-9071-4f40-8f41-196940a9338d',
           contractId: 'a5f86099-adcf-4151-8c90-884d16b9e6e2',
           warehouseId: 'f2af9626-635b-4fe2-a149-3ab5b33b153e',
           requestedShipDate: '2026-06-20T08:00:00.000Z',
+          status: 'PENDING',
+          items: [{ skuId: 'b1c2d3e4-0000-4000-8000-000000000001', requestedQuantity: 10 }],
         },
         properties: {
           tenantId: uuid,
@@ -1139,6 +1146,11 @@ const spec = {
               'CANCELLED',
             ],
             default: 'PENDING',
+          },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/OutboundRequestItemCreateNested' },
+            description: 'Optional — tạo dòng SKU cùng phiếu xuất',
           },
           createdBy: uuid,
           approvedBy: uuid,
@@ -1172,6 +1184,68 @@ const spec = {
             ],
           },
           approvedBy: { ...uuid, nullable: true },
+        },
+      },
+      OutboundRequestWithItems: {
+        allOf: [
+          { $ref: '#/components/schemas/OutboundRequest' },
+          {
+            type: 'object',
+            properties: {
+              items: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/OutboundRequestItem' },
+              },
+            },
+          },
+        ],
+      },
+      OutboundRequestItem: {
+        type: 'object',
+        properties: {
+          outboundRequestItemId: uuid,
+          outboundRequestId: uuid,
+          skuId: uuid,
+          requestedQuantity: { type: 'integer', minimum: 1 },
+          allocatedQuantity: { type: 'integer', minimum: 0, default: 0 },
+          pickedQuantity: { type: 'integer', minimum: 0, default: 0 },
+          sku: {
+            type: 'object',
+            properties: {
+              skuId: uuid,
+              skuCode: { type: 'string' },
+              productName: { type: 'string' },
+              color: { type: 'string', nullable: true },
+              size: { type: 'string', nullable: true },
+            },
+          },
+        },
+      },
+      OutboundRequestItemCreateNested: {
+        type: 'object',
+        required: ['skuId', 'requestedQuantity'],
+        properties: {
+          skuId: uuid,
+          requestedQuantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      OutboundRequestItemCreate: {
+        type: 'object',
+        required: ['skuId', 'requestedQuantity'],
+        properties: {
+          outboundRequestId: {
+            ...uuid,
+            description:
+              'Required on POST /outbound-request-items; omitted when nested under outbound',
+          },
+          skuId: uuid,
+          requestedQuantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      OutboundRequestItemUpdate: {
+        type: 'object',
+        properties: {
+          requestedQuantity: { type: 'integer', minimum: 1 },
         },
       },
 
@@ -4054,7 +4128,7 @@ const spec = {
         tags: ['OutboundRequest'],
         summary: 'Create outbound request (contract must be ACTIVE)',
         description:
-          'Roles: tenant-side create request (`TENANT_ADMIN`, `TENANT_STAFF`). `WH_ADMIN` bị chặn tạo. Chỉ cần gửi field bắt buộc; field khác optional.',
+          'Roles: tenant-side (`TENANT_ADMIN`, `TENANT_STAFF`). Gửi kèm `items[]` (SKU + requestedQuantity) hoặc thêm sau. `PENDING` cần ≥1 dòng. Duyệt `APPROVED` kiểm tra tồn (`INSUFFICIENT_INVENTORY`). LPN/batch do kho allocate khi pick (FIFO).',
         requestBody: {
           required: true,
           content: {
@@ -4074,15 +4148,61 @@ const spec = {
         },
       },
     },
+    '/api/outbound-requests/{outboundRequestId}/items': {
+      get: {
+        tags: ['OutboundRequest', 'OutboundRequestItem'],
+        summary: 'List line items on an outbound request',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/OutboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['OutboundRequest', 'OutboundRequestItem'],
+        summary: 'Add SKU line to outbound request',
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestItemCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
+            'Outbound request item created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
     '/api/outbound-requests/{outboundRequestId}': {
       get: {
         tags: ['OutboundRequest'],
         summary: 'Get outbound request by ID',
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+          {
+            in: 'query',
+            name: 'includeItems',
+            schema: { type: 'boolean' },
+            description: 'If true, include `items[]` with SKU details',
+          },
         ],
         responses: {
-          200: successEnvelope({ $ref: '#/components/schemas/OutboundRequest' }),
+          200: successEnvelope({ $ref: '#/components/schemas/OutboundRequestWithItems' }),
           400: stdErrors[400],
           404: stdErrors[404],
         },
@@ -4119,6 +4239,95 @@ const spec = {
         responses: {
           200: successEnvelope(
             { $ref: '#/components/schemas/OutboundRequest' },
+            'Deleted successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/outbound-request-items': {
+      get: {
+        tags: ['OutboundRequestItem'],
+        summary: 'List outbound request items',
+        parameters: [
+          { in: 'query', name: 'outboundRequestId', required: true, schema: uuid },
+          { $ref: '#/components/parameters/page' },
+          { $ref: '#/components/parameters/limit' },
+        ],
+        responses: {
+          200: paginatedEnvelope({ $ref: '#/components/schemas/OutboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      post: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Create outbound request item',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestItemCreate' },
+            },
+          },
+        },
+        responses: {
+          201: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
+            'Outbound request item created'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+    },
+    '/api/outbound-request-items/{outboundRequestItemId}': {
+      get: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Get outbound request item',
+        parameters: [
+          { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/OutboundRequestItem' }),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      patch: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Update outbound request item (requestedQuantity)',
+        parameters: [
+          { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/OutboundRequestItemUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
+            'Updated successfully'
+          ),
+          400: stdErrors[400],
+          404: stdErrors[404],
+        },
+      },
+      delete: {
+        tags: ['OutboundRequestItem'],
+        summary: 'Delete outbound request item',
+        parameters: [
+          { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/OutboundRequestItem' },
             'Deleted successfully'
           ),
           400: stdErrors[400],

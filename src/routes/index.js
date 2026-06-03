@@ -21,6 +21,7 @@ import inboundRequestRoutes from './inboundRequest.routes.js';
 import inboundRequestItemRoutes from './inboundRequestItem.routes.js';
 import inventoryRoutes from './inventory.routes.js';
 import outboundRequestRoutes from './outboundRequest.routes.js';
+import outboundRequestItemRoutes from './outboundRequestItem.routes.js';
 import shipmentRoutes from './shipment.routes.js';
 import aiSlotRecommendationRoutes from './aiSlotRecommendation.routes.js';
 import batchRoutes from './batch.routes.js';
@@ -70,6 +71,7 @@ router.use('/inbound-requests', inboundRequestRoutes);
 router.use('/inbound-request-items', inboundRequestItemRoutes);
 router.use('/inventories', inventoryRoutes);
 router.use('/outbound-requests', outboundRequestRoutes);
+router.use('/outbound-request-items', outboundRequestItemRoutes);
 router.use('/shipments', shipmentRoutes);
 router.use('/ai/slot-recommendations', aiSlotRecommendationRoutes);
 
