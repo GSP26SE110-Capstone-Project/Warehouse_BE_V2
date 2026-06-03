@@ -14,6 +14,7 @@ import {
 } from '../utils/contractBilling.js';
 import { getContract } from './contract.service.js';
 import { assertContractScopeAccess } from '../utils/warehouseAccess.js';
+import { sumTenantWarehouseInventoryRemainder } from '../utils/contractOperationalGate.js';
 
 async function contractHasInbound(contractId) {
   const { rows } = await pool.query(
@@ -161,34 +162,6 @@ async function getTerminationRequestForContract(contractId, terminationRequestId
     throw new AppError('Yêu cầu chấm dứt không thuộc hợp đồng này', 400, 'VALIDATION_ERROR');
   }
   return existing;
-}
-
-/** Tồn kho còn trong kho (tenant + warehouse của HĐ). */
-export async function sumTenantWarehouseInventoryRemainder(tenantId, warehouseId) {
-  const { rows } = await pool.query(
-    `SELECT
-       COALESCE(SUM(i.quantity), 0)::int AS total_quantity,
-       COALESCE(SUM(i.available_quantity), 0)::int AS available_quantity,
-       COALESCE(SUM(i.reserved_quantity), 0)::int AS reserved_quantity,
-       COUNT(DISTINCT CASE WHEN i.quantity > 0 THEN i.sku_id END)::int AS sku_count
-     FROM inventories i
-     INNER JOIN bins b ON b.bin_id = i.bin_id
-     INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
-     INNER JOIN racks r ON r.rack_id = rl.rack_id
-     INNER JOIN warehouse_zones z ON z.zone_id = r.zone_id
-     WHERE i.tenant_id = $1
-       AND z.warehouse_id = $2
-       AND i.status = 'AVAILABLE'
-       AND i.quantity > 0`,
-    [parseUuid(tenantId, 'tenantId'), parseUuid(warehouseId, 'warehouseId')]
-  );
-  const row = rows[0] ?? {};
-  return {
-    totalQuantity: Number(row.total_quantity ?? row.totalQuantity ?? 0),
-    availableQuantity: Number(row.available_quantity ?? row.availableQuantity ?? 0),
-    reservedQuantity: Number(row.reserved_quantity ?? row.reservedQuantity ?? 0),
-    skuCount: Number(row.sku_count ?? row.skuCount ?? 0),
-  };
 }
 
 async function applyTerminationApprovedSideEffects(client, contract) {

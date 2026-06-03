@@ -550,7 +550,7 @@ Enum `status`: `DRAFT`, `PENDING`, `APPROVED`, `RESERVED`, `PICKING`, `PACKING`,
 | Field | Bắt buộc | Mặc định | Ghi chú |
 |-------|----------|----------|---------|
 | `tenantId` | ✅ | — | UUID tenant |
-| `contractId` | ✅ | — | Phải `ACTIVE`, cùng tenant & warehouse |
+| `contractId` | ✅ | — | `ACTIVE` hoặc `TERMINATED`; cùng tenant & warehouse; ≥1 inbound `COMPLETED`; còn tồn khả dụng |
 | `warehouseId` | ✅ | — | UUID kho |
 | `outboundCode` | | auto `OUT-...` | Unique toàn hệ thống |
 | `requestedShipDate` | | — | ISO 8601 |
