@@ -4,8 +4,8 @@
 #   API_HOST_PORT=3005
 # rồi mở Swagger: http://localhost:3005/api-docs
 #
-# Schema: container app chạy npm run db:migrate:all khi start (Dockerfile entrypoint).
-# init-scripts chỉ chạy lần đầu volume Postgres mới; migrate:all idempotent bổ sung patch.
+# DB: app entrypoint chạy db:migrate:all rồi seed:all (idempotent). RUN_DB_MIGRATE=0 / RUN_DB_SEED=0 để tắt.
+# init-scripts chỉ bootstrap volume Postgres mới; patch schema vẫn do migrate:all.
 
 services:
   postgres:
@@ -41,6 +41,7 @@ services:
     environment:
       NODE_ENV: development
       RUN_DB_MIGRATE: "1"
+      RUN_DB_SEED: "1"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: warehouse_admin
