@@ -118,24 +118,14 @@ async function reserveLine(client, outbound, line) {
   return allocations;
 }
 
-export async function reserveOutboundAndCreatePickingTask(outboundRequestId, actor) {
-  assertWarehouseOutboundRole(actor, 'reserve inventory');
-  const outbound = await loadOutboundRequest(outboundRequestId);
-
-  if (outbound.status !== 'APPROVED') {
-    throw new AppError(
-      'Outbound must be APPROVED before reserving inventory',
-      400,
-      'INVALID_OUTBOUND_STATUS'
-    );
-  }
-
-  const existingTasks = await PickingTask.findAll({ outboundRequestId });
+async function createPickingTaskWithReservations(client, outbound, actor) {
+  const outboundRequestId = outbound.outboundRequestId;
+  const existingTasks = await PickingTask.findAll({ outboundRequestId }, {}, client);
   if (existingTasks.length > 0) {
     throw new AppError('Picking task already exists for this outbound', 409, 'DUPLICATE');
   }
 
-  const lines = await OutboundRequestItem.findAll({ outboundRequestId });
+  const lines = await OutboundRequestItem.findAll({ outboundRequestId }, {}, client);
   if (lines.length === 0) {
     throw new AppError(
       'Outbound request must have at least one line item',
@@ -144,36 +134,67 @@ export async function reserveOutboundAndCreatePickingTask(outboundRequestId, act
     );
   }
 
+  const pickingTask = await PickingTask.create(
+    {
+      outboundRequestId,
+      assignedTo: actorUserId(actor),
+      status: 'PENDING',
+    },
+    client
+  );
+
+  for (const line of lines) {
+    const allocations = await reserveLine(client, outbound, line);
+    for (const alloc of allocations) {
+      await PickingTaskItem.create(
+        {
+          pickingTaskId: pickingTask.pickingTaskId,
+          inventoryId: alloc.inventoryId,
+          lpnId: alloc.lpnId,
+          binId: alloc.binId,
+          batchId: alloc.batchId,
+          quantityToPick: alloc.quantity,
+          pickedQuantity: 0,
+        },
+        client
+      );
+    }
+  }
+
+  return pickingTask;
+}
+
+/**
+ * PENDING → APPROVED (approvedBy) + reserve FIFO + picking task → RESERVED (một transaction).
+ */
+export async function approveAndReserveOutbound(outboundRequestId, actor) {
+  assertWarehouseOutboundRole(actor, 'approve outbound');
+  const outbound = await loadOutboundRequest(outboundRequestId);
+
+  if (outbound.status !== 'PENDING') {
+    throw new AppError(
+      `Only PENDING outbound can be approved (current: ${outbound.status})`,
+      400,
+      'INVALID_OUTBOUND_STATUS'
+    );
+  }
+
+  await assertOutboundInventorySufficient(outboundRequestId);
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const pickingTask = await PickingTask.create(
+    await OutboundRequest.updateById(
+      outboundRequestId,
       {
-        outboundRequestId,
-        assignedTo: actorUserId(actor),
-        status: 'PENDING',
+        status: 'APPROVED',
+        approvedBy: actorUserId(actor),
       },
       client
     );
 
-    for (const line of lines) {
-      const allocations = await reserveLine(client, outbound, line);
-      for (const alloc of allocations) {
-        await PickingTaskItem.create(
-          {
-            pickingTaskId: pickingTask.pickingTaskId,
-            inventoryId: alloc.inventoryId,
-            lpnId: alloc.lpnId,
-            binId: alloc.binId,
-            batchId: alloc.batchId,
-            quantityToPick: alloc.quantity,
-            pickedQuantity: 0,
-          },
-          client
-        );
-      }
-    }
+    const pickingTask = await createPickingTaskWithReservations(client, outbound, actor);
 
     const updated = await OutboundRequest.updateById(
       outboundRequestId,
@@ -181,6 +202,38 @@ export async function reserveOutboundAndCreatePickingTask(outboundRequestId, act
       client
     );
 
+    await client.query('COMMIT');
+    return { outbound: updated, pickingTaskId: pickingTask.pickingTaskId };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Reserve + picking task khi đã APPROVED nhưng chưa có task (recovery). */
+export async function reserveOutboundAndCreatePickingTask(outboundRequestId, actor) {
+  assertWarehouseOutboundRole(actor, 'reserve inventory');
+  const outbound = await loadOutboundRequest(outboundRequestId);
+
+  if (outbound.status !== 'APPROVED') {
+    throw new AppError(
+      'Outbound must be APPROVED before reserving inventory (or use status APPROVED from PENDING)',
+      400,
+      'INVALID_OUTBOUND_STATUS'
+    );
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const pickingTask = await createPickingTaskWithReservations(client, outbound, actor);
+    const updated = await OutboundRequest.updateById(
+      outboundRequestId,
+      { status: 'RESERVED' },
+      client
+    );
     await client.query('COMMIT');
     return { outbound: updated, pickingTaskId: pickingTask.pickingTaskId };
   } catch (err) {
@@ -417,29 +470,82 @@ export async function shipOutbound(outboundRequestId, actor) {
 }
 
 export async function listPickingTasksForOutbound(outboundRequestId) {
-  await loadOutboundRequest(outboundRequestId);
-  const tasks = await PickingTask.findAll({ outboundRequestId });
+  const id = parseUuid(outboundRequestId, 'outboundRequestId');
+  const outbound = await loadOutboundRequest(id);
 
-  const result = [];
-  for (const task of tasks) {
-    const items = await PickingTaskItem.findAll({ pickingTaskId: task.pickingTaskId });
-    result.push({ ...task, items });
+  const tasksResult = await pool.query(
+    `SELECT pt.picking_task_id, pt.outbound_request_id, pt.assigned_to, pt.status,
+            pt.created_at, pt.updated_at
+     FROM picking_tasks pt
+     WHERE pt.outbound_request_id = $1
+     ORDER BY pt.created_at ASC`,
+    [id]
+  );
+
+  if (tasksResult.rows.length === 0) {
+    return {
+      outboundRequestId: id,
+      outboundStatus: outbound.status,
+      hint:
+        outbound.status === 'PENDING'
+          ? 'Chưa duyệt — PATCH { "status": "APPROVED" } (WH token) để tạo picking task'
+          : outbound.status === 'APPROVED'
+            ? 'Đã APPROVED nhưng chưa reserve — PATCH { "status": "RESERVED" } để tạo picking task'
+            : 'Chưa có picking task cho phiếu này',
+      tasks: [],
+    };
   }
-  return result;
+
+  const tasks = [];
+  for (const taskRow of tasksResult.rows) {
+    const itemsResult = await pool.query(
+      `SELECT pti.picking_task_item_id, pti.picking_task_id, pti.inventory_id,
+              pti.lpn_id, pti.bin_id, pti.batch_id, pti.quantity_to_pick, pti.picked_quantity,
+              l.lpn_code, b.bin_code, bat.batch_code
+       FROM picking_task_items pti
+       INNER JOIN lpns l ON l.lpn_id = pti.lpn_id
+       INNER JOIN bins b ON b.bin_id = pti.bin_id
+       INNER JOIN batches bat ON bat.batch_id = pti.batch_id
+       WHERE pti.picking_task_id = $1
+       ORDER BY l.lpn_code ASC`,
+      [taskRow.picking_task_id]
+    );
+
+    tasks.push({
+      pickingTaskId: taskRow.picking_task_id,
+      outboundRequestId: taskRow.outbound_request_id,
+      assignedTo: taskRow.assigned_to,
+      status: taskRow.status,
+      createdAt: taskRow.created_at,
+      updatedAt: taskRow.updated_at,
+      items: itemsResult.rows.map((row) => ({
+        pickingTaskItemId: row.picking_task_item_id,
+        pickingTaskId: row.picking_task_id,
+        inventoryId: row.inventory_id,
+        lpnId: row.lpn_id,
+        binId: row.bin_id,
+        batchId: row.batch_id,
+        quantityToPick: row.quantity_to_pick,
+        pickedQuantity: row.picked_quantity,
+        lpnCode: row.lpn_code,
+        binCode: row.bin_code,
+        batchCode: row.batch_code,
+      })),
+    });
+  }
+
+  return {
+    outboundRequestId: id,
+    outboundStatus: outbound.status,
+    tasks,
+  };
 }
 
 export async function applyOutboundStatusChange(existing, nextStatus, actor, patchData = {}) {
   assertOutboundStatusTransition(existing.status, nextStatus);
 
   if (nextStatus === 'APPROVED') {
-    assertWarehouseOutboundRole(actor, 'approve outbound');
-    await assertOutboundInventorySufficient(existing.outboundRequestId);
-
-    await OutboundRequest.updateById(existing.outboundRequestId, {
-      status: 'APPROVED',
-      approvedBy: actorUserId(actor),
-    });
-    await reserveOutboundAndCreatePickingTask(existing.outboundRequestId, actor);
+    await approveAndReserveOutbound(existing.outboundRequestId, actor);
     return { __fullyHandled: true };
   }
 
