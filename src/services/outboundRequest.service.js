@@ -11,6 +11,10 @@ import {
   createOutboundRequestItem,
   getOutboundRequestWithItems,
 } from './outboundRequestItem.service.js';
+import {
+  applyOutboundStatusChange,
+  releaseOutboundReservations,
+} from './outboundWorkflow.service.js';
 
 const CREATE_FIELDS = [
   'tenantId',
@@ -20,16 +24,9 @@ const CREATE_FIELDS = [
   'requestedShipDate',
   'actualShippedAt',
   'status',
-  'createdBy',
-  'approvedBy',
 ];
 
-const UPDATE_FIELDS = [
-  'requestedShipDate',
-  'actualShippedAt',
-  'status',
-  'approvedBy',
-];
+const UPDATE_FIELDS = ['requestedShipDate', 'actualShippedAt', 'status'];
 
 function pickFields(source, fields) {
   const result = {};
@@ -59,9 +56,11 @@ function parseDateTime(value, fieldName) {
   return date;
 }
 
-function parseOptionalUserId(value, fieldName) {
-  if (value == null || value === '') return undefined;
-  return parseUuid(value, fieldName);
+function actorUserId(actor) {
+  if (!actor?.userId) {
+    throw new AppError('Authentication required', 401, 'UNAUTHENTICATED');
+  }
+  return actor.userId;
 }
 
 async function assertContractForOutbound(tenantId, contractId, warehouseId) {
@@ -113,9 +112,6 @@ function normalizeCreatePayload(body) {
   if (data.status == null) data.status = 'PENDING';
   assertEnum(data.status, OUTBOUND_STATUS, 'status');
 
-  if (data.createdBy != null) data.createdBy = parseOptionalUserId(data.createdBy, 'createdBy');
-  if (data.approvedBy != null) data.approvedBy = parseOptionalUserId(data.approvedBy, 'approvedBy');
-
   return data;
 }
 
@@ -140,13 +136,8 @@ function normalizeUpdatePayload(body) {
     }
   }
 
-  assertEnum(data.status, OUTBOUND_STATUS, 'status');
-
-  if (data.approvedBy !== undefined) {
-    data.approvedBy =
-      data.approvedBy === null || data.approvedBy === ''
-        ? null
-        : parseOptionalUserId(data.approvedBy, 'approvedBy');
+  if (data.status !== undefined) {
+    assertEnum(data.status, OUTBOUND_STATUS, 'status');
   }
 
   if (Object.keys(data).length === 0) {
@@ -212,12 +203,18 @@ export async function listOutboundRequests({
   };
 }
 
-export async function createOutboundRequest(body) {
+export async function createOutboundRequest(body, actor = null) {
   const rawItems = body?.items;
   const headerBody = { ...body };
   delete headerBody.items;
+  delete headerBody.createdBy;
+  delete headerBody.approvedBy;
 
   const data = normalizeCreatePayload(headerBody);
+
+  if (actor?.userId) {
+    data.createdBy = actorUserId(actor);
+  }
 
   await getTenantCompany(data.tenantId);
   await getWarehouseById(data.warehouseId);
@@ -250,20 +247,34 @@ export async function createOutboundRequest(body) {
   return outbound;
 }
 
-export async function updateOutboundRequest(outboundRequestId, body) {
+export async function updateOutboundRequest(outboundRequestId, body, actor = null) {
   const id = parseUuid(outboundRequestId, 'outboundRequestId');
   const existing = await getOutboundRequest(id);
 
-  const data = normalizeUpdatePayload(body);
+  const sanitized = { ...body };
+  delete sanitized.approvedBy;
+  delete sanitized.createdBy;
+
+  const data = normalizeUpdatePayload(sanitized);
 
   if (data.status !== undefined && data.status !== existing.status) {
     if (data.status === 'PENDING') {
       await assertOutboundHasAtLeastOneItem(id);
     }
-    if (data.status === 'APPROVED') {
-      await assertOutboundHasAtLeastOneItem(id);
-      await assertOutboundInventorySufficient(id);
+
+    const workflowPatch = await applyOutboundStatusChange(
+      existing,
+      data.status,
+      actor,
+      data
+    );
+
+    if (workflowPatch.__fullyHandled) {
+      return getOutboundRequest(id);
     }
+
+    const { status: _s, __fullyHandled: _h, ...rest } = workflowPatch;
+    return OutboundRequest.updateById(id, { ...rest, status: workflowPatch.status });
   }
 
   return OutboundRequest.updateById(id, data);
@@ -271,7 +282,11 @@ export async function updateOutboundRequest(outboundRequestId, body) {
 
 export async function deleteOutboundRequest(outboundRequestId) {
   const id = parseUuid(outboundRequestId, 'outboundRequestId');
-  await getOutboundRequest(id);
+  const existing = await getOutboundRequest(id);
+
+  if (['RESERVED', 'PICKING', 'PACKING'].includes(existing.status)) {
+    await releaseOutboundReservations(id);
+  }
 
   const deleted = await OutboundRequest.deleteById(id);
   if (!deleted) {

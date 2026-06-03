@@ -209,6 +209,11 @@ const spec = {
       'Warehouse → Zone → Rack → Rack Level → Bin\n\n' +
       '### Flow 3 — Inbound (SKU / LPN)\n' +
       'Category, Season, Collection, Inbound request, Batch, SKU, LPN, LPN detail, AI slot recommendation\n\n' +
+      '### Flow 7 — Outbound (xuất kho)\n' +
+      '- `POST/GET/PATCH /outbound-requests` — phiếu xuất + workflow status (`APPROVED` → reserve → `RESERVED` → `PICKING` → `PACKING` → `SHIPPED` trừ tồn)\n' +
+      '- `GET/POST …/outbound-requests/{id}/items` — dòng SKU\n' +
+      '- `GET …/outbound-requests/{id}/picking-tasks` — task pick + LPN/bin/batch\n' +
+      '- `/outbound-request-items` — CRUD dòng (query `outboundRequestId`)\n\n' +
       '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
       '- `POST /api/auth/forgot-password` + `/verify` — public (OTP flow)\n' +
@@ -303,7 +308,7 @@ const spec = {
     {
       name: 'OutboundRequest',
       description:
-        'Yêu cầu xuất kho (Flow 7) · Roles: tạo: `TENANT_ADMIN`, `TENANT_STAFF`; duyệt/xử lý: `WH_ADMIN`, `WH_STAFF`; `SYSTEM_ADMIN` (all)',
+        'Yêu cầu xuất kho (Flow 7) · Tenant: tạo + dòng SKU (`…/items`). WH: `PATCH` status (`APPROVED`→`RESERVED`→`PICKING`→`PACKING`→`SHIPPED`). `GET …/{id}/picking-tasks` xem lệnh pick. `approvedBy`/`createdBy` từ Bearer token.',
     },
     {
       name: 'OutboundRequestItem',
@@ -1152,12 +1157,12 @@ const spec = {
             items: { $ref: '#/components/schemas/OutboundRequestItemCreateNested' },
             description: 'Optional — tạo dòng SKU cùng phiếu xuất',
           },
-          createdBy: uuid,
-          approvedBy: uuid,
         },
       },
       OutboundRequestUpdate: {
         type: 'object',
+        description:
+          'Không gửi `approvedBy` — khi `status: APPROVED` server lấy user từ Bearer token, reserve FIFO, chuyển `RESERVED`. `PACKING`/`SHIPPED` chạy pick/ship workflow.',
         properties: {
           requestedShipDate: {
             type: 'string',
@@ -1168,6 +1173,7 @@ const spec = {
             type: 'string',
             format: 'date-time',
             nullable: true,
+            description: 'Tùy chọn; mặc định server set khi `SHIPPED`',
           },
           status: {
             type: 'string',
@@ -1183,7 +1189,6 @@ const spec = {
               'CANCELLED',
             ],
           },
-          approvedBy: { ...uuid, nullable: true },
         },
       },
       OutboundRequestWithItems: {
@@ -1246,6 +1251,37 @@ const spec = {
         type: 'object',
         properties: {
           requestedQuantity: { type: 'integer', minimum: 1 },
+        },
+      },
+      PickingTaskItem: {
+        type: 'object',
+        properties: {
+          pickingTaskItemId: uuid,
+          pickingTaskId: uuid,
+          inventoryId: uuid,
+          lpnId: uuid,
+          binId: uuid,
+          batchId: uuid,
+          quantityToPick: { type: 'integer', minimum: 1 },
+          pickedQuantity: { type: 'integer', minimum: 0, default: 0 },
+        },
+      },
+      PickingTask: {
+        type: 'object',
+        properties: {
+          pickingTaskId: uuid,
+          outboundRequestId: uuid,
+          assignedTo: { ...uuid, nullable: true },
+          status: {
+            type: 'string',
+            enum: ['PENDING', 'PICKING', 'COMPLETED', 'CANCELLED'],
+          },
+          createdAt: { type: 'string', format: 'date-time', nullable: true },
+          updatedAt: { type: 'string', format: 'date-time', nullable: true },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/PickingTaskItem' },
+          },
         },
       },
 
@@ -4090,9 +4126,11 @@ const spec = {
     '/api/outbound-requests': {
       get: {
         tags: ['OutboundRequest'],
+        operationId: 'listOutboundRequests',
         summary: 'List outbound requests (filter by tenant, warehouse, contract, status)',
         description:
           'Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF`, `TENANT_ADMIN`, `TENANT_STAFF` (theo scope).',
+        security: bearerSecurity,
         parameters: [
           { in: 'query', name: 'tenantId', schema: uuid },
           { in: 'query', name: 'warehouseId', schema: uuid },
@@ -4126,9 +4164,11 @@ const spec = {
       },
       post: {
         tags: ['OutboundRequest'],
+        operationId: 'createOutboundRequest',
         summary: 'Create outbound request (contract must be ACTIVE)',
         description:
-          'Roles: tenant-side (`TENANT_ADMIN`, `TENANT_STAFF`). Gửi kèm `items[]` (SKU + requestedQuantity) hoặc thêm sau. `PENDING` cần ≥1 dòng. Duyệt `APPROVED` kiểm tra tồn (`INSUFFICIENT_INVENTORY`). LPN/batch do kho allocate khi pick (FIFO).',
+          'Roles: tenant-side (`TENANT_ADMIN`, `TENANT_STAFF`). Gửi kèm `items[]` (SKU + requestedQuantity) hoặc thêm sau. `PENDING` cần ≥1 dòng. `createdBy` từ token. LPN/batch allocate khi WH duyệt (FIFO).',
+        security: bearerSecurity,
         requestBody: {
           required: true,
           content: {
@@ -4148,10 +4188,47 @@ const spec = {
         },
       },
     },
+    '/api/outbound-requests/{outboundRequestId}/picking-tasks': {
+      get: {
+        tags: ['OutboundRequest'],
+        operationId: 'listOutboundPickingTasks',
+        summary: 'List picking tasks for an outbound request',
+        description:
+          'Sau `PATCH` status `APPROVED` (phiếu chuyển `RESERVED`), server tạo picking task + dòng pick (inventory, LPN, bin, batch). Roles: `WH_ADMIN`, `WH_STAFF`, `SYSTEM_ADMIN`, tenant đọc phiếu của mình.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        responses: {
+          200: successEnvelope({
+            type: 'object',
+            properties: {
+              outboundRequestId: uuid,
+              outboundStatus: { type: 'string' },
+              hint: {
+                type: 'string',
+                nullable: true,
+                description: 'Gợi ý khi tasks rỗng (chưa duyệt / chưa reserve)',
+              },
+              tasks: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/PickingTask' },
+              },
+            },
+          }),
+          400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+    },
     '/api/outbound-requests/{outboundRequestId}/items': {
       get: {
         tags: ['OutboundRequest', 'OutboundRequestItem'],
+        operationId: 'listOutboundRequestItemsByOutbound',
         summary: 'List line items on an outbound request',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
           { $ref: '#/components/parameters/page' },
@@ -4165,7 +4242,9 @@ const spec = {
       },
       post: {
         tags: ['OutboundRequest', 'OutboundRequestItem'],
+        operationId: 'createOutboundRequestItemByOutbound',
         summary: 'Add SKU line to outbound request',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
         ],
@@ -4183,6 +4262,8 @@ const spec = {
             'Outbound request item created'
           ),
           400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
           404: stdErrors[404],
           409: stdErrors[409],
         },
@@ -4191,7 +4272,9 @@ const spec = {
     '/api/outbound-requests/{outboundRequestId}': {
       get: {
         tags: ['OutboundRequest'],
+        operationId: 'getOutboundRequestById',
         summary: 'Get outbound request by ID',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
           {
@@ -4209,7 +4292,11 @@ const spec = {
       },
       patch: {
         tags: ['OutboundRequest'],
-        summary: 'Update outbound request (status, ship dates, approver)',
+        operationId: 'updateOutboundRequest',
+        summary: 'Update outbound request (status workflow, ship dates)',
+        description:
+          'WH workflow (Bearer): `APPROVED` từ `PENDING` → duyệt + reserve + picking task → **`RESERVED`** (không dừng ở APPROVED). Nếu kẹt `APPROVED`: `PATCH` `{ "status": "RESERVED" }`. Tiếp: `PICKING` → `PACKING` → `SHIPPED`.',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
         ],
@@ -4218,6 +4305,15 @@ const spec = {
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/OutboundRequestUpdate' },
+              examples: {
+                approve: {
+                  summary: 'WH duyệt (→ RESERVED + picking task)',
+                  value: { status: 'APPROVED' },
+                },
+                picking: { summary: 'Bắt đầu pick', value: { status: 'PICKING' } },
+                packing: { summary: 'Hoàn tất pick', value: { status: 'PACKING' } },
+                shipped: { summary: 'Xuất kho / trừ tồn', value: { status: 'SHIPPED' } },
+              },
             },
           },
         },
@@ -4227,12 +4323,16 @@ const spec = {
             'Updated successfully'
           ),
           400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
           404: stdErrors[404],
         },
       },
       delete: {
         tags: ['OutboundRequest'],
+        operationId: 'deleteOutboundRequest',
         summary: 'Delete outbound request',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
         ],
@@ -4249,7 +4349,9 @@ const spec = {
     '/api/outbound-request-items': {
       get: {
         tags: ['OutboundRequestItem'],
+        operationId: 'listOutboundRequestItems',
         summary: 'List outbound request items',
+        security: bearerSecurity,
         parameters: [
           { in: 'query', name: 'outboundRequestId', required: true, schema: uuid },
           { $ref: '#/components/parameters/page' },
@@ -4263,7 +4365,9 @@ const spec = {
       },
       post: {
         tags: ['OutboundRequestItem'],
+        operationId: 'createOutboundRequestItem',
         summary: 'Create outbound request item',
+        security: bearerSecurity,
         requestBody: {
           required: true,
           content: {
@@ -4278,6 +4382,8 @@ const spec = {
             'Outbound request item created'
           ),
           400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
           404: stdErrors[404],
           409: stdErrors[409],
         },
@@ -4286,7 +4392,9 @@ const spec = {
     '/api/outbound-request-items/{outboundRequestItemId}': {
       get: {
         tags: ['OutboundRequestItem'],
+        operationId: 'getOutboundRequestItem',
         summary: 'Get outbound request item',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
         ],
@@ -4298,7 +4406,9 @@ const spec = {
       },
       patch: {
         tags: ['OutboundRequestItem'],
+        operationId: 'updateOutboundRequestItem',
         summary: 'Update outbound request item (requestedQuantity)',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
         ],
@@ -4316,12 +4426,16 @@ const spec = {
             'Updated successfully'
           ),
           400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
           404: stdErrors[404],
         },
       },
       delete: {
         tags: ['OutboundRequestItem'],
+        operationId: 'deleteOutboundRequestItem',
         summary: 'Delete outbound request item',
+        security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestItemId', required: true, schema: uuid },
         ],
