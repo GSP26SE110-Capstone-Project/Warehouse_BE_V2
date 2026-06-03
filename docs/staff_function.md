@@ -35,6 +35,16 @@
 
 ## 2. Warehouse Staff (`WH_STAFF`)
 
+### 2.0. Mobile scan (Code128)
+
+| API | Mô tả |
+|-----|--------|
+| `GET /api/scan/resolve?value=...` | Sau khi quét tem Code128 — trả `entityType` + bản ghi (inbound/outbound/LPN/SKU/bin/batch) |
+| `POST /api/scan/resolve` | Cùng logic, body `{ value }` |
+
+- **In tem**: encode chuỗi business code (`inboundCode`, `lpnCode`, `outboundCode`, `binCode`, `skuCode`) — symbology **Code 128**.
+- Chi tiết: [`docs/barcode-mobile.md`](barcode-mobile.md).
+
 ### 2.1. Nghiệp vụ chính (theo thiết kế)
 
 | # | Chức năng | Trạng thái |
