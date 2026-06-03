@@ -13,6 +13,7 @@ import {
   usedContractMonths,
 } from '../utils/contractBilling.js';
 import { getContract } from './contract.service.js';
+import { terminateAllAppendicesForContract } from './contractAppendix.service.js';
 import { assertContractScopeAccess } from '../utils/warehouseAccess.js';
 import { sumTenantWarehouseInventoryRemainder } from '../utils/contractOperationalGate.js';
 
@@ -244,6 +245,7 @@ export async function approveTerminationRequest(
     );
 
     await applyTerminationApprovedSideEffects(client, contract);
+    await terminateAllAppendicesForContract(client, contract.contractId);
 
     await client.query('COMMIT');
 

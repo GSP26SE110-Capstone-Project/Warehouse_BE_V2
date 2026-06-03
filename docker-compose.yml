@@ -5,7 +5,8 @@
 # rồi mở Swagger: http://localhost:3005/api-docs
 #
 # DB: app entrypoint chạy db:migrate:all rồi seed:all (idempotent). RUN_DB_MIGRATE=0 / RUN_DB_SEED=0 để tắt.
-# init-scripts chỉ bootstrap volume Postgres mới; patch schema vẫn do migrate:all.
+# init-scripts (Postgres volume): chỉ schema gốc lần đầu tạo volume; patch (phụ lục, PayOS, …) do migrate:all trên app.
+# Dev: mount ./scripts để SQL mới trên host chạy ngay không cần rebuild image.
 
 services:
   postgres:
@@ -59,6 +60,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./server.js:/app/server.js
+      - ./scripts:/app/scripts
       - /app/node_modules
     command: npm run dev
 

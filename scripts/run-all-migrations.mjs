@@ -38,6 +38,9 @@ const MIGRATION_FILES = [
   'scripts/sql/skus_add_product_kind.sql',
   'scripts/sql/contract_billing_termination.sql',
   'scripts/sql/payos_payments.sql',
+  'scripts/sql/contract_appendices.sql',
+  'scripts/sql/contract_appendix_request_flow.sql',
+  'scripts/sql/contract_appendix_request_flow_2.sql',
 ];
 
 console.log(`Running ${MIGRATION_FILES.length} migrations...\n`);

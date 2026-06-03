@@ -17,8 +17,8 @@ ENV NODE_ENV=development \
 COPY package*.json ./
 RUN npm install
 
-# App source + SQL migrations (required for db:migrate:all in container)
-COPY package.json server.js ./
+# App source + SQL migrations (db:migrate:all — gồm contract_appendices*.sql, payos, billing, …)
+COPY server.js ./
 COPY src ./src
 COPY scripts ./scripts
 
