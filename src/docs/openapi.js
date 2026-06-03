@@ -226,36 +226,140 @@ const spec = {
   // Default: mọi API dùng Bearer token trong Swagger (Authorize).
   security: bearerSecurity,
   tags: [
-    { name: 'System', description: 'Health check' },
-    { name: 'Auth', description: 'Login' },
-    { name: 'User', description: 'User management (admin roles). Roles: SYSTEM_ADMIN / WH_ADMIN / TENANT_ADMIN' },
-    { name: 'Warehouse', description: 'Warehouses. Roles: SYSTEM_ADMIN, WH_ADMIN, WH_STAFF, WH_TRANSPORTER, TENANT_ADMIN, TENANT_STAFF (read by scope)' },
-    { name: 'Zone', description: 'Warehouse zones. Roles: SYSTEM_ADMIN, WH_ADMIN (+ WH_STAFF read planning)' },
-    { name: 'Rack', description: 'Racks. Roles: warehouse-side users' },
-    { name: 'RackLevel', description: 'Rack levels' },
-    { name: 'Bin', description: 'Storage bins' },
-    { name: 'Category', description: 'Product categories (Áo, Quần, …)' },
-    { name: 'Season', description: 'Fashion seasons' },
-    { name: 'Collection', description: 'Tenant product collections' },
-    { name: 'SKU', description: 'Tenant product SKUs' },
-    { name: 'InboundRequest', description: 'Tenant inbound / receiving requests (Flow 4). Roles: tenant-side create/update; warehouse-side approve/receive' },
-    { name: 'InboundRequestItem', description: 'SKU lines on an inbound request' },
-    { name: 'Inventory', description: 'Stock on hand (SKU + batch + LPN + bin)' },
-    { name: 'OutboundRequest', description: 'Tenant outbound / shipping requests (Flow 7). Roles: tenant-side create/update; warehouse-side process' },
-    { name: 'Batch', description: 'Receiving batches (inbound)' },
-    { name: 'LPN', description: 'License plate numbers / cartons (inbound)' },
-    { name: 'LPNDetail', description: 'SKU lines inside an LPN' },
-    { name: 'AI', description: 'Rule-based putaway slot recommendations (Phase 1a)' },
-    { name: 'RentalRequest', description: 'Flow 1 — guest gửi yêu cầu thuê theo city/district; WH claim khi approve. Public create + guest lookup, còn lại cần token theo role' },
-    { name: 'TenantCompany', description: 'Flow 1 — tenant company (bước 1 guest onboarding). Public create, các API khác cần token' },
-    { name: 'Contract', description: 'Tenant contracts (Flow 1). Roles: tenant + warehouse + system by scope' },
+    {
+      name: 'System',
+      description: 'Health check · Roles: public (không cần token)',
+    },
+    {
+      name: 'Auth',
+      description:
+        'Login, quên/đổi mật khẩu · Roles: public (login/forgot); đổi MK: mọi user đã đăng nhập',
+    },
+    {
+      name: 'User',
+      description:
+        'Quản lý tài khoản · Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `TENANT_ADMIN` (CRUD theo scope). `GET/PATCH /users/me`: mọi role',
+    },
+    {
+      name: 'Warehouse',
+      description:
+        'Kho vật lý · Roles: `SYSTEM_ADMIN` (CRUD); `WH_ADMIN` (sửa kho mình); đọc: `WH_STAFF`, `WH_TRANSPORTER`, `TENANT_ADMIN`, `TENANT_STAFF` (theo hợp đồng/scope)',
+    },
+    {
+      name: 'Zone',
+      description:
+        'Vùng kho · Roles: `SYSTEM_ADMIN`, `WH_ADMIN` (CRUD); `WH_STAFF` (GET — lập kế hoạch putaway)',
+    },
+    {
+      name: 'Rack',
+      description:
+        'Kệ · Roles: `SYSTEM_ADMIN`, `WH_ADMIN` (CRUD); `WH_STAFF` (GET — putaway). Bearer khuyến nghị',
+    },
+    {
+      name: 'RackLevel',
+      description:
+        'Tầng kệ · Roles: `SYSTEM_ADMIN`, `WH_ADMIN` (CRUD); `WH_STAFF` (GET — putaway). Bearer khuyến nghị',
+    },
+    {
+      name: 'Bin',
+      description:
+        'Ô lưu · Roles: `SYSTEM_ADMIN`, `WH_ADMIN` (CRUD); `WH_STAFF` (GET — putaway). Bearer khuyến nghị',
+    },
+    {
+      name: 'Category',
+      description:
+        'Danh mục hàng (master) · Roles: đọc: mọi user có token; sửa: `TENANT_ADMIN` (tenant scope)',
+    },
+    {
+      name: 'Season',
+      description:
+        'Mùa (master) · Roles: đọc: mọi user có token; sửa: `TENANT_ADMIN` (tenant scope)',
+    },
+    {
+      name: 'Collection',
+      description:
+        'Bộ sưu tập (master) · Roles: đọc: mọi user có token; sửa: `TENANT_ADMIN` (tenant scope)',
+    },
+    {
+      name: 'SKU',
+      description:
+        'Mã SKU tenant · Roles: `TENANT_ADMIN`, `TENANT_STAFF` (CRUD tenant mình); `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF` (xem). Bearer khuyến nghị',
+    },
+    {
+      name: 'InboundRequest',
+      description:
+        'Yêu cầu nhập kho (Flow 4) · Roles: tạo/sửa: `TENANT_ADMIN`, `TENANT_STAFF`; duyệt/nhận/putaway: `WH_ADMIN`, `WH_STAFF`; `WH_TRANSPORTER` (delivery/arrival riêng); `SYSTEM_ADMIN` (all)',
+    },
+    {
+      name: 'InboundRequestItem',
+      description:
+        'Dòng SKU trên inbound · Roles: tenant (tạo request); `WH_STAFF` (ghi receivedQuantity khi RECEIVING). Bearer khuyến nghị',
+    },
+    {
+      name: 'Inventory',
+      description:
+        'Tồn kho (SKU + batch + LPN + bin) · Roles: xem — `SYSTEM_ADMIN` (all); `WH_ADMIN`, `WH_STAFF` (lọc `warehouseId`); `TENANT_ADMIN`, `TENANT_STAFF` (lọc `tenantId`). GET only',
+    },
+    {
+      name: 'OutboundRequest',
+      description:
+        'Yêu cầu xuất kho (Flow 7) · Roles: tạo: `TENANT_ADMIN`, `TENANT_STAFF`; duyệt/xử lý: `WH_ADMIN`, `WH_STAFF`; `SYSTEM_ADMIN` (all)',
+    },
+    {
+      name: 'Batch',
+      description:
+        'Lô nhận hàng (inbound) · Roles: `WH_ADMIN`, `WH_STAFF` (warehouse ops). Bearer khuyến nghị',
+    },
+    {
+      name: 'LPN',
+      description:
+        'Carton/pallet (LPN) · Roles: `WH_ADMIN`, `WH_STAFF` (tạo, putaway). Bearer khuyến nghị',
+    },
+    {
+      name: 'LPNDetail',
+      description:
+        'SKU trong LPN · Roles: `WH_ADMIN`, `WH_STAFF`. Bearer khuyến nghị',
+    },
+    {
+      name: 'AI',
+      description:
+        'Gợi ý vị trí putaway (rule-based) · Roles: `WH_ADMIN`, `WH_STAFF`. Bearer khuyến nghị',
+    },
+    {
+      name: 'RentalRequest',
+      description:
+        'Yêu cầu thuê kho (Flow 1) · Roles: `POST` public/guest + tenant; list/GET: `TENANT_ADMIN`, `TENANT_STAFF` (own), `WH_ADMIN`, `SYSTEM_ADMIN`; duyệt/claim: `WH_ADMIN`, `SYSTEM_ADMIN`',
+    },
+    {
+      name: 'TenantCompany',
+      description:
+        'Công ty tenant (onboarding) · Roles: `POST` public; đọc/sửa: `TENANT_ADMIN` (own), `WH_ADMIN`/`SYSTEM_ADMIN` (view)',
+    },
+    {
+      name: 'Contract',
+      description:
+        'Hợp đồng thuê · Roles: CRUD/ký: `WH_ADMIN`, `SYSTEM_ADMIN`; xem/ký tenant: `TENANT_ADMIN`; xem: `TENANT_STAFF`',
+    },
     {
       name: 'PayOS',
       description:
-        'Thanh toán invoice HĐ qua PayOS. Test Swagger: login → `POST .../payos/create-link` → mở `checkoutUrl`. Webhook `POST /payos/webhook` do PayOS gọi (không test body rỗng trên Swagger).',
+        'Thanh toán invoice HĐ qua PayOS · Roles: `TENANT_ADMIN` (create-link). Webhook: PayOS server',
     },
-    { name: 'ContractItem', description: 'Contract line items (Flow 1)' },
-    { name: 'StorageReservation', description: 'Storage reservations (Flow 1)' },
+    {
+      name: 'ContractItem',
+      description:
+        'Dòng hợp đồng · Roles: `WH_ADMIN`, `SYSTEM_ADMIN` (quản lý); tenant xem theo contract',
+    },
+    {
+      name: 'StorageReservation',
+      description:
+        'Giữ chỗ lưu trữ (bin/zone) · Roles: `WH_ADMIN`, `SYSTEM_ADMIN` (cấp phát); tenant xem',
+    },
+    {
+      name: 'Scan',
+      description:
+        'Mobile scan Code128 · Roles: `WH_ADMIN`, `WH_STAFF`, `WH_TRANSPORTER`, `SYSTEM_ADMIN`. Resolve chuỗi quét → inbound/outbound/LPN/SKU/bin/batch',
+    },
   ],
   components: {
     securitySchemes: {
@@ -264,6 +368,45 @@ const spec = {
     schemas: {
       ErrorResponse: errorResponse,
       PaginationMeta: paginationMeta,
+
+      BarcodeScanResult: {
+        type: 'object',
+        description:
+          'Kết quả quét Code128. Mobile in tem = field `value`; sau quét gọi resolve với cùng chuỗi.',
+        properties: {
+          symbology: { type: 'string', example: 'CODE128' },
+          value: {
+            type: 'string',
+            example: 'INB-M2K3F-01',
+            description: 'Nội dung mã Code128 (business code)',
+          },
+          structuredValue: {
+            type: 'string',
+            example: 'NGW1|INBOUND|INB-M2K3F-01',
+            description: 'Payload có cấu trúc (tùy chọn khi in tem)',
+          },
+          entityType: {
+            type: 'string',
+            enum: [
+              'INBOUND_REQUEST',
+              'OUTBOUND_REQUEST',
+              'LPN',
+              'SKU',
+              'BIN',
+              'BATCH',
+            ],
+          },
+          entityId: { ...uuid, nullable: true },
+          displayCode: { type: 'string', nullable: true },
+          scanFormat: { type: 'string', enum: ['BUSINESS_CODE', 'NGW1'] },
+          scannedRaw: { type: 'string' },
+          entity: {
+            type: 'object',
+            description:
+              'Bản ghi theo entityType. **BATCH**: batch + `inbound` (code, status) + `lpns[]` + `lpnCount` — batch không có status riêng; tiến độ trên từng LPN (`RECEIVING`/`STORED`/…).',
+          },
+        },
+      },
 
       Warehouse: {
         type: 'object',
@@ -1473,10 +1616,73 @@ const spec = {
         },
       },
 
+      RentalRequestProductLineInput: {
+        type: 'object',
+        description:
+          'Một dòng **Quy mô hàng hóa** (loại hàng + size + số cái/tháng). Mã `productKind` lấy từ `GET /api/product-kinds`.',
+        required: ['productKind', 'quantity'],
+        properties: {
+          productKind: {
+            type: 'string',
+            example: 'T_SHIRT',
+            description: 'Mã loại hàng (catalog product kind), uppercase',
+          },
+          size: {
+            type: 'string',
+            example: 'M',
+            description: 'Size (bắt buộc nếu loại hàng có size trong catalog)',
+          },
+          sizeGroup: {
+            type: 'string',
+            example: 'ADULT_TOP',
+            description: 'Optional — server resolve từ `size` nếu bỏ qua',
+          },
+          quantity: {
+            type: 'integer',
+            minimum: 1,
+            example: 200,
+            description: 'Số cái cam kết trung bình **mỗi tháng** (peak inventory)',
+          },
+          sortOrder: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Thứ tự hiển thị (mặc định theo index mảng)',
+          },
+        },
+      },
+      RentalRequestProductLine: {
+        type: 'object',
+        description: 'Dòng hàng đã lưu — server tính volume units (U) và phân bổ thùng.',
+        properties: {
+          lineId: uuid,
+          rentalRequestId: uuid,
+          productKind: { type: 'string', example: 'T_SHIRT' },
+          size: { type: 'string', nullable: true, example: 'M' },
+          sizeGroup: { type: 'string', nullable: true },
+          quantity: { type: 'integer', example: 200 },
+          baseVolumeUnitsPerPiece: { type: 'number', example: 1 },
+          sizeFactor: { type: 'number', example: 1 },
+          finalVolumeUnitsPerPiece: { type: 'number', example: 1 },
+          lineVolumeUnits: { type: 'number', example: 200 },
+          sortOrder: { type: 'integer' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      RentalRequestBoxAllocationRow: {
+        type: 'object',
+        properties: {
+          boxType: {
+            type: 'string',
+            enum: ['SMALL', 'MEDIUM', 'LARGE', 'EXTRA'],
+          },
+          count: { type: 'integer', minimum: 0 },
+        },
+      },
       RentalRequest: {
         type: 'object',
         description:
-          'Guest chọn khu vực; `warehouseId` null cho đến khi một warehouse approve (claim).',
+          'Guest chọn khu vực; `warehouseId` null cho đến khi một warehouse approve (claim). `GET` by id luôn kèm `productLines`; list dùng `includeProductLines=true`.',
         properties: {
           rentalRequestId: uuid,
           requestCode: { type: 'string', example: 'RR-LX1A2B-0C' },
@@ -1516,6 +1722,20 @@ const spec = {
             nullable: true,
             description: 'Diện tích mong muốn (m²) — DEDICATED_WAREHOUSE / DEDICATED_ZONE',
           },
+          totalCommittedVolumeUnits: {
+            type: 'number',
+            nullable: true,
+            description: 'Tổng U từ productLines (server tính)',
+          },
+          boxAllocation: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestBoxAllocationRow' },
+            description: 'Phân bổ số thùng theo loại (từ tổng U)',
+          },
+          productLines: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestProductLine' },
+          },
           averageStorageDays: { type: 'integer', nullable: true },
           estimatedInboundPerWeek: { type: 'integer', nullable: true },
           estimatedOutboundPerWeek: { type: 'integer', nullable: true },
@@ -1549,7 +1769,9 @@ const spec = {
       RentalRequestCreate: {
         type: 'object',
         description:
-          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve. Required fields: `tenantId`, `city`, `district`. `createdBy` được server tự gán: có token thì lấy `userId`, guest thì `null`.',
+          'Guest onboarding bước 2. Tạo tenant trước (`POST /tenants`). **Không gửi `warehouseId`** — kho được gán khi WH approve. Required: `tenantId`, `city`, `district`.\n\n' +
+          '**Quy mô hàng hóa**: gửi `productLines[]` (loại + size + quantity/tháng) **hoặc** `requestedAreaM2` > 0 **hoặc** các ước tính legacy (`estimatedVolume`, `estimatedBoxCount`, …) — cần ít nhất một nguồn capacity.\n\n' +
+          '`createdBy`: có Bearer token thì lấy `userId`, guest thì `null`.',
         required: ['tenantId', 'city', 'district'],
         properties: {
           tenantId: uuid,
@@ -1572,13 +1794,18 @@ const spec = {
             type: 'string',
             enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
           },
+          productLines: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestProductLineInput' },
+            description: 'Hàng theo loại + size — UI "Quy mô hàng hóa"',
+          },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
           estimatedVolume: { type: 'number', minimum: 0 },
           requestedAreaM2: {
             type: 'number',
             minimum: 0,
-            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone',
+            description: 'Diện tích mong muốn (m²) — thuê nguyên kho / zone (thay cho productLines)',
           },
           averageStorageDays: { type: 'integer', minimum: 0 },
           estimatedInboundPerWeek: { type: 'integer', minimum: 0 },
@@ -1601,6 +1828,23 @@ const spec = {
             enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CONVERTED'],
             default: 'PENDING',
           },
+        },
+        example: {
+          tenantId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          city: 'TP.HCM',
+          district: 'Quận 7',
+          contractType: 'SHARED_STORAGE',
+          pricingModel: 'USAGE_BASED',
+          billingCycle: 'MONTHLY',
+          expectedStartDate: '2026-06-02T00:00:00.000Z',
+          expectedEndDate: '2026-12-02T00:00:00.000Z',
+          productLines: [
+            { productKind: 'T_SHIRT', size: 'M', quantity: 200 },
+            { productKind: 'JEANS', size: 'L', quantity: 80 },
+          ],
+          requiresFastPicking: false,
+          requiresPremiumStorage: false,
+          notes: 'Brand mùa hè — cần fast-moving zone',
         },
       },
       Contract: {
@@ -2126,6 +2370,7 @@ const spec = {
           '- APPROVE + claim (first wins): `{ status: APPROVED, warehouseId, reviewedBy, reviewedAt?, reviewNote? }`\n' +
           '- REJECT: `{ status: REJECTED, reviewedBy, rejectionReason }`\n' +
           '- CONVERTED: sau khi tạo contract\n' +
+          'Cập nhật `productLines` chỉ khi `status` là `PENDING` hoặc `UNDER_REVIEW` (thay thế toàn bộ dòng).\n' +
           'Cập nhật thông tin công ty qua `PATCH /tenants/{tenantId}`.',
         properties: {
           contractType: {
@@ -2144,6 +2389,10 @@ const spec = {
           billingCycle: {
             type: 'string',
             enum: ['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY'],
+          },
+          productLines: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/RentalRequestProductLineInput' },
           },
           estimatedSkuCount: { type: 'integer', minimum: 0 },
           estimatedBoxCount: { type: 'integer', minimum: 0 },
@@ -2401,6 +2650,69 @@ const spec = {
           401: stdErrors[401],
           403: stdErrors[403],
           404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/scan/resolve': {
+      get: {
+        tags: ['Scan'],
+        summary: 'Resolve scanned Code128 value',
+        description:
+          'Mobile WH: sau khi quét Code128, gửi chuỗi đọc được (`value`).\n\n' +
+          '- Auto-detect: `INB-*` inbound, `OUT-*` outbound, `BATCH-*` batch (response kèm `lpns[]`)\n' +
+          '- Hoặc mã LPN / SKU / bin trong phạm vi `warehouseId` (WH staff lấy từ JWT)\n' +
+          '- Hoặc `NGW1|INBOUND|INB-…` / `NGW1|LPN|…` (typed)\n\n' +
+          'In tem: encode field `value` (symbology **Code 128**).',
+        parameters: [
+          {
+            in: 'query',
+            name: 'value',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Chuỗi đọc từ scanner (business code hoặc NGW1)',
+          },
+          {
+            in: 'query',
+            name: 'warehouseId',
+            schema: uuid,
+            description: 'Optional for SYSTEM_ADMIN; WH roles dùng warehouse gắn account',
+          },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/BarcodeScanResult' }),
+          400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      post: {
+        tags: ['Scan'],
+        summary: 'Resolve scanned Code128 value (POST body)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['value'],
+                properties: {
+                  value: { type: 'string' },
+                  warehouseId: uuid,
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/BarcodeScanResult' }),
+          400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
+          404: stdErrors[404],
+          409: stdErrors[409],
         },
       },
     },
@@ -3555,6 +3867,8 @@ const spec = {
       get: {
         tags: ['Inventory'],
         summary: 'List inventory records',
+        description:
+          'Roles: `SYSTEM_ADMIN` (all); `WH_ADMIN`, `WH_STAFF` — query `warehouseId`; `TENANT_ADMIN`, `TENANT_STAFF` — query `tenantId`.',
         parameters: [
           { in: 'query', name: 'tenantId', schema: uuid },
           { in: 'query', name: 'skuId', schema: uuid },
@@ -3583,6 +3897,7 @@ const spec = {
       get: {
         tags: ['Inventory'],
         summary: 'Get inventory by ID',
+        description: 'Roles: giống list — theo scope tenant/warehouse của user.',
         parameters: [{ in: 'path', name: 'inventoryId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Inventory' }),
@@ -3595,6 +3910,7 @@ const spec = {
       get: {
         tags: ['Inventory'],
         summary: 'List movements for an inventory record',
+        description: 'Roles: giống GET inventory by ID.',
         parameters: [
           { in: 'path', name: 'inventoryId', required: true, schema: uuid },
           { $ref: '#/components/parameters/page' },
@@ -4265,12 +4581,19 @@ const spec = {
           'Query filters:\n' +
           '- `warehouseId` + `regionMatch=true` — inbox kho: yêu cầu **chưa claim** cùng city/district\n' +
           '- `warehouseId` (không regionMatch) — yêu cầu **đã gán** cho kho đó\n' +
-          '- `city`, `district`, `tenantId`, `status`, `contractType`, `pricingModel`',
+          '- `city`, `district`, `tenantId`, `status`, `contractType`, `pricingModel`\n' +
+          '- `includeProductLines=true` — kèm mảng `productLines` + `boxAllocation` mỗi item',
         parameters: [
           {
             in: 'query',
             name: 'tenantId',
             schema: uuid,
+          },
+          {
+            in: 'query',
+            name: 'includeProductLines',
+            schema: { type: 'boolean', default: false },
+            description: 'Embed product lines and box allocation per rental request',
           },
           {
             in: 'query',
@@ -4325,7 +4648,10 @@ const spec = {
         tags: ['RentalRequest'],
         summary: 'Create rental request (guest — by region)',
         description:
-          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê. Public endpoint: guest không cần token; nếu có Bearer token thì server tự gán `createdBy` từ user đăng nhập.',
+          'Requires existing tenant (`POST /tenants`). Body: `tenantId`, `city`, `district` + thông tin thuê.\n\n' +
+          '**Quy mô hàng hóa**: `productLines[]` với `productKind`, `size?`, `quantity` (cái/tháng). Catalog: `GET /api/product-kinds`.\n\n' +
+          'Cần ít nhất một: `productLines`, `requestedAreaM2`, hoặc ước tính volume/box/sku.\n\n' +
+          'Public: guest không cần token; Bearer token → `createdBy` = user hiện tại.',
         security: [],
         requestBody: {
           required: true,
@@ -4437,6 +4763,7 @@ const spec = {
       get: {
         tags: ['RentalRequest'],
         summary: 'Get rental request by ID',
+        description: 'Response includes `productLines`, `boxAllocation`, `totalCommittedVolumeUnits`.',
         parameters: [
           { in: 'path', name: 'rentalRequestId', required: true, schema: uuid },
         ],

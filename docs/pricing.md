@@ -69,15 +69,13 @@ Tao recommend:
 Zone Type
 Price/m²/month
 SHARED
-120k
+120k  -> 140k
 FAST_MOVING
 220k
 PREMIUM
 300k
-QC (cân nhắc bỏ)
-180k
-BULK (cân nhắc bỏ)
-100k
+PRIVATE
+250k
 
 
 5. Rack Pricing
