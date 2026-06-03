@@ -29,8 +29,17 @@ function mapPgError(err) {
       return new AppError(formatDuplicateMessage(err), 409, 'DUPLICATE');
     case '23503':
       return new AppError('Dữ liệu liên quan không tồn tại hoặc tham chiếu không hợp lệ', 400, 'FK_VIOLATION');
-    case '22P02':
+    case '22P02': {
+      const pgMsg = String(err?.message ?? '');
+      if (/enum/i.test(pgMsg)) {
+        return new AppError(
+          'Cơ sở dữ liệu chưa cập nhật enum (ví dụ PENDING_PAYMENT). Chạy: npm run db:migrate:all hoặc migration contract_billing_termination.sql',
+          400,
+          'SCHEMA_OUTDATED'
+        );
+      }
       return new AppError('Định dạng mã định danh không hợp lệ', 400, 'INVALID_ID');
+    }
     default:
       return null;
   }

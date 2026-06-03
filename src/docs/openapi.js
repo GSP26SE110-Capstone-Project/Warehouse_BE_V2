@@ -355,6 +355,11 @@ const spec = {
       description:
         'Giữ chỗ lưu trữ (bin/zone) · Roles: `WH_ADMIN`, `SYSTEM_ADMIN` (cấp phát); tenant xem',
     },
+    {
+      name: 'Scan',
+      description:
+        'Mobile scan Code128 · Roles: `WH_ADMIN`, `WH_STAFF`, `WH_TRANSPORTER`, `SYSTEM_ADMIN`. Resolve chuỗi quét → inbound/outbound/LPN/SKU/bin/batch',
+    },
   ],
   components: {
     securitySchemes: {
@@ -363,6 +368,45 @@ const spec = {
     schemas: {
       ErrorResponse: errorResponse,
       PaginationMeta: paginationMeta,
+
+      BarcodeScanResult: {
+        type: 'object',
+        description:
+          'Kết quả quét Code128. Mobile in tem = field `value`; sau quét gọi resolve với cùng chuỗi.',
+        properties: {
+          symbology: { type: 'string', example: 'CODE128' },
+          value: {
+            type: 'string',
+            example: 'INB-M2K3F-01',
+            description: 'Nội dung mã Code128 (business code)',
+          },
+          structuredValue: {
+            type: 'string',
+            example: 'NGW1|INBOUND|INB-M2K3F-01',
+            description: 'Payload có cấu trúc (tùy chọn khi in tem)',
+          },
+          entityType: {
+            type: 'string',
+            enum: [
+              'INBOUND_REQUEST',
+              'OUTBOUND_REQUEST',
+              'LPN',
+              'SKU',
+              'BIN',
+              'BATCH',
+            ],
+          },
+          entityId: { ...uuid, nullable: true },
+          displayCode: { type: 'string', nullable: true },
+          scanFormat: { type: 'string', enum: ['BUSINESS_CODE', 'NGW1'] },
+          scannedRaw: { type: 'string' },
+          entity: {
+            type: 'object',
+            description:
+              'Bản ghi theo entityType. **BATCH**: batch + `inbound` (code, status) + `lpns[]` + `lpnCount` — batch không có status riêng; tiến độ trên từng LPN (`RECEIVING`/`STORED`/…).',
+          },
+        },
+      },
 
       Warehouse: {
         type: 'object',
@@ -2606,6 +2650,69 @@ const spec = {
           401: stdErrors[401],
           403: stdErrors[403],
           404: stdErrors[404],
+        },
+      },
+    },
+
+    '/api/scan/resolve': {
+      get: {
+        tags: ['Scan'],
+        summary: 'Resolve scanned Code128 value',
+        description:
+          'Mobile WH: sau khi quét Code128, gửi chuỗi đọc được (`value`).\n\n' +
+          '- Auto-detect: `INB-*` inbound, `OUT-*` outbound, `BATCH-*` batch (response kèm `lpns[]`)\n' +
+          '- Hoặc mã LPN / SKU / bin trong phạm vi `warehouseId` (WH staff lấy từ JWT)\n' +
+          '- Hoặc `NGW1|INBOUND|INB-…` / `NGW1|LPN|…` (typed)\n\n' +
+          'In tem: encode field `value` (symbology **Code 128**).',
+        parameters: [
+          {
+            in: 'query',
+            name: 'value',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Chuỗi đọc từ scanner (business code hoặc NGW1)',
+          },
+          {
+            in: 'query',
+            name: 'warehouseId',
+            schema: uuid,
+            description: 'Optional for SYSTEM_ADMIN; WH roles dùng warehouse gắn account',
+          },
+        ],
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/BarcodeScanResult' }),
+          400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
+          404: stdErrors[404],
+          409: stdErrors[409],
+        },
+      },
+      post: {
+        tags: ['Scan'],
+        summary: 'Resolve scanned Code128 value (POST body)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['value'],
+                properties: {
+                  value: { type: 'string' },
+                  warehouseId: uuid,
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope({ $ref: '#/components/schemas/BarcodeScanResult' }),
+          400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
+          404: stdErrors[404],
+          409: stdErrors[409],
         },
       },
     },
