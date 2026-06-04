@@ -47,6 +47,12 @@ router.post(
   asyncHandler(contractController.createPayOSPayment)
 );
 router.post(
+  '/:contractId/invoices/:invoiceId/payos/sync',
+  authenticate,
+  authorize('TENANT_ADMIN', 'WH_ADMIN', 'SYSTEM_ADMIN'),
+  asyncHandler(contractController.syncPayOSPayment)
+);
+router.post(
   '/:contractId/invoices/:invoiceId/mark-paid',
   authenticate,
   authorize('TENANT_ADMIN', 'WH_ADMIN', 'SYSTEM_ADMIN'),

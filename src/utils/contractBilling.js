@@ -1,18 +1,19 @@
 import { DAYS_PER_BILLING_MONTH } from '../constants/rentalPricingDefaults.js';
+import {
+  contractBillingDays,
+  contractBillingMonths,
+  prorateToBillingMonth,
+} from './rentalPeriodPricing.js';
+
+export { contractBillingDays, contractBillingMonths };
 
 export function contractMonthCount(startDate, endDate) {
-  if (!startDate || !endDate) return 12;
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 12;
-  const diffDays = Math.ceil((end.getTime() - start.getTime()) / 86400000);
-  if (diffDays <= 0) return 1;
-  return Math.max(1, Math.floor(diffDays / DAYS_PER_BILLING_MONTH));
+  return contractBillingMonths(startDate, endDate);
 }
 
 export function deriveMonthlyRent(contract) {
   const total = Number(contract.estimatedTotalAmount) || 0;
-  const months = contractMonthCount(contract.startDate, contract.endDate);
+  const months = contractBillingMonths(contract.startDate, contract.endDate);
   if (months <= 0) return Math.round(total);
   return Math.round(total / months);
 }

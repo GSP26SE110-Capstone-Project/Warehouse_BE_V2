@@ -68,7 +68,7 @@ async function retirePendingPayOSPayment(paymentRow, orderCode) {
   });
 }
 
-/** Bỏ payment PENDING nếu link PayOS đã CANCELLED/EXPIRED/PAID — cho phép tạo order mới. */
+/** Bỏ payment PENDING nếu link PayOS đã CANCELLED/EXPIRED — cho phép tạo order mới. PAID → hoàn tất thanh toán. */
 async function refreshPendingPaymentAfterPayOSTerminal(pending) {
   if (!pending?.payosOrderCode) {
     return { paymentRow: null, orderCode: null };
@@ -77,6 +77,11 @@ async function refreshPendingPaymentAfterPayOSTerminal(pending) {
   const orderCode = Number(pending.payosOrderCode);
   try {
     const info = await getPayOSLinkInfo(orderCode);
+    if (info?.status === 'PAID') {
+      await completePaymentByPayOSOrderCode(orderCode);
+      const paymentRow = await Payment.findById(pending.paymentId);
+      return { paymentRow, orderCode, payosCompleted: true };
+    }
     if (!PAYOS_TERMINAL_STATUSES.has(info?.status)) {
       return { paymentRow: pending, orderCode };
     }
@@ -307,6 +312,60 @@ export async function completePaymentByPayOSOrderCode(orderCode) {
 
   const result = await markInvoicePaid(invoice.contractId, invoice.invoiceId);
   return { payment, ...result };
+}
+
+/**
+ * Đồng bộ trạng thái từ PayOS (trang return / webhook trễ).
+ * Nếu PayOS báo PAID → mark invoice + ACTIVE như webhook.
+ */
+export async function syncInvoicePaymentFromPayOS(contractId, invoiceId) {
+  if (!isPayOSConfigured()) {
+    throw new AppError('PayOS chưa cấu hình trên server', 503, 'PAYOS_NOT_CONFIGURED');
+  }
+
+  const cId = parseUuid(contractId, 'contractId');
+  const iId = parseUuid(invoiceId, 'invoiceId');
+  await getContract(cId);
+  const invoice = await Invoice.findById(iId);
+
+  if (!invoice || invoice.contractId !== cId) {
+    throw new AppError('Invoice not found for this contract', 404, 'NOT_FOUND');
+  }
+  if (invoice.paymentStatus === 'PAID') {
+    const contract = await getContract(cId);
+    return { synced: true, alreadyPaid: true, invoice, contract };
+  }
+
+  const payments = await Payment.findAll({ invoiceId: iId }, { orderBy: 'created_at DESC', limit: 5 });
+  const payment =
+    payments.find((p) => p.paymentStatus === 'PENDING' && p.payosOrderCode) ??
+    payments.find((p) => p.payosOrderCode);
+
+  if (!payment?.payosOrderCode) {
+    throw new AppError(
+      'Không tìm thấy đơn PayOS cho invoice này — tạo link thanh toán trước',
+      404,
+      'NOT_FOUND'
+    );
+  }
+
+  const orderCode = Number(payment.payosOrderCode);
+  const info = await getPayOSLinkInfo(orderCode);
+
+  if (info?.status === 'PAID') {
+    const result = await completePaymentByPayOSOrderCode(orderCode);
+    return { synced: true, payosStatus: 'PAID', orderCode, ...result };
+  }
+
+  return {
+    synced: false,
+    payosStatus: info?.status ?? 'UNKNOWN',
+    orderCode,
+    message:
+      info?.status === 'PENDING'
+        ? 'PayOS chưa ghi nhận thanh toán — chờ vài giây hoặc kiểm tra webhook'
+        : `PayOS: trạng thái ${info?.status ?? 'UNKNOWN'}`,
+  };
 }
 
 export async function handlePayOSWebhook(payload) {

@@ -180,11 +180,17 @@ export async function attachProductLinesToRentalRequest(item, client) {
   if (!item?.rentalRequestId) return item;
 
   const productLines = await listProductLinesForRentalRequest(item.rentalRequestId, client);
-  const boxAllocation = Array.isArray(item.boxAllocationJson)
-    ? item.boxAllocationJson
-    : item.boxAllocationJson != null
-      ? item.boxAllocationJson
-      : [];
+  let boxAllocation = [];
+  if (Array.isArray(item.boxAllocationJson)) {
+    boxAllocation = item.boxAllocationJson;
+  } else if (typeof item.boxAllocationJson === 'string') {
+    try {
+      const parsed = JSON.parse(item.boxAllocationJson);
+      boxAllocation = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      boxAllocation = [];
+    }
+  }
 
   return {
     ...item,
@@ -202,6 +208,17 @@ export async function enrichRentalRequestsWithProductLines(items, client) {
   return items.map((item) => ({
     ...item,
     productLines: grouped.get(item.rentalRequestId) ?? [],
-    boxAllocation: Array.isArray(item.boxAllocationJson) ? item.boxAllocationJson : [],
+    boxAllocation: (() => {
+      if (Array.isArray(item.boxAllocationJson)) return item.boxAllocationJson;
+      if (typeof item.boxAllocationJson === 'string') {
+        try {
+          const parsed = JSON.parse(item.boxAllocationJson);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    })(),
   }));
 }
