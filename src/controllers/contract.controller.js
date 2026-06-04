@@ -80,6 +80,15 @@ export async function createPayOSPayment(req, res) {
   success(res, link);
 }
 
+/** Sau khi PayOS redirect — hỏi PayOS và kích hoạt HĐ nếu đã PAID (webhook trễ / dev không ngrok). */
+export async function syncPayOSPayment(req, res) {
+  const result = await payosPaymentService.syncInvoicePaymentFromPayOS(
+    req.params.contractId,
+    req.params.invoiceId
+  );
+  success(res, result);
+}
+
 export async function previewTermination(req, res) {
   const preview = await contractTerminationService.previewTermination(req.params.contractId);
   success(res, preview);
