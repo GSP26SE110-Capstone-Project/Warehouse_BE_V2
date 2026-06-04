@@ -658,6 +658,35 @@ Tenant khai báo **SKU + số lượng** (không chọn LPN/batch lúc tạo —
 - Kiểm tra tồn: khi thêm/sửa dòng và khi WH chuyển `APPROVED` → `400` + `INSUFFICIENT_INVENTORY` nếu vượt `available_quantity`. Cộng dồn `requestedQuantity` trên **mọi** phiếu xuất đang mở (cùng tenant + kho + SKU), không chỉ phiếu hiện tại.
 - `GET /outbound-requests/:id?includeItems=true` — trả kèm `items[]`.
 
+### Ví dụ flow Outbound (Flow 4)
+
+```http
+# Tiền điều kiện: HĐ ACTIVE, inbound COMPLETED, có tồn
+GET /api/inventories?tenantId=...&warehouseId=...
+
+# 1. Tenant tạo phiếu xuất (+ dòng SKU)
+POST /api/outbound-requests
+    { "tenantId": "...", "contractId": "...", "warehouseId": "...",
+      "status": "PENDING",
+      "items": [{ "skuId": "...", "requestedQuantity": 50 }] }
+
+# 2. WH duyệt → reserve FIFO + picking task (phiếu → RESERVED)
+PATCH /api/outbound-requests/{outboundRequestId}
+    { "status": "APPROVED" }
+
+# 3. Xem lệnh pick
+GET /api/outbound-requests/{outboundRequestId}/picking-tasks
+
+# 4. WH pick → pack → ship
+PATCH /api/outbound-requests/{outboundRequestId}   { "status": "PICKING" }
+PATCH /api/outbound-requests/{outboundRequestId}   { "status": "PACKING" }
+PATCH /api/outbound-requests/{outboundRequestId}   { "status": "SHIPPED" }
+
+# 5. (tuỳ chọn) Đóng phiếu / shipment
+PATCH /api/outbound-requests/{outboundRequestId}   { "status": "COMPLETED" }
+POST /api/shipments   { "outboundRequestId": "...", "carrierName": "...", ... }
+```
+
 ---
 
 ## 10. Batch
@@ -910,57 +939,89 @@ Hoặc dùng `GET /lpns/:lpnId/details` để lấy một lần LPN + toàn bộ
 
 ---
 
-## Ví dụ flow Inbound (SKU → LPN)
+## Ví dụ flow Inbound request (Flow 3)
 
 ```http
-# 0. Seed / list category & season (nếu chưa chạy seed)
-npm run seed:product-master
-GET /api/categories
-GET /api/seasons
-npm run seed:collections
-GET /api/collections?tenantId=...
-
-# 0b. Tenant tạo inbound (contract ACTIVE)
-POST /api/inbound-requests
-    { "tenantId": "...", "contractId": "...", "warehouseId": "...",
-      "expectedArrivalDate": "2026-05-25T08:00:00.000Z" }
-PATCH /api/inbound-requests/{id}
-    { "status": "APPROVED", "approvedBy": "..." }
-
-# 1. Tenant khai báo SKU master
+# Tiền điều kiện: HĐ ACTIVE + SKU
 POST /api/skus
     { "tenantId": "...", "skuCode": "SKU-001", "productName": "..." }
 
-# 2. Sau receiving — tạo batch, rồi tạo LPN
+# 1–2. Tenant tạo phiếu + dòng SKU
+POST /api/inbound-requests
+    { "tenantId": "...", "contractId": "...", "warehouseId": "...",
+      "deliveryMode": "TENANT_SELF",
+      "expectedArrivalDate": "2026-05-25T08:00:00.000Z",
+      "status": "PENDING" }
+POST /api/inbound-requests/{inboundRequestId}/items
+    { "skuId": "...", "expectedQuantity": 100 }
+
+# 3–4. WH duyệt → hàng tới
+GET  /api/inbound-requests/{inboundRequestId}/approval-readiness
+PATCH /api/inbound-requests/{inboundRequestId}
+    { "status": "APPROVED" }
+PUT  /api/inbound-requests/{inboundRequestId}/delivery
+    { "vehiclePlate": "51A-12345", "driverName": "..." }
+PATCH /api/inbound-requests/{inboundRequestId}
+    { "status": "ARRIVED", "actualArrivalAt": "2026-05-25T09:15:00.000Z" }
+
+# (WAREHOUSE_TRANSPORT: tenant PUT pickup → WH PUT assignedDriverUserId
+#  → WH_TRANSPORTER POST …/report-arrival thay PATCH ARRIVED)
+
+# 5–6. Nhận hàng
+POST /api/inbound-requests/{inboundRequestId}/start-receiving
+POST /api/inbound-requests/{inboundRequestId}/complete-receiving
+    { "items": [{ "inboundRequestItemId": "...", "receivedQuantity": 98 }] }
+
+# 7–8. Batch + LPN
 POST /api/batches
     { "inboundRequestId": "...", "batchCode": "BATCH-001" }
-
 POST /api/lpns
     { "tenantId": "...", "batchId": "...", "lpnCode": "LPN-001",
-      "boxType": "MEDIUM", "volumeUnits": 2 }
-
-# 3. Đóng hàng vào LPN (mỗi SKU một request)
+      "boxType": "MEDIUM", "volumeUnits": 2, "weightKg": 12 }
 POST /api/lpn-details
     { "lpnId": "...", "skuId": "...", "quantity": 24 }
 
-# Xem SKU trong thùng
-GET /api/lpns/{lpnId}/details
-GET /api/lpn-details?lpnId={lpnId}
-
-# 3b. AI gợi ý bin putaway (rule engine + Ollama giải thích)
-GET  /api/ai/slot-recommendations/ollama/health
+# 9. Putaway (Flow 5) + hoàn tất
 POST /api/ai/slot-recommendations/preview
-    { "lpnId": "...", "warehouseId": "...", "explainWithLlm": true }
-POST /api/ai/slot-recommendations
-    { "lpnId": "...", "warehouseId": "..." }
-GET  /api/ai/slot-recommendations/{recommendationId}/explain
-GET  /api/ai/slot-recommendations?lpnId=...
-PATCH /api/ai/slot-recommendations/{recommendationId}
-    { "isApplied": true }
+    { "lpnId": "...", "warehouseId": "...", "inboundRequestId": "..." }
+POST /api/lpns/{lpnId}/putaway
+    { "binId": "...", "recommendationId": "..." }
+POST /api/inbound-requests/{inboundRequestId}/complete
+```
 
-# 4. Putaway — gán bin
-PATCH /api/lpns/{lpnId}
-    { "currentBinId": "...", "status": "STORED" }
+---
+
+## Ví dụ flow AI slot recommendation (Flow 5)
+
+```http
+# Tiền điều kiện: LPN RECEIVING + lpn-details (sau receiving Flow 3)
+GET /api/lpns/{lpnId}/details
+
+# 1. (tuỳ chọn) Health LLM
+GET /api/ai/slot-recommendations/gemini/health
+
+# 2. (tuỳ chọn) Rack type theo weightKg
+GET /api/lpns/{lpnId}/rack-suggestion?warehouseId=...
+
+# 3. Preview bin đề xuất (không lưu DB)
+POST /api/ai/slot-recommendations/preview
+    { "lpnId": "...", "warehouseId": "...", "inboundRequestId": "..." }
+
+# 4. Giải thích tiếng Việt (LLM — không đổi bin)
+POST /api/ai/slot-recommendations/explain
+    { "llmProvider": "ollama", "recommendationId": "..." }
+# hoặc: { "llmProvider": "gemini", "lpnId": "...", "warehouseId": "..." }
+
+# 5. Lưu gợi ý
+POST /api/ai/slot-recommendations
+    { "lpnId": "...", "warehouseId": "...", "inboundRequestId": "..." }
+
+# 6. Putaway vào bin (tự isApplied nếu bin = AI gợi ý)
+POST /api/lpns/{lpnId}/putaway
+    { "binId": "...", "recommendationId": "..." }
+
+# 7. Lịch sử
+GET /api/ai/slot-recommendations?lpnId=...&inboundRequestId=...
 ```
 
 ---
@@ -1386,6 +1447,10 @@ GET /api/warehouses/{warehouseId}/rental-requests?status=PENDING
 PATCH /api/rental-requests/{rentalRequestId}
     { "status": "APPROVED", "warehouseId": "...", "reviewedBy": "..." }
 
+# 3b. Tạo TENANT_ADMIN (welcome email)
+POST /api/users
+    { "role": "TENANT_ADMIN", "tenantId": "...", "email": "...", ... }
+
 # 4. Tạo contract gắn rental_request_id
 POST /api/contracts
     { "tenantId": "...", "warehouseId": "...",
@@ -1396,18 +1461,26 @@ POST /api/contract-items
     { "contractId": "...", "itemType": "STORAGE",
       "billingUnit": "BIN_DAY", "unitPrice": 12000, ... }
 
-# 6. Ký HĐ → ACTIVE
-PATCH /api/contracts/{contractId}
-    { "tenantSignature": "...", "warehouseSignature": "...",
-      "approvedBy": "...", "status": "ACTIVE" }
-
-# 7. Assign storage reservation theo storage_level
+# 6. Cấp storage (ACTIVE) — trước khi tenant ký
 POST /api/storage-reservations
     { "contractId": "...", "reservationType": "RESERVED",
       "storageLevel": "BIN", "warehouseId": "...", "binId": "...",
-      "startDate": "...", "endDate": "..." }
+      "startDate": "...", "endDate": "...", "status": "ACTIVE" }
 
-# 8. Activate tenant + đóng rental request
+# 7. Kho ký trước
+PATCH /api/contracts/{contractId}
+    { "warehouseSignature": "...", "status": "PENDING_APPROVAL" }
+
+# 8. Tenant ký → PENDING_PAYMENT + invoice INITIAL
+PATCH /api/contracts/{contractId}
+    { "tenantSignature": "..." }
+
+# 9. Thanh toán invoice đầu → ACTIVE
+GET  /api/contracts/{contractId}/invoices
+POST /api/contracts/{contractId}/invoices/{invoiceId}/payos/create-link
+# Dev: POST …/invoices/{invoiceId}/mark-paid
+
+# 10. Activate tenant + đóng rental request
 PATCH /api/tenants/{tenantId}            { "status": "ACTIVE" }
 PATCH /api/rental-requests/{rentalRequestId}   { "status": "CONVERTED" }
 ```

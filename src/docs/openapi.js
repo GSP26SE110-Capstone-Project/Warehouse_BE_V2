@@ -199,21 +199,82 @@ const spec = {
       '- `TENANT_ADMIN`, `TENANT_STAFF`: nghiệp vụ tenant\n' +
       '- Endpoint public (guest) sẽ ghi rõ `security: []` trong Swagger\n\n' +
       '### Flow 1 — Tenant onboarding\n' +
-      '1. `POST /tenants` — guest tạo tenant company\n' +
-      '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không chọn kho)\n' +
-      '3. `GET /rental-requests/guest/lookup?code=RR-…&email=…` — guest tra cứu (mã + email liên hệ)\n' +
-      '4. WH inbox: `GET /warehouses/{warehouseId}/rental-requests?status=PENDING`\n' +
-      '5. Approve + claim: `PATCH /rental-requests/{id}` với `status=APPROVED` + `warehouseId` (kho nhanh nhất thắng)\n' +
-      '6. `POST /contracts` → contract-items → storage-reservations\n\n' +
+      '**Guest (public)**\n' +
+      '1. `POST /tenants` — tạo tenant company (`contactEmail` dùng tra cứu sau)\n' +
+      '2. `POST /rental-requests` — `tenantId` + `city` + `district` (không `warehouseId`)\n' +
+      '3. *(tuỳ chọn)* `GET /rental-requests/guest/lookup?code=RR-…&email=…` — tra cứu trạng thái\n\n' +
+      '**WH_ADMIN** (Bearer)\n' +
+      '4. `GET /warehouses/{warehouseId}/rental-requests?status=PENDING` — inbox cùng khu vực\n' +
+      '5. `PATCH /rental-requests/{id}` — `status=APPROVED` + `warehouseId` (claim; kho nhanh nhất thắng)\n' +
+      '6. `POST /users` — tạo `TENANT_ADMIN` gắn `tenantId` (welcome email)\n' +
+      '7. `POST /contracts` — `tenantId`, `warehouseId`, `rentalRequestId` → thường `DRAFT` (có seed `contract-items`)\n' +
+      '8. `POST /storage-reservations` — cấp bin/zone… `status=ACTIVE` *(bắt buộc trước khi tenant ký)*\n' +
+      '9. `PATCH /contracts/{contractId}` — kho ký trước: `warehouseSignature` + `status=PENDING_APPROVAL`\n\n' +
+      '**TENANT_ADMIN — ký & thanh toán → ACTIVE**\n' +
+      '10. `POST /auth/login` — đăng nhập\n' +
+      '11. `PATCH /contracts/{contractId}` — `{ tenantSignature }` → HĐ `PENDING_PAYMENT` + invoice **INITIAL** (kho phải đã ký + có storage ACTIVE)\n' +
+      '12. `GET /contracts/{contractId}/invoices` — xem invoice đầu\n' +
+      '13. `POST /contracts/{contractId}/invoices/{invoiceId}/payos/create-link` — PayOS → webhook ghi nhận đã trả\n' +
+      '    - Dev/test: `POST …/invoices/{invoiceId}/mark-paid` (không qua PayOS)\n' +
+      '14. Sau thanh toán INITIAL → HĐ **`ACTIVE`** (không set `status=ACTIVE` tay nếu invoice chưa PAID)\n\n' +
+      '**Đóng onboarding (WH_ADMIN)**\n' +
+      '15. `PATCH /tenants/{tenantId}` `{ status: ACTIVE }`\n' +
+      '16. `PATCH /rental-requests/{id}` `{ status: CONVERTED }`\n\n' +
+      'Trạng thái HĐ: `DRAFT` → `PENDING_APPROVAL` → `PENDING_PAYMENT` → **`ACTIVE`** → tenant tạo inbound được.\n\n' +
       '### Flow 2 — Warehouse structure\n' +
       'Warehouse → Zone → Rack → Rack Level → Bin\n\n' +
-      '### Flow 3 — Inbound (SKU / LPN)\n' +
-      'Category, Season, Collection, Inbound request, Batch, SKU, LPN, LPN detail, AI slot recommendation\n\n' +
-      '### Flow 7 — Outbound (xuất kho)\n' +
-      '- `POST/GET/PATCH /outbound-requests` — phiếu xuất + workflow status (`APPROVED` → reserve → `RESERVED` → `PICKING` → `PACKING` → `SHIPPED` trừ tồn)\n' +
-      '- `GET/POST …/outbound-requests/{id}/items` — dòng SKU\n' +
-      '- `GET …/outbound-requests/{id}/picking-tasks` — task pick + LPN/bin/batch\n' +
-      '- `/outbound-request-items` — CRUD dòng (query `outboundRequestId`)\n\n' +
+      '### Flow 3 — Inbound request (nhập kho)\n' +
+      '**Tiền điều kiện:** HĐ **`ACTIVE`** (Flow 1); SKU master (`POST /skus`, catalog category/season/collection).\n\n' +
+      '**TENANT_ADMIN / TENANT_STAFF**\n' +
+      '1. `POST /inbound-requests` — `tenantId`, `contractId`, `warehouseId`, `deliveryMode` (`TENANT_SELF` mặc định | `WAREHOUSE_TRANSPORT`), `expectedArrivalDate`\n' +
+      '2. `POST /inbound-requests/{id}/items` — dòng SKU (`skuId`, `expectedQuantity`); `PENDING` cần ≥1 dòng\n' +
+      '3. `PATCH { "status": "PENDING" }` nếu tạo `DRAFT` · `GET …?includeItems=true` theo dõi\n' +
+      '4a. **Tự vận chuyển:** `PUT …/delivery` (xe/tài xế) → `PATCH { "status": "ARRIVED", "actualArrivalAt": "…" }`\n' +
+      '4b. **Kho vận chuyển:** `PUT …/delivery` (`pickupAddress`, liên hệ) — WH gán tài xế ở bước 6\n\n' +
+      '**WH_ADMIN / WH_STAFF**\n' +
+      '5. `GET /inbound-requests/{id}/approval-readiness` — kiểm capacity / LPN ước tính trước duyệt\n' +
+      '6. `PATCH { "status": "APPROVED" }` — duyệt (`approvedBy` từ token); kiểm trần cam kết HĐ\n' +
+      '7. *(WAREHOUSE_TRANSPORT)* `PUT …/delivery` — `assignedDriverUserId` (WH_TRANSPORTER)\n\n' +
+      '**WH_TRANSPORTER** (chỉ `WAREHOUSE_TRANSPORT`)\n' +
+      '8. `POST …/report-arrival` từ `APPROVED` → **`ARRIVED`** (+ `actualArrivalAt`)\n\n' +
+      '**WH_STAFF — receiving & putaway**\n' +
+      '9. `POST …/start-receiving` — `ARRIVED` → **`RECEIVING`**\n' +
+      '10. Ghi nhận số thực nhận: `PATCH /inbound-request-items/{id}` `receivedQuantity` hoặc `POST …/complete-receiving` + `items[]`\n' +
+      '11. `POST /batches` — `{ inboundRequestId, batchCode }` (FIFO `warehouseReceivedAt`)\n' +
+      '12. `POST /lpns` + `POST /lpn-details` — thùng `RECEIVING`, đóng SKU vào LPN\n' +
+      '13. Putaway: **Flow 5** (`POST /ai/slot-recommendations` → `POST /lpns/{id}/putaway`) hoặc `POST …/bulk-putaway` / `…/auto-putaway`\n' +
+      '14. `POST …/complete` — mọi LPN **`STORED`**, có ≥1 batch → inbound **`COMPLETED`** (mở tồn / outbound Flow 4)\n\n' +
+      '**State machine:** `DRAFT` → `PENDING` → `APPROVED` → `ARRIVED` → `RECEIVING` → **`COMPLETED`** · `CANCELLED` (tenant: trước nhận; WH: có rule khi đã duyệt)\n\n' +
+      '**Master data (cùng flow):** `GET/POST /categories`, `/seasons`, `/collections`, `/skus` · `GET /warehouses/{id}/inbound-requests`\n\n' +
+      '### Flow 4 — Outbound request (xuất kho)\n' +
+      '**Tiền điều kiện:** HĐ **`ACTIVE`** (invoice INITIAL đã PAID) hoặc `TERMINATED` (xuất hết hàng); đã có SKU + ≥1 inbound **`COMPLETED`**; tồn `available_quantity > 0` (`GET /inventories?tenantId=&warehouseId=`).\n\n' +
+      '**TENANT_ADMIN / TENANT_STAFF**\n' +
+      '1. `POST /outbound-requests` — `tenantId`, `contractId`, `warehouseId`, `items[]` (`skuId`, `requestedQuantity`); mặc định `status=PENDING` (hoặc `DRAFT` rồi gửi sau)\n' +
+      '2. *(tuỳ chọn)* `POST /outbound-requests/{id}/items` hoặc `POST /outbound-request-items` — thêm/sửa dòng khi `DRAFT`/`PENDING`\n' +
+      '3. `GET /outbound-requests` · `GET /outbound-requests/{id}?includeItems=true` — theo dõi phiếu\n' +
+      '4. Hủy (tenant): `PATCH { "status": "CANCELLED" }` chỉ khi `DRAFT`/`PENDING`\n\n' +
+      '**WH_ADMIN / WH_STAFF**\n' +
+      '5. `PATCH /outbound-requests/{id}` `{ "status": "APPROVED" }` từ `PENDING` → duyệt + **reserve FIFO** + tạo picking task → phiếu **`RESERVED`** (một bước, không dừng ở `APPROVED`)\n' +
+      '   - Recovery: nếu kẹt `APPROVED`: `PATCH { "status": "RESERVED" }`\n' +
+      '6. `GET /outbound-requests/{id}/picking-tasks` — xem task + dòng pick (LPN, bin, batch, `quantityToPick`)\n' +
+      '7. `PATCH { "status": "PICKING" }` — bắt đầu pick (mobile/scan: `POST /scan/resolve` với mã `OUT-…`)\n' +
+      '8. `PATCH { "status": "PACKING" }` — xác nhận đã pick đủ (`picked_quantity` = `quantity_to_pick`)\n' +
+      '9. `PATCH { "status": "SHIPPED" }` — trừ tồn + `inventory_movements` type `OUTBOUND`, gán `actualShippedAt`\n' +
+      '10. *(tuỳ chọn)* `PATCH { "status": "COMPLETED" }` từ `SHIPPED` · `POST/GET /shipments` — vận chuyển/đóng phiếu\n' +
+      '11. Hủy (WH): `CANCELLED` trước `SHIPPED` — giải phóng reserve nếu đã `RESERVED`+\n\n' +
+      '**State machine:** `DRAFT` → `PENDING` → (`APPROVED` nội bộ) → **`RESERVED`** → `PICKING` → `PACKING` → **`SHIPPED`** → `COMPLETED` · `CANCELLED`\n\n' +
+      '### Flow 5 — AI slot recommendation (putaway)\n' +
+      '**Tiền điều kiện (sau Flow 3 receiving):** LPN `RECEIVING`, có `POST /lpn-details`, `warehouseId` inbound; nên có `weightKg` (rack-suggestion). **Rule engine** chọn bin (`slotting-v1-rule`); **LLM** (Gemini/Ollama) chỉ **giải thích** — không đổi bin.\n\n' +
+      '**WH_ADMIN / WH_STAFF**\n' +
+      '1. *(tuỳ chọn)* `GET /ai/slot-recommendations/ollama/health` · `GET …/gemini/health` — kiểm LLM trước explain\n' +
+      '2. *(tuỳ chọn)* `GET /lpns/{lpnId}/rack-suggestion?warehouseId=` — gợi ý `rackType` theo cân nặng (STANDARD / HIGH_CAPACITY)\n' +
+      '3. `POST /ai/slot-recommendations/preview` — `{ lpnId, warehouseId, inboundRequestId? }` → top bin + `alternatives[]` + `score`/`reasons` (**không lưu DB**, không LLM)\n' +
+      '4. *(tuỳ chọn)* `POST /ai/slot-recommendations/explain` — `{ llmProvider: "gemini"|"ollama", … }` giải thích tiếng Việt (từ preview, `recommendationId`, hoặc `lpnId`+`warehouseId`)\n' +
+      '5. `POST /ai/slot-recommendations` — lưu bản ghi `ai_slot_recommendations` (`isApplied=false`)\n' +
+      '6. `POST /lpns/{lpnId}/putaway` — `{ binId, recommendationId? }` → tồn + movement `PUTAWAY`; tự `isApplied=true` nếu bin = AI gợi ý\n' +
+      '7. `PATCH /ai/slot-recommendations/{id}` `{ "isApplied": true }` — đánh dấu tay nếu staff chọn bin khác\n' +
+      '8. `GET /ai/slot-recommendations?lpnId=&inboundRequestId=&isApplied=` — lịch sử / audit\n\n' +
+      '**Lưu ý:** Không gửi `explainWithLlm` trên preview/create (→ `400 USE_EXPLAIN_ENDPOINT`). AI **không** allocate outbound (Flow 4 dùng FIFO). Putaway hàng loạt theo HĐ: `POST /inbound-requests/{id}/auto-putaway` (rule reservation, khác AI scoring).\n\n' +
       '### Authentication\n' +
       '- `POST /api/auth/login` — public\n' +
       '- `POST /api/auth/forgot-password` + `/verify` — public (OTP flow)\n' +
@@ -288,42 +349,42 @@ const spec = {
     {
       name: 'SKU',
       description:
-        'Mã SKU tenant · Roles: `TENANT_ADMIN`, `TENANT_STAFF` (CRUD tenant mình); `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF` (xem). Bearer khuyến nghị',
+        'Mã SKU tenant (Flow 3 tiền điều kiện) · Tạo trước inbound items. Roles: `TENANT_ADMIN`, `TENANT_STAFF` (CRUD); WH/System xem.',
     },
     {
       name: 'InboundRequest',
       description:
-        'Yêu cầu nhập kho (Flow 4) · Roles: tạo/sửa: `TENANT_ADMIN`, `TENANT_STAFF`; duyệt/nhận/putaway: `WH_ADMIN`, `WH_STAFF`; `WH_TRANSPORTER` (delivery/arrival riêng); `SYSTEM_ADMIN` (all)',
+        'Yêu cầu nhập kho (Flow 3) · Tenant tạo + dòng SKU; WH duyệt/receive/complete; transporter `report-arrival`. Putaway → Flow 5. Xem **Flow 3** đầu API docs.',
     },
     {
       name: 'InboundRequestItem',
       description:
-        'Dòng SKU trên inbound · Roles: tenant (tạo request); `WH_STAFF` (ghi receivedQuantity khi RECEIVING). Bearer khuyến nghị',
+        'Dòng SKU inbound (Flow 3 bước 2, 10) · `expectedQuantity` / `receivedQuantity`; thêm khi `DRAFT`/`PENDING`; đếm khi `RECEIVING`.',
     },
     {
       name: 'Inventory',
       description:
-        'Tồn kho (SKU + batch + LPN + bin) · Roles: xem — `SYSTEM_ADMIN` (all); `WH_ADMIN`, `WH_STAFF` (lọc `warehouseId`); `TENANT_ADMIN`, `TENANT_STAFF` (lọc `tenantId`). GET only',
+        'Tồn kho (SKU + batch + LPN + bin) · Flow 4 tiền điều kiện: `available_quantity > 0`. Roles: xem — `SYSTEM_ADMIN` (all); `WH_ADMIN`, `WH_STAFF` (`warehouseId`); `TENANT_ADMIN`, `TENANT_STAFF` (`tenantId`). GET only',
     },
     {
       name: 'OutboundRequest',
       description:
-        'Yêu cầu xuất kho (Flow 7) · Tenant: tạo + dòng SKU (`…/items`). WH: `PATCH` status (`APPROVED`→`RESERVED`→`PICKING`→`PACKING`→`SHIPPED`). `GET …/{id}/picking-tasks` xem lệnh pick. `approvedBy`/`createdBy` từ Bearer token.',
+        'Yêu cầu xuất kho (Flow 4) · Tenant: `POST` phiếu + dòng SKU. WH: `PATCH` workflow (`APPROVED`→`RESERVED`→`PICKING`→`PACKING`→`SHIPPED`). `GET …/picking-tasks` sau duyệt. `approvedBy`/`createdBy` từ Bearer — xem mô tả **Flow 4** đầu trang API docs.',
     },
     {
       name: 'OutboundRequestItem',
       description:
-        'Dòng SKU trên outbound (skuId + requestedQuantity) · Tenant thêm khi DRAFT/PENDING; kiểm tra tồn `INSUFFICIENT_INVENTORY`',
+        'Dòng SKU trên outbound (Flow 4 bước 2) · `skuId` + `requestedQuantity`; chỉ sửa khi phiếu `DRAFT`/`PENDING`; BE kiểm `INSUFFICIENT_INVENTORY` khi duyệt/reserve',
     },
     {
       name: 'Batch',
       description:
-        'Lô nhận hàng (inbound) · Roles: `WH_ADMIN`, `WH_STAFF` (warehouse ops). Bearer khuyến nghị',
+        'Lô nhận hàng (Flow 3 bước 11) · Gắn `inboundRequestId`; timestamp FIFO. Roles: `WH_ADMIN`, `WH_STAFF`.',
     },
     {
       name: 'LPN',
       description:
-        'Carton/pallet (LPN) · Roles: `WH_ADMIN`, `WH_STAFF` (tạo, putaway). Bearer khuyến nghị',
+        'Carton/pallet (Flow 3 + **Flow 5**) · `rack-suggestion`, `POST …/putaway`, AI slot API. Roles: `WH_ADMIN`, `WH_STAFF`.',
     },
     {
       name: 'LPNDetail',
@@ -333,7 +394,7 @@ const spec = {
     {
       name: 'AI',
       description:
-        'Gợi ý vị trí putaway (rule-based) · Roles: `WH_ADMIN`, `WH_STAFF`. Bearer khuyến nghị',
+        'Flow 5 — Gợi ý bin putaway: rule engine (`preview`/`POST`) + LLM explain (`gemini`|`ollama`). Roles: `WH_ADMIN`, `WH_STAFF`. Putaway thực tế: `POST /lpns/{id}/putaway`. Xem **Flow 5** đầu API docs.',
     },
     {
       name: 'RentalRequest',
@@ -348,7 +409,7 @@ const spec = {
     {
       name: 'Contract',
       description:
-        'Hợp đồng thuê · CRUD/ký: `WH_ADMIN`, `SYSTEM_ADMIN`; tenant: `TENANT_ADMIN`. **Chấm dứt sớm:** `GET/POST …/termination/*` (HĐ `ACTIVE`, xem `docs/contract-billing-termination.md`)',
+        'Hợp đồng thuê (Flow 1) · WH: tạo/ký trước + cấp storage; tenant: ký → `PENDING_PAYMENT`; thanh toán invoice INITIAL → `ACTIVE` (xem tag **PayOS**). **Chấm dứt sớm:** `GET/POST …/termination/*` — doc `contract-billing-termination.md`',
     },
     {
       name: 'ContractAppendix',
@@ -358,7 +419,7 @@ const spec = {
     {
       name: 'PayOS',
       description:
-        'Thanh toán invoice HĐ qua PayOS · Roles: `TENANT_ADMIN` (create-link). Webhook: PayOS server',
+        'Thanh toán invoice (Flow 1 bước 13–14) · `TENANT_ADMIN`: `POST …/invoices/{invoiceId}/payos/create-link` khi HĐ `PENDING_PAYMENT`. Webhook PayOS → `mark-paid` nội bộ → HĐ `ACTIVE`. Dev: `POST …/mark-paid`',
     },
     {
       name: 'ContractItem',
@@ -373,7 +434,7 @@ const spec = {
     {
       name: 'Scan',
       description:
-        'Mobile scan Code128 · Roles: `WH_ADMIN`, `WH_STAFF`, `WH_TRANSPORTER`, `SYSTEM_ADMIN`. Resolve chuỗi quét → inbound/outbound/LPN/SKU/bin/batch',
+        'Mobile scan Code128 (Flow 4 bước 7) · Roles: `WH_ADMIN`, `WH_STAFF`, `WH_TRANSPORTER`, `SYSTEM_ADMIN`. Resolve `OUT-*` outbound, `INB-*`, LPN, SKU, bin, batch',
     },
   ],
   components: {
@@ -858,13 +919,18 @@ const spec = {
           createdBy: { ...uuid, nullable: true },
           approvedBy: { ...uuid, nullable: true },
           receivedBy: { ...uuid, nullable: true },
+          deliveryMode: {
+            type: 'string',
+            enum: ['TENANT_SELF', 'WAREHOUSE_TRANSPORT'],
+            description: 'TENANT_SELF: tenant báo ARRIVED. WAREHOUSE_TRANSPORT: transporter report-arrival.',
+          },
           ...timestamps,
         },
       },
       InboundRequestCreate: {
         type: 'object',
         description:
-          'Required fields: `tenantId`, `contractId`, `warehouseId`. Field khác optional. Các field actor (`createdBy`, `approvedBy`, `receivedBy`) nên để server tự set.',
+          '**Flow 3 bước 1.** Required: `tenantId`, `contractId`, `warehouseId`. HĐ ACTIVE. `WH_ADMIN` không được POST. Actor fields nên để server set từ token.',
         required: ['tenantId', 'contractId', 'warehouseId'],
         example: {
           tenantId: '98cad623-9071-4f40-8f41-196940a9338d',
@@ -876,6 +942,11 @@ const spec = {
           tenantId: uuid,
           contractId: uuid,
           warehouseId: uuid,
+          deliveryMode: {
+            type: 'string',
+            enum: ['TENANT_SELF', 'WAREHOUSE_TRANSPORT'],
+            default: 'TENANT_SELF',
+          },
           expectedArrivalDate: { type: 'string', format: 'date-time' },
           actualArrivalAt: { type: 'string', format: 'date-time' },
           status: {
@@ -898,7 +969,13 @@ const spec = {
       },
       InboundRequestUpdate: {
         type: 'object',
+        description:
+          'Flow 3 — `status` workflow; `deliveryMode`; dates. `WAREHOUSE_TRANSPORT`: không PATCH `ARRIVED` (dùng `POST …/report-arrival`).',
         properties: {
+          deliveryMode: {
+            type: 'string',
+            enum: ['TENANT_SELF', 'WAREHOUSE_TRANSPORT'],
+          },
           expectedArrivalDate: {
             type: 'string',
             format: 'date-time',
@@ -1354,10 +1431,14 @@ const spec = {
       AiSlotRecommendationCreate: {
         type: 'object',
         required: ['lpnId', 'warehouseId'],
+        description: 'Flow 5 — dùng cho `POST …/preview` và `POST …/slot-recommendations`.',
         properties: {
           lpnId: uuid,
           warehouseId: uuid,
-          inboundRequestId: uuid,
+          inboundRequestId: {
+            ...uuid,
+            description: 'Optional — gắn audit với inbound; phải cùng tenant với LPN',
+          },
         },
       },
       AiSlotExplainRequest: {
@@ -3161,6 +3242,7 @@ const spec = {
       get: {
         tags: ['Warehouse', 'InboundRequest'],
         summary: 'List inbound requests for a warehouse',
+        description: '**Flow 3** — inbox WH theo `warehouseId` + lọc `status`/`tenantId`.',
         parameters: [
           { in: 'path', name: 'warehouseId', required: true, schema: uuid },
           { in: 'query', name: 'tenantId', schema: uuid },
@@ -3979,7 +4061,7 @@ const spec = {
         tags: ['InboundRequest'],
         summary: 'List inbound requests (filter by tenant, warehouse, contract, status)',
         description:
-          'Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF`, `WH_TRANSPORTER`, `TENANT_ADMIN`, `TENANT_STAFF` (theo scope).',
+          '**Flow 3** — lọc `status`, `deliveryMode`; transporter: `assignedToMe=true`. `includeDelivery=true` khi list hỗ trợ.',
         parameters: [
           { in: 'query', name: 'tenantId', schema: uuid },
           {
@@ -4019,7 +4101,7 @@ const spec = {
         tags: ['InboundRequest'],
         summary: 'Create inbound request (contract must be ACTIVE)',
         description:
-          'Roles: tenant-side create request (`TENANT_ADMIN`, `TENANT_STAFF`). `WH_ADMIN` bị chặn tạo. Chỉ cần gửi field bắt buộc; field khác optional.',
+          '**Flow 3 bước 1.** `TENANT_ADMIN`, `TENANT_STAFF` only (`WH_ADMIN` → 403). HĐ ACTIVE. `deliveryMode` default `TENANT_SELF`.',
         requestBody: {
           required: true,
           content: {
@@ -4057,6 +4139,7 @@ const spec = {
       post: {
         tags: ['InboundRequest', 'InboundRequestItem'],
         summary: 'Add SKU line to inbound request',
+        description: '**Flow 3 bước 2** — khi inbound `DRAFT`/`PENDING`.',
         parameters: [
           { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
         ],
@@ -4083,6 +4166,7 @@ const spec = {
       post: {
         tags: ['InboundRequest'],
         summary: 'Start receiving (ARRIVED → RECEIVING)',
+        description: '**Flow 3 bước 9.** Body tuỳ chọn `receivedBy`.',
         parameters: [
           { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
         ],
@@ -4108,7 +4192,7 @@ const spec = {
         tags: ['InboundRequest'],
         summary: 'Record received quantities (QC / count)',
         description:
-          'Send items[] with receivedQuantity, or PATCH each item first then call with empty body.',
+          '**Flow 3 bước 10.** `items[]` + `receivedQuantity`, hoặc PATCH từng dòng rồi POST body rỗng. Inbound vẫn `RECEIVING`.',
         parameters: [
           { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
         ],
@@ -4133,6 +4217,8 @@ const spec = {
       post: {
         tags: ['InboundRequest'],
         summary: 'Complete inbound (all LPNs must be STORED)',
+        description:
+          '**Flow 3 bước 14.** Cần ≥1 batch, ≥1 LPN, mọi LPN `STORED`. `RECEIVING` → `COMPLETED`.',
         parameters: [
           { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
         ],
@@ -4171,6 +4257,7 @@ const spec = {
       post: {
         tags: ['InboundRequestItem'],
         summary: 'Create inbound request item',
+        description: '**Flow 3 bước 2** — body có `inboundRequestId`.',
         requestBody: {
           required: true,
           content: {
@@ -4206,6 +4293,7 @@ const spec = {
       patch: {
         tags: ['InboundRequestItem'],
         summary: 'Update inbound request item (e.g. receivedQuantity)',
+        description: '**Flow 3 bước 10** — ghi `receivedQuantity` khi inbound `RECEIVING`.',
         parameters: [
           { in: 'path', name: 'inboundRequestItemId', required: true, schema: uuid },
         ],
@@ -4247,7 +4335,7 @@ const spec = {
         tags: ['Inventory'],
         summary: 'List inventory records',
         description:
-          'Roles: `SYSTEM_ADMIN` (all); `WH_ADMIN`, `WH_STAFF` — query `warehouseId`; `TENANT_ADMIN`, `TENANT_STAFF` — query `tenantId`.',
+          'Flow 4 tiền điều kiện — kiểm `available_quantity` trước `POST /outbound-requests`. Roles: `SYSTEM_ADMIN` (all); WH — `warehouseId`; tenant — `tenantId`.',
         parameters: [
           { in: 'query', name: 'tenantId', schema: uuid },
           { in: 'query', name: 'skuId', schema: uuid },
@@ -4306,6 +4394,7 @@ const spec = {
       get: {
         tags: ['InboundRequest'],
         summary: 'Get inbound request by ID',
+        description: 'Flow 3 — `includeItems=true` · `includeDelivery=true` (xe, tài xế, pickup).',
         parameters: [
           { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
           {
@@ -4313,6 +4402,12 @@ const spec = {
             name: 'includeItems',
             schema: { type: 'boolean' },
             description: 'If true, embed items[] with SKU info',
+          },
+          {
+            in: 'query',
+            name: 'includeDelivery',
+            schema: { type: 'boolean' },
+            description: 'If true, embed delivery record (vehicle, driver, pickup)',
           },
         ],
         responses: {
@@ -4324,6 +4419,8 @@ const spec = {
       patch: {
         tags: ['InboundRequest'],
         summary: 'Update inbound request (status, arrival dates, approvers)',
+        description:
+          '**Flow 3 bước 3–4a, 6.** Ví dụ: `{ "status": "PENDING" }`, `{ "status": "APPROVED" }`, `{ "status": "ARRIVED", "actualArrivalAt": "…" }` (chỉ `TENANT_SELF`). `CANCELLED` theo rule.',
         parameters: [
           { in: 'path', name: 'inboundRequestId', required: true, schema: uuid },
         ],
@@ -4332,6 +4429,15 @@ const spec = {
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/InboundRequestUpdate' },
+              examples: {
+                submit: { summary: 'Flow 3 bước 3 — gửi duyệt', value: { status: 'PENDING' } },
+                approve: { summary: 'Flow 3 bước 6 — WH duyệt', value: { status: 'APPROVED' } },
+                arrivedSelf: {
+                  summary: 'Flow 3 bước 4a — tenant tự vận chuyển',
+                  value: { status: 'ARRIVED', actualArrivalAt: '2026-06-15T09:00:00.000Z' },
+                },
+                cancel: { summary: 'Hủy phiếu', value: { status: 'CANCELLED' } },
+              },
             },
           },
         },
@@ -4405,7 +4511,7 @@ const spec = {
         operationId: 'createOutboundRequest',
         summary: 'Create outbound request',
         description:
-          'Roles: tenant-side (`TENANT_ADMIN`, `TENANT_STAFF`). HĐ `ACTIVE` (invoice INITIAL PAID) hoặc `TERMINATED`. **Bắt buộc:** ≥1 inbound `COMPLETED` trên HĐ + tồn `available_quantity > 0` tại kho (`OUTBOUND_NO_COMPLETED_INBOUND` / `OUTBOUND_NO_INVENTORY`). Gửi kèm `items[]` hoặc thêm sau. `PENDING` cần ≥1 dòng.',
+          '**Flow 4 bước 1.** Roles: `TENANT_ADMIN`, `TENANT_STAFF`. HĐ `ACTIVE` (invoice INITIAL PAID) hoặc `TERMINATED`. ≥1 inbound `COMPLETED` + tồn khả dụng (`OUTBOUND_NO_COMPLETED_INBOUND` / `OUTBOUND_NO_INVENTORY`). Gửi `items[]` hoặc thêm sau (bước 2). `PENDING` cần ≥1 dòng.',
         security: bearerSecurity,
         requestBody: {
           required: true,
@@ -4432,7 +4538,7 @@ const spec = {
         operationId: 'listOutboundPickingTasks',
         summary: 'List picking tasks for an outbound request',
         description:
-          'Sau `PATCH` status `APPROVED` (phiếu chuyển `RESERVED`), server tạo picking task + dòng pick (inventory, LPN, bin, batch). Roles: `WH_ADMIN`, `WH_STAFF`, `SYSTEM_ADMIN`, tenant đọc phiếu của mình.',
+          '**Flow 4 bước 6.** Sau duyệt (`PATCH` `APPROVED` → phiếu `RESERVED`): picking task + dòng pick (FIFO: inventory, LPN, bin, batch). Roles: WH + tenant đọc phiếu của mình.',
         security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
@@ -4482,6 +4588,7 @@ const spec = {
         tags: ['OutboundRequest', 'OutboundRequestItem'],
         operationId: 'createOutboundRequestItemByOutbound',
         summary: 'Add SKU line to outbound request',
+        description: '**Flow 4 bước 2** — chỉ khi phiếu `DRAFT`/`PENDING`.',
         security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
@@ -4533,7 +4640,7 @@ const spec = {
         operationId: 'updateOutboundRequest',
         summary: 'Update outbound request (status workflow, ship dates)',
         description:
-          'WH workflow (Bearer): `APPROVED` từ `PENDING` → duyệt + reserve + picking task → **`RESERVED`** (không dừng ở APPROVED). Nếu kẹt `APPROVED`: `PATCH` `{ "status": "RESERVED" }`. Tiếp: `PICKING` → `PACKING` → `SHIPPED`.',
+          '**Flow 4 bước 4–5, 7–10, 11.** Tenant: `CANCELLED` (`DRAFT`/`PENDING`). WH: `APPROVED` (bước 5, `PENDING`→`RESERVED`+pick task) · `RESERVED` (recovery) · `PICKING` (7) · `PACKING` (8) · `SHIPPED` (9, trừ tồn) · `COMPLETED` (10). Có thể sửa `requestedShipDate`/`actualShippedAt` khi chưa ship.',
         security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
@@ -4545,12 +4652,20 @@ const spec = {
               schema: { $ref: '#/components/schemas/OutboundRequestUpdate' },
               examples: {
                 approve: {
-                  summary: 'WH duyệt (→ RESERVED + picking task)',
+                  summary: 'Flow 4 bước 5 — duyệt (→ RESERVED + picking task)',
                   value: { status: 'APPROVED' },
                 },
-                picking: { summary: 'Bắt đầu pick', value: { status: 'PICKING' } },
-                packing: { summary: 'Hoàn tất pick', value: { status: 'PACKING' } },
-                shipped: { summary: 'Xuất kho / trừ tồn', value: { status: 'SHIPPED' } },
+                picking: { summary: 'Flow 4 bước 7 — bắt đầu pick', value: { status: 'PICKING' } },
+                packing: { summary: 'Flow 4 bước 8 — hoàn tất pick', value: { status: 'PACKING' } },
+                shipped: { summary: 'Flow 4 bước 9 — xuất kho / trừ tồn', value: { status: 'SHIPPED' } },
+                completed: {
+                  summary: 'Flow 4 bước 10 — đóng phiếu sau giao',
+                  value: { status: 'COMPLETED' },
+                },
+                cancelTenant: {
+                  summary: 'Flow 4 bước 4 — tenant hủy',
+                  value: { status: 'CANCELLED' },
+                },
               },
             },
           },
@@ -4605,6 +4720,8 @@ const spec = {
         tags: ['OutboundRequestItem'],
         operationId: 'createOutboundRequestItem',
         summary: 'Create outbound request item',
+        description:
+          '**Flow 4 bước 2** — body có `outboundRequestId`. Chỉ khi phiếu `DRAFT`/`PENDING`.',
         security: bearerSecurity,
         requestBody: {
           required: true,
@@ -4705,6 +4822,7 @@ const spec = {
       post: {
         tags: ['Batch'],
         summary: 'Create batch',
+        description: '**Flow 3 bước 11** — sau khi đếm hàng (`RECEIVING`). `inboundRequestId` + `batchCode`.',
         requestBody: {
           required: true,
           content: {
@@ -4795,7 +4913,7 @@ const spec = {
         tags: ['LPN'],
         summary: 'Create LPN (carton after receiving)',
         description:
-          'Requires batch from inbound receiving. Set `weightKg` for rack-suggestion. Migration: `npm run db:migrate:lpn-weight`.',
+          '**Flow 3 bước 12** — `batchId` từ bước 11, status `RECEIVING`. `weightKg` cho rack-suggestion (Flow 5).',
         requestBody: {
           required: true,
           content: {
@@ -4817,7 +4935,7 @@ const spec = {
         tags: ['AI'],
         summary: 'Check Ollama connection and model availability',
         description:
-          'Default Ollama URL http://127.0.0.1:11434, model llama3.2:3b (OLLAMA_BASE_URL, OLLAMA_MODEL).',
+          '**Flow 5 bước 1** (tuỳ chọn). Default http://127.0.0.1:11434, model `llama3.2:3b` (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`). Explain: `llmProvider=ollama`.',
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/OllamaHealth' }),
         },
@@ -4827,7 +4945,8 @@ const spec = {
       get: {
         tags: ['AI'],
         summary: 'Check Gemini API key and model availability',
-        description: 'Requires GEMINI_API_KEY. Model default gemini-2.0-flash.',
+        description:
+          '**Flow 5 bước 1** (tuỳ chọn). Cần `GEMINI_API_KEY`. Model mặc định `gemini-2.0-flash`. Explain: `llmProvider=gemini`.',
         responses: {
           200: successEnvelope({
             type: 'object',
@@ -4846,7 +4965,7 @@ const spec = {
         tags: ['AI'],
         summary: 'Explain slot recommendation (Gemini or Ollama only)',
         description:
-          'Separate from preview. llmProvider required. Use recommendationId, or lpnId+warehouseId, or slot object from preview.',
+          '**Flow 5 bước 4.** Tách khỏi preview/create. `llmProvider` bắt buộc (`gemini`|`ollama`). Nguồn: `recommendationId` · `lpnId`+`warehouseId` · object `slot` từ preview. `503` nếu provider down — preview/rule vẫn chạy độc lập.',
         requestBody: {
           required: true,
           content: {
@@ -4869,6 +4988,8 @@ const spec = {
       post: {
         tags: ['AI'],
         summary: 'Preview putaway slot recommendation (rule engine only, no LLM)',
+        description:
+          '**Flow 5 bước 3.** Body: `lpnId`, `warehouseId`, `inboundRequestId?`. Trả top bin + `alternatives` + `reasons`/`featureSnapshot`. Không lưu DB. Không dùng `explainWithLlm` — gọi `POST …/explain`.',
         requestBody: {
           required: true,
           content: {
@@ -4892,7 +5013,7 @@ const spec = {
         tags: ['AI'],
         summary: 'Create and persist top putaway slot recommendation',
         description:
-          'Rule engine scores bins by free capacity, tenant reservation, same-SKU zone, rack type. Stores row in ai_slot_recommendations.',
+          '**Flow 5 bước 5.** Rule engine (`freeCapacity`, tenant reservation, same-SKU cluster, rack type) → lưu `ai_slot_recommendations`. Tiếp: putaway bước 6.',
         requestBody: {
           required: true,
           content: {
@@ -4913,6 +5034,7 @@ const spec = {
       get: {
         tags: ['AI'],
         summary: 'List AI slot recommendations',
+        description: '**Flow 5 bước 8** — lọc `lpnId`, `inboundRequestId`, `isApplied`.',
         parameters: [
           { in: 'query', name: 'lpnId', schema: uuid },
           { in: 'query', name: 'inboundRequestId', schema: uuid },
@@ -4931,7 +5053,7 @@ const spec = {
         tags: ['AI'],
         summary: 'Explain saved recommendation (Gemini or Ollama)',
         description:
-          'Query llmProvider=gemini or ollama (required). Prefer POST /explain for new integrations.',
+          '**Flow 5 bước 4** (đã lưu). Query `llmProvider=gemini|ollama` (bắt buộc). Khuyến nghị `POST /explain` cho tích hợp mới.',
         parameters: [
           { in: 'path', name: 'recommendationId', required: true, schema: uuid },
           {
@@ -4956,6 +5078,7 @@ const spec = {
       get: {
         tags: ['AI'],
         summary: 'Get AI slot recommendation by ID',
+        description: 'Flow 5 — chi tiết bản ghi đã lưu (`parsedReason`, `alternatives` nếu có).',
         parameters: [
           { in: 'path', name: 'recommendationId', required: true, schema: uuid },
         ],
@@ -4968,6 +5091,8 @@ const spec = {
       patch: {
         tags: ['AI'],
         summary: 'Update recommendation (e.g. mark applied after putaway)',
+        description:
+          '**Flow 5 bước 7** — `{ "isApplied": true|false }`. Putaway bước 6 cũng tự cập nhật khi `recommendationId` + bin khớp gợi ý.',
         parameters: [
           { in: 'path', name: 'recommendationId', required: true, schema: uuid },
         ],
@@ -4991,11 +5116,10 @@ const spec = {
     },
     '/api/lpns/{lpnId}/putaway': {
       post: {
-        tags: ['LPN', 'Inventory'],
+        tags: ['LPN', 'Inventory', 'AI'],
         summary: 'Putaway LPN to bin (creates inventory + PUTAWAY movement)',
         description:
-          'Transaction: inventories, inventory_movements (PUTAWAY), LPN → STORED, bin occupancy. ' +
-          'Prefer this over PATCH currentBinId for inbound flow.',
+          '**Flow 5 bước 6** (kết Flow 3). LPN `RECEIVING`, có `lpn-details`. Body: `binId`, `recommendationId?` → inventory + movement `PUTAWAY`, LPN `STORED`; đánh dấu AI `isApplied` nếu bin trùng gợi ý. Ưu tiên hơn `PATCH` `currentBinId`.',
         parameters: [{ in: 'path', name: 'lpnId', required: true, schema: uuid }],
         requestBody: {
           required: true,
@@ -5020,8 +5144,7 @@ const spec = {
         tags: ['LPN'],
         summary: 'Suggest rack type and suitable levels from LPN weight',
         description:
-          'Uses weightKg vs threshold (default 25 kg, env LPN_HIGH_CAPACITY_WEIGHT_KG). ' +
-          'With warehouseId, returns rack levels where rack_type matches and max_weight_kg >= weight.',
+          '**Flow 5 bước 2** (bổ trợ, không thay `POST /ai/slot-recommendations`). `weightKg` vs ngưỡng 25 kg (`LPN_HIGH_CAPACITY_WEIGHT_KG`). Có `warehouseId` → `suitableRackLevels[]`.',
         parameters: [
           { in: 'path', name: 'lpnId', required: true, schema: uuid },
           { in: 'query', name: 'warehouseId', schema: uuid },
@@ -5066,7 +5189,7 @@ const spec = {
         tags: ['LPNDetail'],
         summary: 'Add SKU to LPN',
         description:
-          'One SKU per LPN (duplicate skuId → 409). Updates LPN actualQuantity and fillPercentage.',
+          '**Flow 3 bước 12** — một SKU/LPN (trùng → 409). Cập nhật `actualQuantity`/`fillPercentage` trên LPN.',
         requestBody: {
           required: true,
           content: {
@@ -5505,6 +5628,8 @@ const spec = {
       post: {
         tags: ['Contract'],
         summary: 'Create contract',
+        description:
+          'Flow 1 bước 7 — sau `PATCH /rental-requests` APPROVED. Body: `tenantId`, `warehouseId`, `rentalRequestId`, `contractType`, dates… Thường `DRAFT`. Tiếp: storage-reservation → ký WH → tenant ký → thanh toán (tag PayOS).',
         requestBody: {
           required: true,
           content: {
@@ -5535,6 +5660,8 @@ const spec = {
       patch: {
         tags: ['Contract'],
         summary: 'Update contract (incl. status, signatures)',
+        description:
+          'Flow 1: WH bước 9 (`warehouseSignature`, `PENDING_APPROVAL`); tenant bước 11 (`tenantSignature` → `PENDING_PAYMENT` + invoice INITIAL). Không chuyển `ACTIVE` bằng PATCH nếu invoice INITIAL chưa PAID — dùng PayOS / `mark-paid`.',
         parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
         requestBody: {
           required: true,
@@ -6011,6 +6138,8 @@ const spec = {
       get: {
         tags: ['PayOS'],
         summary: 'List invoices of contract',
+        description:
+          'Flow 1 bước 12 — sau tenant ký (`PENDING_PAYMENT`). Lấy `invoiceId` của invoice category **INITIAL** (`paymentStatus=PENDING`) để gọi `payos/create-link`.',
         security: bearerSecurity,
         parameters: [{ in: 'path', name: 'contractId', required: true, schema: uuid }],
         responses: {
@@ -6028,7 +6157,7 @@ const spec = {
         tags: ['PayOS'],
         summary: 'Create PayOS checkout link (test thanh toán trên Swagger)',
         description:
-          'HĐ `PENDING_PAYMENT`, invoice INITIAL `PENDING`. Response `checkoutUrl` — mở tab thanh toán. Gọi lại endpoint trả cùng link nếu đơn PayOS đã tồn tại (`reusedExistingLink: true`). Sau khi trả, webhook → HĐ `ACTIVE`.',
+          '**Flow 1 bước 13.** HĐ `PENDING_PAYMENT`, invoice INITIAL `PENDING`. Response `checkoutUrl` — mở tab thanh toán. Gọi lại endpoint trả cùng link nếu đơn PayOS đã tồn tại (`reusedExistingLink: true`). **Flow 1 bước 14:** sau khi trả, webhook PayOS → HĐ **`ACTIVE`** (tenant mới tạo inbound được).',
         security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'contractId', required: true, schema: uuid },
@@ -6060,8 +6189,8 @@ const spec = {
         tags: ['PayOS'],
         summary: 'Mark invoice paid manually (dev / không qua PayOS)',
         description:
-          'Bỏ qua PayOS:\n' +
-          '- `INITIAL` → HĐ `PENDING_PAYMENT` → `ACTIVE`\n' +
+          '**Flow 1 bước 14 (dev/test)** — bỏ qua PayOS:\n' +
+          '- `INITIAL` → HĐ `PENDING_PAYMENT` → **`ACTIVE`**\n' +
           '- `APPENDIX_INITIAL` → phụ lục `PENDING_PAYMENT` → `ACTIVE`',
         security: bearerSecurity,
         parameters: [
@@ -6555,6 +6684,8 @@ const spec = {
       get: {
         tags: ['InboundRequest'],
         summary: 'Check inbound approval readiness',
+        description:
+          '**Flow 3 bước 5** — ước tính LPN/capacity, zone HĐ, free bins trước khi WH `APPROVED`.',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400], 404: stdErrors[404] },
@@ -6564,6 +6695,7 @@ const spec = {
       get: {
         tags: ['InboundRequest'],
         summary: 'Get inbound delivery info',
+        description: 'Flow 3 bước 4 — thông tin xe / pickup / tài xế gán.',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         responses: { 200: successEnvelope({ type: 'object' }), 404: stdErrors[404] },
@@ -6571,6 +6703,8 @@ const spec = {
       put: {
         tags: ['InboundRequest'],
         summary: 'Upsert inbound delivery info',
+        description:
+          '**Flow 3 bước 4–7.** Tenant: `pickupAddress` (WAREHOUSE_TRANSPORT). WH: `vehiclePlate`, `assignedDriverUserId`. Transporter: cập nhật xe của chuyến mình. Status inbound: `PENDING`/`APPROVED`/`ARRIVED`.',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {
@@ -6591,6 +6725,8 @@ const spec = {
       post: {
         tags: ['InboundRequest'],
         summary: 'Bulk putaway inbound items',
+        description:
+          'Flow 3 — putaway nhiều LPN (body `assignments[]`). Không dùng AI slot scoring; xem Flow 5 cho gợi ý bin.',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {
@@ -6604,6 +6740,8 @@ const spec = {
       post: {
         tags: ['InboundRequest'],
         summary: 'Auto putaway inbound items',
+        description:
+          'Flow 3 — gán bin theo reservation HĐ + zone (`zoneId` bắt buộc). Khác Flow 5 (AI score bin). Sau auto vẫn có thể dùng AI cho LPN còn lại.',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {
@@ -6617,6 +6755,8 @@ const spec = {
       post: {
         tags: ['InboundRequest'],
         summary: 'Report driver arrival at warehouse',
+        description:
+          '**Flow 3 bước 8.** `WH_TRANSPORTER` + `WAREHOUSE_TRANSPORT` + `APPROVED` → `ARRIVED`. Không dùng PATCH `ARRIVED` cho mode này.',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {
