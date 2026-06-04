@@ -1,12 +1,14 @@
 import AppError from '../utils/AppError.js';
 import { getGeminiConfig } from '../config/gemini.js';
-import { buildSlotExplanationMessages } from './aiSlotExplain.utils.js';
+import { buildSlotExplanationMessages, ensureSlotExplanation } from './aiSlotExplain.utils.js';
 
-function messagesToGeminiContents(messages) {
+function messagesToGeminiRequest(messages) {
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
   const user = messages.find((m) => m.role === 'user')?.content ?? '';
-  const combined = system ? `${system}\n\n${user}` : user;
-  return [{ role: 'user', parts: [{ text: combined }] }];
+  return {
+    ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+    contents: [{ role: 'user', parts: [{ text: user }] }],
+  };
 }
 
 /**
@@ -86,10 +88,10 @@ export async function generateGeminiContent({ messages, model: modelOverride } =
   const url = `${config.baseUrl}/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey)}`;
 
   const body = {
-    contents: messagesToGeminiContents(messages),
+    ...messagesToGeminiRequest(messages),
     generationConfig: {
-      temperature: 0.25,
-      maxOutputTokens: 512,
+      temperature: 0.35,
+      maxOutputTokens: 256,
     },
   };
 
@@ -134,7 +136,7 @@ export async function explainSlotRecommendation(context) {
   const result = await generateGeminiContent({ messages });
 
   return {
-    explanation: result.content,
+    explanation: ensureSlotExplanation(result.content, context),
     llmModel: result.model,
     llmProvider: 'gemini',
   };

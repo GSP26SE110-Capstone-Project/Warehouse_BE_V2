@@ -1,6 +1,6 @@
 import AppError from '../utils/AppError.js';
 import { getOllamaConfig } from '../config/ollama.js';
-import { buildSlotExplanationMessages } from './aiSlotExplain.utils.js';
+import { buildSlotExplanationMessages, ensureSlotExplanation } from './aiSlotExplain.utils.js';
 
 export { buildSlotExplanationMessages };
 
@@ -85,8 +85,8 @@ export async function generateChat({ messages, model: modelOverride } = {}) {
     messages,
     stream: false,
     options: {
-      temperature: 0.25,
-      num_predict: 320,
+      temperature: 0.35,
+      num_predict: 512,
     },
   };
 
@@ -138,7 +138,7 @@ export async function explainSlotRecommendation(context) {
   const config = getOllamaConfig();
 
   return {
-    explanation: result.content,
+    explanation: ensureSlotExplanation(result.content, context),
     llmModel: result.model,
     llmProvider: 'ollama',
     ollamaBaseUrl: config.baseUrl,

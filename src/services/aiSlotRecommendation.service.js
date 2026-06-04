@@ -339,7 +339,7 @@ export async function explainSlotRecommendationBody(body) {
 
   let slotPayload = body.slot ?? body;
 
-  if (body.lpnId && body.warehouseId) {
+  if (body.lpnId && body.warehouseId && !slotPayload.reasons?.length) {
     const lpn = await getLpn(body.lpnId);
     if (body.inboundRequestId) {
       await assertInboundRequestForLpn(body.inboundRequestId, lpn);
