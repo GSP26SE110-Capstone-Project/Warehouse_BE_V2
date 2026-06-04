@@ -2,12 +2,21 @@ import AppError from '../utils/AppError.js';
 import { parseUuid } from '../utils/validate.js';
 import { REFERENCE_ZONE_AREA_M2 } from '../constants/warehouseCapacity.js';
 import {
-  DAYS_PER_BILLING_MONTH,
   PREMIUM_STORAGE_SURCHARGE_RATIO,
-  SHARED_STORAGE_AVG_BOX_DAY,
   WAREHOUSE_PRICE_PER_M2_MONTH,
   ZONE_PRICE_PER_M2_MONTH,
 } from '../constants/rentalPricingDefaults.js';
+import { STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE } from '../constants/pricingDefaults.js';
+import {
+  amountAreaM2ForBillingPeriod,
+  amountBoxAllocationForBillingPeriod,
+  contractBillingDays,
+  contractBillingMonths,
+  dailyBoxRentFromAllocation,
+  parseBoxAllocationFromRental,
+  prorateToBillingMonth,
+  resolveBoxAllocationForPricing,
+} from '../utils/rentalPeriodPricing.js';
 import { assertWarehouseAccess } from '../utils/warehouseAccess.js';
 import { getWarehouseById, getWarehouseZonePlanning } from './warehouse.service.js';
 import { getRentalRequest } from './rentalRequest.service.js';
@@ -17,16 +26,6 @@ function parseArea(value) {
   if (value == null) return null;
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-function monthCountBetween(startIso, endIso) {
-  if (!startIso || !endIso) return 12;
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 12;
-  const diffDays = Math.ceil((end.getTime() - start.getTime()) / 86400000);
-  if (diffDays <= 0) return 1;
-  return Math.max(1, Math.floor(diffDays / DAYS_PER_BILLING_MONTH));
 }
 
 function zoneRateForType(zoneType, rr) {
@@ -64,7 +63,6 @@ async function resolvePricingFromZoneIds(zoneIds, whId, user, rr) {
   if (!zoneIds?.length) return null;
 
   let totalArea = 0;
-  let monthlyAmount = 0;
   const zoneLines = [];
 
   for (const rawId of zoneIds) {
@@ -80,7 +78,6 @@ async function resolvePricingFromZoneIds(zoneIds, whId, user, rr) {
     if (!area) continue;
     const rate = zoneRateForType(zone.zoneType, rr);
     totalArea += area;
-    monthlyAmount += area * rate;
     zoneLines.push({
       zoneCode: zone.zoneCode,
       zoneType: zone.zoneType,
@@ -89,7 +86,7 @@ async function resolvePricingFromZoneIds(zoneIds, whId, user, rr) {
     });
   }
 
-  if (totalArea <= 0 || monthlyAmount <= 0) {
+  if (totalArea <= 0 || !zoneLines.length) {
     throw new AppError(
       'Zone đã chọn chưa có diện tích (m²) hợp lệ để ước tính giá',
       400,
@@ -97,11 +94,38 @@ async function resolvePricingFromZoneIds(zoneIds, whId, user, rr) {
     );
   }
 
+  const monthlyAmount = zoneLines.reduce((s, line) => s + line.areaM2 * line.ratePerM2Month, 0);
+
   return {
     totalAreaM2: totalArea,
     monthlyAmount,
     unitPricePerM2Month: Math.round(monthlyAmount / totalArea),
     zoneLines,
+  };
+}
+
+function estimateBoxStoragePeriod(rr, billingDays, breakdown) {
+  const allocation = resolveBoxAllocationForPricing(rr);
+  const dailyRent = dailyBoxRentFromAllocation(allocation);
+  const periodTotal = amountBoxAllocationForBillingPeriod(allocation, billingDays);
+
+  for (const row of allocation) {
+    const unit = STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE[row.boxType];
+    breakdown.push({
+      label: `Thùng ${row.boxType}`,
+      detail: `${row.count} × ${unit.toLocaleString('vi-VN')} VND/ngày × ${billingDays} ngày`,
+    });
+  }
+  breakdown.push({
+    label: 'Tổng thuê theo thùng',
+    detail: `${dailyRent.toLocaleString('vi-VN')} VND/ngày × ${billingDays} ngày = ${periodTotal.toLocaleString('vi-VN')} VND`,
+  });
+
+  return {
+    periodTotal,
+    basisLabel: 'Thuê theo thùng — Σ (số thùng × giá/ngày theo loại) × số ngày HĐ',
+    boxAllocation: allocation,
+    dailyBoxRent: dailyRent,
   };
 }
 
@@ -121,7 +145,8 @@ export async function estimateContractPrice(
 
   const contractType = contractTypeOverride ?? rr.contractType ?? 'SHARED_STORAGE';
   const selectedZonePricing = await resolvePricingFromZoneIds(zoneIds, whId, user, rr);
-  const months = monthCountBetween(rr.expectedStartDate, rr.expectedEndDate);
+  const billingDays = contractBillingDays(rr.expectedStartDate, rr.expectedEndDate);
+  const billingMonths = contractBillingMonths(rr.expectedStartDate, rr.expectedEndDate);
   const requestedArea = parseArea(rr.requestedAreaM2);
 
   let warehouse = null;
@@ -132,10 +157,12 @@ export async function estimateContractPrice(
   }
 
   const breakdown = [];
-  let monthlyAmount = 0;
+  let periodTotal = 0;
   let areaM2Used = null;
   let unitPricePerM2Month = null;
   let basisLabel = '';
+  let boxAllocation = null;
+  let dailyBoxRent = null;
 
   switch (contractType) {
     case 'DEDICATED_WAREHOUSE': {
@@ -152,11 +179,15 @@ export async function estimateContractPrice(
           'ESTIMATE_NO_AREA'
         );
       }
-      monthlyAmount = areaM2Used * unitPricePerM2Month;
-      basisLabel = 'Diện tích kho × đơn giá m²/tháng';
+      periodTotal = amountAreaM2ForBillingPeriod(
+        areaM2Used,
+        unitPricePerM2Month,
+        billingMonths
+      );
+      basisLabel = 'Thuê nguyên kho — m² × đơn giá m²/tháng × số tháng HĐ';
       breakdown.push({
         label: 'Thuê nguyên kho',
-        detail: `${areaM2Used} m² × ${unitPricePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng`,
+        detail: `${areaM2Used} m² × ${unitPricePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng × ${billingMonths} tháng`,
       });
       break;
     }
@@ -164,18 +195,24 @@ export async function estimateContractPrice(
       if (selectedZonePricing) {
         areaM2Used = selectedZonePricing.totalAreaM2;
         unitPricePerM2Month = selectedZonePricing.unitPricePerM2Month;
-        monthlyAmount = selectedZonePricing.monthlyAmount;
-        basisLabel = 'Tổng diện tích zone đã chọn × đơn giá m²/tháng (theo từng loại zone)';
-        breakdown.push({
-          label: 'Thuê zone đã chọn',
-          detail: `${areaM2Used} m² (${selectedZonePricing.zoneLines.length} zone) · TB ~${unitPricePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng`,
-        });
+        periodTotal = 0;
         for (const line of selectedZonePricing.zoneLines) {
+          const lineAmount = amountAreaM2ForBillingPeriod(
+            line.areaM2,
+            line.ratePerM2Month,
+            billingMonths
+          );
+          periodTotal += lineAmount;
           breakdown.push({
             label: line.zoneCode,
-            detail: `${line.areaM2} m² (${line.zoneType}) × ${line.ratePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng`,
+            detail: `${line.areaM2} m² (${line.zoneType}) × ${line.ratePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng × ${billingMonths} tháng`,
           });
         }
+        basisLabel = 'Thuê nguyên zone — từng zone: m² × đơn giá theo loại zone × số tháng HĐ';
+        breakdown.unshift({
+          label: 'Thuê zone đã chọn',
+          detail: `${areaM2Used} m² · ${selectedZonePricing.zoneLines.length} zone · ${billingMonths} tháng`,
+        });
       } else {
         const zoneRate = resolveZoneRate(rr);
         areaM2Used =
@@ -183,19 +220,12 @@ export async function estimateContractPrice(
           parseArea(planning?.suggestedAreaPerZoneForEvenSplit) ??
           REFERENCE_ZONE_AREA_M2;
         unitPricePerM2Month = zoneRate;
-        monthlyAmount = areaM2Used * zoneRate;
-        basisLabel = 'Diện tích tham chiếu × đơn giá m²/tháng (chưa chọn zone cụ thể)';
+        periodTotal = amountAreaM2ForBillingPeriod(areaM2Used, zoneRate, billingMonths);
+        basisLabel = 'Thuê nguyên zone (ước tính) — m² × đơn giá zone × số tháng HĐ';
         breakdown.push({
           label: 'Thuê nguyên zone (ước tính)',
-          detail: `${areaM2Used} m² × ${zoneRate.toLocaleString('vi-VN')} VND/m²/tháng`,
+          detail: `${areaM2Used} m² × ${zoneRate.toLocaleString('vi-VN')} VND/m²/tháng × ${billingMonths} tháng`,
         });
-        if (planning?.suggestedAreaPerZoneForEvenSplit && !requestedArea) {
-          breakdown.push({
-            label: 'Ghi chú',
-            detail:
-              'Diện tích tham chiếu từ phần còn lại của kho — chọn zone ở bước duyệt/cấp chỗ để tính đúng diện tích zone thực tế.',
-          });
-        }
         if (rr.suggestedZoneType) {
           breakdown.push({ label: 'Loại zone tham chiếu', detail: rr.suggestedZoneType });
         }
@@ -203,32 +233,33 @@ export async function estimateContractPrice(
       break;
     }
     case 'RESERVED_STORAGE': {
-      const boxes = Number(rr.estimatedBoxCount) || 0;
-      if (requestedArea) {
+      const hasBoxSource =
+        parseBoxAllocationFromRental(rr).length > 0 || Number(rr.estimatedBoxCount) > 0;
+      if (hasBoxSource) {
+        const boxEstimate = estimateBoxStoragePeriod(rr, billingDays, breakdown);
+        periodTotal = boxEstimate.periodTotal;
+        basisLabel = boxEstimate.basisLabel;
+        boxAllocation = boxEstimate.boxAllocation;
+        dailyBoxRent = boxEstimate.dailyBoxRent;
+      } else if (requestedArea) {
         areaM2Used = requestedArea;
         unitPricePerM2Month = ZONE_PRICE_PER_M2_MONTH.SHARED;
-        monthlyAmount = areaM2Used * unitPricePerM2Month;
-        basisLabel = 'Diện tích giữ chỗ × đơn giá m²/tháng (SHARED)';
+        periodTotal = amountAreaM2ForBillingPeriod(
+          areaM2Used,
+          unitPricePerM2Month,
+          billingMonths
+        );
+        basisLabel = 'Giữ chỗ theo diện tích — m² × giá SHARED × số tháng HĐ';
         breakdown.push({
           label: 'Giữ chỗ theo diện tích',
-          detail: `${areaM2Used} m² × ${unitPricePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng`,
-        });
-      } else if (boxes > 0) {
-        monthlyAmount = boxes * SHARED_STORAGE_AVG_BOX_DAY * DAYS_PER_BILLING_MONTH;
-        basisLabel = 'Số thùng giữ × giá box/day × 30 ngày';
-        breakdown.push({
-          label: 'Giữ chỗ theo thùng',
-          detail: `${boxes} thùng × ${SHARED_STORAGE_AVG_BOX_DAY.toLocaleString('vi-VN')} VND/ngày × ${DAYS_PER_BILLING_MONTH} ngày`,
+          detail: `${areaM2Used} m² × ${unitPricePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng × ${billingMonths} tháng`,
         });
       } else {
-        areaM2Used = parseArea(planning?.remainingZoneAreaM2) ?? REFERENCE_ZONE_AREA_M2;
-        unitPricePerM2Month = ZONE_PRICE_PER_M2_MONTH.SHARED;
-        monthlyAmount = areaM2Used * unitPricePerM2Month;
-        basisLabel = 'Ước tính theo diện tích zone còn trống trong kho';
-        breakdown.push({
-          label: 'Giữ chỗ (ước tính)',
-          detail: `${areaM2Used} m² × ${unitPricePerM2Month.toLocaleString('vi-VN')} VND/m²/tháng`,
-        });
+        const boxEstimate = estimateBoxStoragePeriod(rr, billingDays, breakdown);
+        periodTotal = boxEstimate.periodTotal;
+        basisLabel = boxEstimate.basisLabel;
+        boxAllocation = boxEstimate.boxAllocation;
+        dailyBoxRent = boxEstimate.dailyBoxRent;
       }
       break;
     }
@@ -249,27 +280,37 @@ export async function estimateContractPrice(
     }
     case 'SHARED_STORAGE':
     default: {
-      const boxes = Math.max(1, Number(rr.estimatedBoxCount) || 10);
-      monthlyAmount = boxes * SHARED_STORAGE_AVG_BOX_DAY * DAYS_PER_BILLING_MONTH;
-      basisLabel = 'Mức dùng thùng × giá box/day × 30 ngày';
-      breakdown.push({
-        label: 'Kho chia sẻ (usage)',
-        detail: `~${boxes} thùng × ${SHARED_STORAGE_AVG_BOX_DAY.toLocaleString('vi-VN')} VND/ngày × ${DAYS_PER_BILLING_MONTH} ngày/tháng`,
-      });
+      const boxEstimate = estimateBoxStoragePeriod(rr, billingDays, breakdown);
+      periodTotal = boxEstimate.periodTotal;
+      basisLabel = boxEstimate.basisLabel;
+      boxAllocation = boxEstimate.boxAllocation;
+      dailyBoxRent = boxEstimate.dailyBoxRent;
       break;
     }
   }
 
-  const suggestedTotalAmount = Math.round(monthlyAmount * months);
+  const suggestedTotalAmount = Math.round(periodTotal);
+  const isBoxBased =
+    contractType === 'SHARED_STORAGE' ||
+    (contractType === 'RESERVED_STORAGE' && dailyBoxRent != null && periodTotal > 0);
+  const monthlyAmount = isBoxBased
+    ? prorateToBillingMonth(suggestedTotalAmount, billingDays)
+    : Math.round(
+        suggestedTotalAmount / Math.max(1, billingMonths)
+      );
 
   return {
     rentalRequestId: id,
     warehouseId: whId ?? null,
     contractType,
     billingCycle: rr.billingCycle ?? 'MONTHLY',
-    monthCount: months,
-    monthlyAmount: Math.round(monthlyAmount),
+    billingDays,
+    billingMonths,
+    monthCount: billingMonths,
+    monthlyAmount,
     suggestedTotalAmount,
+    dailyBoxRent,
+    boxAllocation,
     areaM2Used,
     unitPricePerM2Month,
     basisLabel,
