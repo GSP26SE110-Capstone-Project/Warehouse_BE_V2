@@ -471,7 +471,10 @@ export async function createInboundRequest(body) {
 
   await assertInboundItemsForTenant(data.tenantId, items);
   const additionalPieces = items.reduce((sum, row) => sum + row.expectedQuantity, 0);
-  await assertContractInboundWithinCommittedPieces(data.contractId, { additionalPieces });
+  await assertContractInboundWithinCommittedPieces(data.contractId, {
+    additionalPieces,
+    items,
+  });
 
   const client = await pool.connect();
   try {

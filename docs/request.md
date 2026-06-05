@@ -501,6 +501,7 @@ Tenant tạo yêu cầu nhập hàng khi đã có **hợp đồng ACTIVE** (`con
 | `createdBy` | | — | UUID user |
 | `approvedBy` | | — | UUID user |
 | `receivedBy` | | — | UUID user |
+| `items[]` | | — | Tạo kèm dòng SKU: `{ skuId, expectedQuantity }` |
 
 ```json
 {
@@ -509,9 +510,20 @@ Tenant tạo yêu cầu nhập hàng khi đã có **hợp đồng ACTIVE** (`con
   "warehouseId": "uuid-warehouse",
   "expectedArrivalDate": "2026-05-25T08:00:00.000Z",
   "status": "PENDING",
-  "createdBy": "uuid-user"
+  "createdBy": "uuid-user",
+  "items": [
+    { "skuId": "uuid-sku-polo-m", "expectedQuantity": 100 }
+  ]
 }
 ```
+
+Nếu hợp đồng có `rentalRequestId` và rental request có `productLines`, inbound bị ràng buộc theo từng dòng `productKind + size`:
+
+- SKU inbound phải khớp một dòng `rental_request_product_lines` qua `skus.product_kind` và `skus.size`.
+- Số lượng lũy kế `tồn kho hiện tại + inbound đang xử lý + inbound mới` của từng `productKind + size` không được vượt `productLines.quantity`.
+- Lỗi `SKU_NOT_IN_RENTAL_COMMITMENT`: SKU không thuộc hàng hóa đã đăng ký trong rental request.
+- Lỗi `COMMITTED_PRODUCT_LINE_EXCEEDED`: SKU đúng loại/size nhưng vượt remaining của dòng rental.
+- Lỗi `COMMITTED_QUANTITY_EXCEEDED`: tổng số cái toàn hợp đồng vượt cam kết.
 
 ### `GET /inbound-requests`
 
@@ -1297,6 +1309,38 @@ Chi tiết nghiệp vụ (MONTHLY/YEARLY, invoice đầu, phụ phí, chấm d�
 ### `GET /contracts`
 
 Query tuỳ chọn: `tenantId`, `warehouseId`, `rentalRequestId`, `status`, `contractType`, `page`, `limit`
+
+### `GET /contracts/:contractId/inbound-commitment`
+
+Trả hạn mức inbound theo rental request của hợp đồng. Dùng cho form inbound để biết SKU nào hợp lệ và còn được nhập bao nhiêu.
+
+```json
+{
+  "applies": true,
+  "contractId": "uuid-contract",
+  "rentalRequestId": "uuid-rental-request",
+  "productLines": [
+    {
+      "key": "POLO|M",
+      "productKind": "POLO",
+      "size": "M",
+      "sizeGroup": "M_L",
+      "committedPieces": 500,
+      "usedPieces": 120,
+      "remainingPieces": 380,
+      "overagePieces": 0
+    }
+  ],
+  "totals": {
+    "committedPieces": 500,
+    "usedPieces": 120,
+    "remainingPieces": 380,
+    "overagePieces": 0
+  }
+}
+```
+
+Nếu hợp đồng không gắn rental request hoặc rental không có `productLines`, `applies=false` và inbound giữ validation SKU hiện tại.
 
 ### `PATCH /contracts/:contractId`
 

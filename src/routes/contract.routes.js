@@ -40,6 +40,12 @@ router.get(
   authorize(...contractReaders),
   asyncHandler(contractController.listInvoices)
 );
+router.get(
+  '/:contractId/inbound-commitment',
+  authenticate,
+  authorize(...contractReaders),
+  asyncHandler(contractController.getInboundCommitment)
+);
 router.post(
   '/:contractId/invoices/:invoiceId/payos/create-link',
   authenticate,

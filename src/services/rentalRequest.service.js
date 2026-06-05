@@ -12,7 +12,10 @@ import {
   PRICING_MODEL,
   RENTAL_REQUEST_STATUS,
 } from '../constants/tenantOnboarding.js';
-import { getWarehouseById } from './warehouse.service.js';
+import {
+  assertWarehouseCanClaimSharedStorage,
+  getWarehouseById,
+} from './warehouse.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import { rentalRequestSchema } from '../models/RentalRequest.js';
@@ -679,6 +682,9 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
   const effectiveContractType = body.contractType ?? existing.contractType;
   if (effectiveContractType === 'DEDICATED_WAREHOUSE') {
     await assertWarehouseExclusiveForDedicatedLease(whId, existing.tenantId);
+  }
+  if (effectiveContractType === 'SHARED_STORAGE') {
+    await assertWarehouseCanClaimSharedStorage(whId);
   }
 
   const row = await RentalRequest.queryOne(

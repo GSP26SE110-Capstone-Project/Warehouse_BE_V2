@@ -1,4 +1,5 @@
 import * as contractService from '../services/contract.service.js';
+import * as contractInboundCommitmentService from '../services/contractInboundCommitment.service.js';
 import * as contractInvoiceService from '../services/contractInvoice.service.js';
 import * as contractTerminationService from '../services/contractTermination.service.js';
 import * as payosPaymentService from '../services/payosPayment.service.js';
@@ -27,6 +28,14 @@ export async function list(req, res) {
 export async function getById(req, res) {
   const contract = await contractService.getContract(req.params.contractId);
   success(res, contract);
+}
+
+export async function getInboundCommitment(req, res) {
+  const commitment =
+    await contractInboundCommitmentService.getContractInboundCommitmentDetails(
+      req.params.contractId
+    );
+  success(res, commitment);
 }
 
 export async function create(req, res) {
