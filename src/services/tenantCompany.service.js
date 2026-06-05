@@ -1,4 +1,5 @@
 import TenantCompany from '../models/TenantCompany.js';
+import User from '../models/User.js';
 import AppError from '../utils/AppError.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { TENANT_STATUS } from '../constants/tenantOnboarding.js';
@@ -92,6 +93,13 @@ function normalizeUpdatePayload(body) {
     'address',
   ]);
 
+  if (data.contactEmail != null) {
+    data.contactEmail = String(data.contactEmail).trim().toLowerCase();
+    if (!data.contactEmail) {
+      throw new AppError('contactEmail cannot be empty', 400, 'VALIDATION_ERROR');
+    }
+  }
+
   assertEnum(data.status, TENANT_STATUS, 'status');
 
   if (Object.keys(data).length === 0) {
@@ -99,6 +107,55 @@ function normalizeUpdatePayload(body) {
   }
 
   return data;
+}
+
+function normalizeContactEmail(email) {
+  return String(email ?? '').trim().toLowerCase();
+}
+
+/** contactEmail không được trùng bất kỳ users.email nào (kể cả WH_ADMIN). */
+async function assertContactEmailNotRegisteredAsUser(contactEmail) {
+  const normalized = normalizeContactEmail(contactEmail);
+  if (!normalized) return;
+
+  const existingUser = await User.queryOne(
+    `SELECT user_id FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+    [normalized]
+  );
+  if (!existingUser) return;
+
+  throw new AppError(
+    'Email liên hệ không được trùng email tài khoản đã có trên hệ thống (kể cả quản trị kho). Vui lòng dùng email công ty khác.',
+    409,
+    'GUEST_TENANT_EMAIL_USER_EXISTS'
+  );
+}
+
+/** contactEmail unique giữa các tenant (trừ tenant đang cập nhật). */
+async function assertContactEmailNotUsedByOtherTenant(contactEmail, excludeTenantId = null) {
+  const normalized = normalizeContactEmail(contactEmail);
+  if (!normalized) return;
+
+  const params = [normalized];
+  let excludeClause = '';
+  if (excludeTenantId) {
+    params.push(excludeTenantId);
+    excludeClause = ' AND tenant_id != $2';
+  }
+
+  const existingTenant = await TenantCompany.queryOne(
+    `SELECT tenant_id FROM tenant_companies
+     WHERE LOWER(TRIM(contact_email)) = $1${excludeClause}
+     LIMIT 1`,
+    params
+  );
+  if (!existingTenant) return;
+
+  throw new AppError(
+    `Email liên hệ "${normalized}" đã được dùng đăng ký trước đó. Tra cứu bằng mã RR + email hoặc gửi lại form với đúng email này để tạo yêu cầu mới.`,
+    409,
+    'GUEST_TENANT_EMAIL_EXISTS'
+  );
 }
 
 export async function getTenantCompany(tenantId) {
@@ -154,6 +211,8 @@ export async function listTenantCompanies({ status, page, limit, offset }) {
 
 export async function createTenantCompany(body) {
   const data = normalizeCreatePayload(body);
+  await assertContactEmailNotRegisteredAsUser(data.contactEmail);
+  await assertContactEmailNotUsedByOtherTenant(data.contactEmail);
   return TenantCompany.create(data);
 }
 
@@ -196,6 +255,8 @@ export async function resolveOrCreateGuestTenant(body) {
     }
   }
 
+  await assertContactEmailNotRegisteredAsUser(data.contactEmail);
+
   const tenant = await TenantCompany.create(data);
   return { ...tenant, reusedExistingProfile: false };
 }
@@ -205,6 +266,10 @@ export async function updateTenantCompany(tenantId, body) {
   await getTenantCompany(id);
 
   const data = normalizeUpdatePayload(body);
+  if (data.contactEmail != null) {
+    await assertContactEmailNotRegisteredAsUser(data.contactEmail);
+    await assertContactEmailNotUsedByOtherTenant(data.contactEmail, id);
+  }
   return TenantCompany.updateById(id, data);
 }
 

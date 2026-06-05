@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS tenant_companies (
 
 CREATE INDEX IF NOT EXISTS idx_tenant_companies_status ON tenant_companies (status);
 
+CREATE UNIQUE INDEX IF NOT EXISTS tenant_companies_contact_email_key
+  ON tenant_companies (LOWER(TRIM(contact_email)))
+  WHERE contact_email IS NOT NULL AND TRIM(contact_email) <> '';
+
 CREATE TABLE IF NOT EXISTS warehouses (
   warehouse_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   warehouse_code VARCHAR(100) NOT NULL UNIQUE,

@@ -17,6 +17,7 @@ const MIGRATION_FILES = [
   'scripts/sql/bin_max_volume_16.sql',
   'scripts/sql/rental_requests_add_estimation_fields.sql',
   'scripts/sql/rental_requests_add_tenant_id.sql',
+  'scripts/sql/tenant_companies_contact_email_unique.sql',
   'scripts/sql/add_location_fields.sql',
   'scripts/sql/locations.sql',
   'scripts/sql/rental_requests_add_requested_area_m2.sql',
