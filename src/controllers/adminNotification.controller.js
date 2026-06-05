@@ -26,6 +26,11 @@ export async function getWhContractPaymentAlerts(req, res) {
   success(res, data);
 }
 
+export async function getWhPendingAppendixAlerts(req, res) {
+  const data = await adminNotificationService.getWarehouseAdminPendingAppendixAlerts(req.user);
+  success(res, data);
+}
+
 export async function getTransporterTripAlerts(req, res) {
   const data = await adminNotificationService.getTransporterAssignedTripAlerts(req.user);
   success(res, data);

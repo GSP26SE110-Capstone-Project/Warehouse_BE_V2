@@ -56,6 +56,10 @@ export const inboundRequestSchema = {
     required: false,
     foreignKey: 'user_id',
   },
+  commitmentWarningJson: {
+    type: 'json',
+    required: false,
+  },
   createdAt: {
     type: 'datetime',
     default: 'NOW()',

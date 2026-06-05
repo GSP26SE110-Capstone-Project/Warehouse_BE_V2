@@ -501,6 +501,7 @@ Tenant tạo yêu cầu nhập hàng khi đã có **hợp đồng ACTIVE** (`con
 | `createdBy` | | — | UUID user |
 | `approvedBy` | | — | UUID user |
 | `receivedBy` | | — | UUID user |
+| `items[]` | | — | Tạo kèm dòng SKU: `{ skuId, expectedQuantity }` |
 
 ```json
 {
@@ -509,9 +510,21 @@ Tenant tạo yêu cầu nhập hàng khi đã có **hợp đồng ACTIVE** (`con
   "warehouseId": "uuid-warehouse",
   "expectedArrivalDate": "2026-05-25T08:00:00.000Z",
   "status": "PENDING",
-  "createdBy": "uuid-user"
+  "createdBy": "uuid-user",
+  "items": [
+    { "skuId": "uuid-sku-polo-m", "expectedQuantity": 100 }
+  ]
 }
 ```
+
+Nếu hợp đồng có `rentalRequestId` và rental request có `productLines`, inbound bị ràng buộc theo từng dòng `productKind + size`:
+
+- SKU inbound phải khớp một dòng `rental_request_product_lines` qua `skus.product_kind` và `skus.size`.
+- Số lượng lũy kế `tồn kho hiện tại + inbound đang xử lý + inbound mới` của từng `productKind + size` không được vượt **cam kết hiệu lực** (`quantity − written_off_pieces`).
+- Khi **tạo phiếu**: chặn nếu vượt `remainingPieces`. Khi **kiểm đếm**: cho phép thừa/thiếu so với `expectedQuantity`; khi **hoàn tất inbound** nếu tồn vượt cam kết → cảnh báo `COMMITMENT_OVERAGE` (không chặn).
+- Lỗi `SKU_NOT_IN_RENTAL_COMMITMENT`: SKU không thuộc hàng hóa đã đăng ký trong rental request.
+- Lỗi `COMMITTED_PRODUCT_LINE_EXCEEDED`: SKU đúng loại/size nhưng vượt remaining của dòng rental.
+- Lỗi `COMMITTED_QUANTITY_EXCEEDED`: tổng số cái toàn hợp đồng vượt cam kết.
 
 ### `GET /inbound-requests`
 
@@ -1297,6 +1310,64 @@ Chi tiết nghiệp vụ (MONTHLY/YEARLY, invoice đầu, phụ phí, chấm d�
 ### `GET /contracts`
 
 Query tuỳ chọn: `tenantId`, `warehouseId`, `rentalRequestId`, `status`, `contractType`, `page`, `limit`
+
+### `GET /contracts/:contractId/inbound-commitment`
+
+Trả hạn mức inbound theo rental request của hợp đồng. Dùng cho form inbound để biết SKU nào hợp lệ và còn được nhập bao nhiêu.
+
+**Công thức:** `usedPieces = tồn on-hand + in-flight (expected − received trên phiếu chưa COMPLETED)`. `remainingPieces` tính trên **cam kết hiệu lực** = `committedPieces − writtenOffPieces`.
+
+**Chênh lệch từng phiếu (expected vs received):** được phép miễn **tổng tồn lũy kế ≤ cam kết hiệu lực**. Ví dụ cam kết 500: lần 1 expected 100 nhận 110 → OK (còn 390); lần 2 expected 390 nhận 389 → còn 1 (tail).
+
+```json
+{
+  "applies": true,
+  "contractId": "uuid-contract",
+  "rentalRequestId": "uuid-rental-request",
+  "productLines": [
+    {
+      "key": "POLO|M",
+      "productKind": "POLO",
+      "size": "M",
+      "sizeGroup": "M_L",
+      "committedPieces": 500,
+      "writtenOffPieces": 0,
+      "effectiveCommittedPieces": 500,
+      "usedPieces": 120,
+      "remainingPieces": 380,
+      "overagePieces": 0,
+      "isTailRemaining": false,
+      "canCloseLine": false,
+      "tailCloseThreshold": 5
+    }
+  ],
+  "totals": {
+    "committedPieces": 500,
+    "effectiveCommittedPieces": 500,
+    "writtenOffPieces": 0,
+    "usedPieces": 120,
+    "remainingPieces": 380,
+    "overagePieces": 0
+  },
+  "warnings": []
+}
+```
+
+**Vượt cam kết khi hoàn tất inbound:** không chặn `COMPLETED`; BE ghi `commitment_warning_json` trên phiếu và trả `commitmentWarnings` (code `COMMITMENT_OVERAGE`).
+
+**Đuôi cam kết nhỏ:** khi `remainingPieces ≤ tailCloseThreshold` (tối thiểu 5 hoặc 1% cam kết), `canCloseLine=true` — **tenant admin** có thể đóng phần còn lại thay vì tạo phiếu nhập nốt.
+
+### `POST /contracts/:contractId/inbound-commitment/close-line`
+
+Role: `TENANT_ADMIN` (chỉ HĐ thuộc tenant của user), `SYSTEM_ADMIN`. Chỉ khi `canCloseLine=true`.
+
+```json
+{ "productKind": "POLO", "size": "M", "note": "Còn 1 cái — tenant không gửi nốt" }
+```
+
+Cộng `written_off_pieces` trên dòng rental tương ứng → giảm cam kết hiệu lực, không đổi `quantity` gốc.
+
+Nếu hợp đồng không gắn rental request hoặc rental không có `productLines`, `applies=false` và inbound giữ validation SKU hiện tại.
 
 ### `PATCH /contracts/:contractId`
 

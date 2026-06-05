@@ -115,7 +115,19 @@ export async function markInvoicePaid(contractId, invoiceId) {
   let appendix = null;
 
   if (activatingContract) {
-    updatedContract = await Contract.updateById(cId, { status: 'ACTIVE' });
+    const paidAtResult = await pool.query(
+      `SELECT paid_at
+       FROM payments
+       WHERE invoice_id = $1 AND payment_status = 'SUCCESS'
+       ORDER BY paid_at DESC NULLS LAST
+       LIMIT 1`,
+      [iId]
+    );
+    const activatedAt = paidAtResult.rows[0]?.paid_at ?? new Date();
+    updatedContract = await Contract.updateById(cId, {
+      status: 'ACTIVE',
+      activatedAt,
+    });
     void notifyWarehouseAdminContractPaymentReceived({
       contract: updatedContract,
       invoice: updatedInvoice,

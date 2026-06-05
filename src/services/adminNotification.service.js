@@ -382,6 +382,64 @@ export async function getTenantInboundTransportAlerts(user) {
   };
 }
 
+/** Phụ lục HĐ chờ WH Admin duyệt trong kho được gán. */
+export async function getWarehouseAdminPendingAppendixAlerts(user) {
+  if (user?.role !== 'WH_ADMIN' || !user.warehouseId) {
+    return {
+      pendingCount: 0,
+      warehouseName: null,
+      recent: [],
+    };
+  }
+
+  const warehouse = await getWarehouseById(user.warehouseId);
+  const warehouseId = user.warehouseId;
+
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS pending_count
+     FROM contract_appendices ca
+     INNER JOIN contracts c ON c.contract_id = ca.contract_id
+     WHERE c.warehouse_id = $1
+       AND ca.status IN ('PENDING', 'UNDER_REVIEW')`,
+    [warehouseId]
+  );
+
+  const recentResult = await pool.query(
+    `SELECT
+       ca.appendix_id,
+       ca.appendix_code,
+       ca.status,
+       ca.title,
+       ca.created_at,
+       c.contract_id,
+       c.contract_code,
+       tc.company_name
+     FROM contract_appendices ca
+     INNER JOIN contracts c ON c.contract_id = ca.contract_id
+     INNER JOIN tenant_companies tc ON tc.tenant_id = c.tenant_id
+     WHERE c.warehouse_id = $1
+       AND ca.status IN ('PENDING', 'UNDER_REVIEW')
+     ORDER BY ca.created_at DESC
+     LIMIT 8`,
+    [warehouseId]
+  );
+
+  return {
+    pendingCount: Number(countResult.rows[0]?.pending_count) || 0,
+    warehouseName: warehouse.warehouseName ?? null,
+    recent: recentResult.rows.map((row) => ({
+      appendixId: row.appendix_id,
+      appendixCode: row.appendix_code,
+      status: row.status,
+      title: row.title,
+      contractId: row.contract_id,
+      contractCode: row.contract_code,
+      companyName: row.company_name,
+      createdAt: row.created_at,
+    })),
+  };
+}
+
 /** WH Admin — inbound kho đi lấy đã tới cổng (chờ nhận hàng). */
 export async function getWarehouseAdminArrivedInboundAlerts(user) {
   if (user?.role !== 'WH_ADMIN' || !user.warehouseId) {

@@ -14,12 +14,11 @@ import { getLpnWithDetails } from './lpnDetail.service.js';
 import { getBatchContext } from './batch.service.js';
 import { getBin } from './bin.service.js';
 import {
-  applyBinPutawayInMemory,
   assertPutawayBinAllowed,
-  binFitsLpnVolume,
   filterBinsByContract,
   loadActiveReservationsForContract,
   loadPutawayEligibleBins,
+  planAutoPutawayAssignments,
 } from './putawayReservation.service.js';
 import {
   applyBinPutaway,
@@ -27,6 +26,7 @@ import {
   createPutawayInventoryRecords,
 } from './inventory.service.js';
 import { resolveRecommendationOnPutaway } from './aiSlotRecommendation.service.js';
+import { evaluateCommitmentAfterPutaway } from './contractInboundCommitment.service.js';
 
 function parseOptionalUserId(value, fieldName) {
   if (value == null || value === '') return undefined;
@@ -124,12 +124,26 @@ export async function completeInbound(inboundRequestId, body = {}) {
     );
   }
 
+  const evaluation = await evaluateCommitmentAfterPutaway(inbound.contractId);
+  const commitmentWarnings = evaluation.warnings ?? [];
+
   const data = { status: 'COMPLETED' };
   if (body.receivedBy != null && body.receivedBy !== '') {
     data.receivedBy = parseOptionalUserId(body.receivedBy, 'receivedBy');
   }
+  if (commitmentWarnings.length > 0) {
+    data.commitmentWarningJson = {
+      recordedAt: new Date().toISOString(),
+      inboundRequestId: id,
+      warnings: commitmentWarnings,
+    };
+  }
 
-  return InboundRequest.updateById(id, data);
+  const updated = await InboundRequest.updateById(id, data);
+  return {
+    ...updated,
+    commitmentWarnings,
+  };
 }
 
 async function listReceivingLpnsForInbound(inboundRequestId) {
@@ -183,32 +197,6 @@ async function executePutawayLpnCore(
     recommendationId,
     client,
   });
-}
-
-function planAutoPutawayAssignments(lpns, bins) {
-  const workingBins = bins.map((b) => ({ ...b }));
-  const assignments = [];
-
-  for (const lpn of lpns) {
-    const vol = lpn.volumeUnits ?? 8;
-    const bin = workingBins.find((b) => binFitsLpnVolume(b, vol));
-    if (!bin) {
-      throw new AppError(
-        `Không đủ bin trống cho LPN ${lpn.lpnCode} (cần thêm tầng/zone)`,
-        400,
-        'PUTAWAY_NO_BIN_AVAILABLE'
-      );
-    }
-    assignments.push({
-      lpnId: lpn.lpnId,
-      lpnCode: lpn.lpnCode,
-      binId: bin.binId,
-      binCode: bin.binCode,
-    });
-    applyBinPutawayInMemory(bin, vol);
-  }
-
-  return assignments;
 }
 
 export async function bulkPutawayInbound(inboundRequestId, body) {
@@ -313,13 +301,14 @@ export async function autoPutawayInbound(inboundRequestId, body) {
   let bins = await loadPutawayEligibleBins({
     warehouseId: inbound.warehouseId,
     zoneId: body.zoneId,
+    rackId: body.rackId,
     rackLevelId: body.rackLevelId,
   });
   bins = filterBinsByContract(bins, reservations);
 
   if (!bins.length) {
     throw new AppError(
-      'Không có bin trống trong phạm vi HĐ tại zone/tầng đã chọn',
+      'Không có bin còn chỗ trong phạm vi HĐ tại zone/rack/tầng đã chọn',
       400,
       'PUTAWAY_NO_BIN_AVAILABLE'
     );

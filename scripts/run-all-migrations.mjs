@@ -41,6 +41,8 @@ const MIGRATION_FILES = [
   'scripts/sql/contract_appendices.sql',
   'scripts/sql/contract_appendix_request_flow.sql',
   'scripts/sql/contract_appendix_request_flow_2.sql',
+  'scripts/sql/inbound_commitment_tail.sql',
+  'scripts/sql/contract_activated_at.sql',
 ];
 
 console.log(`Running ${MIGRATION_FILES.length} migrations...\n`);

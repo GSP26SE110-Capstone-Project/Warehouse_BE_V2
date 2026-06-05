@@ -1,8 +1,9 @@
+import pool from '../config/db.js';
 import Warehouse from '../models/Warehouse.js';
 import WarehouseZone from '../models/WarehouseZone.js';
 import AppError from '../utils/AppError.js';
 import { REFERENCE_ZONE_AREA_M2 } from '../constants/warehouseCapacity.js';
-import { WAREHOUSE_STATUS } from '../constants/warehouseStructure.js';
+import { WAREHOUSE_STATUS, ZONE_TYPE } from '../constants/warehouseStructure.js';
 import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import { warehouseSchema } from '../models/Warehouse.js';
 import { getScopedWarehouseId } from '../utils/warehouseAccess.js';
@@ -327,4 +328,171 @@ async function deleteWarehouseInternal(warehouseId) {
     throw new AppError('Warehouse not found', 404, 'NOT_FOUND');
   }
   return deleted;
+}
+
+const SHARED_POOL_ZONE_TYPES = ['SHARED'];
+
+export function deriveSharedStorageReadiness({
+  sharedZoneCount,
+  remainingZoneAreaM2,
+  hasDedicatedWarehouseLease,
+}) {
+  if (hasDedicatedWarehouseLease) return 'BLOCKED';
+  if (sharedZoneCount > 0) return 'READY';
+  if (remainingZoneAreaM2 != null && remainingZoneAreaM2 > 0) return 'CAN_PROVISION';
+  return 'BLOCKED';
+}
+
+function normalizeSuggestedZoneType(value) {
+  const t = String(value ?? '').trim().toUpperCase();
+  if (!t || t === 'PRIVATE') return null;
+  return SHARED_POOL_ZONE_TYPES.includes(t) ? t : null;
+}
+
+function mapClaimCandidateRow(row, suggestedZoneType) {
+  const sharedZoneCount = Number(row.shared_zone_count) || 0;
+  const sharedZoneAreaM2 = Number(row.shared_zone_area_m2) || 0;
+  const usedZoneAreaM2 = Number(row.used_zone_area_m2) || 0;
+  const usableAreaM2 =
+    row.usable_area_m2 != null ? Number(row.usable_area_m2) : null;
+  const remainingZoneAreaM2 =
+    usableAreaM2 != null ? Math.max(0, usableAreaM2 - usedZoneAreaM2) : null;
+  const hasDedicatedWarehouseLease = Boolean(row.has_dedicated_warehouse_lease);
+  const matchingSuggestedZoneType = suggestedZoneType
+    ? Boolean(row.matching_suggested_zone_type)
+    : false;
+  const readiness = deriveSharedStorageReadiness({
+    sharedZoneCount,
+    remainingZoneAreaM2,
+    hasDedicatedWarehouseLease,
+  });
+
+  return {
+    warehouseId: row.warehouse_id,
+    warehouseName: row.warehouse_name,
+    city: row.city,
+    district: row.district,
+    sharedZoneCount,
+    sharedZoneAreaM2,
+    remainingZoneAreaM2,
+    hasDedicatedWarehouseLease,
+    matchingSuggestedZoneType,
+    readiness,
+    eligible: readiness !== 'BLOCKED',
+  };
+}
+
+/** Regional warehouses with SHARED_STORAGE claim readiness for WH admin onboarding step 1. */
+export async function listWarehouseClaimCandidates({
+  city,
+  district,
+  contractType = 'SHARED_STORAGE',
+  suggestedZoneType,
+}) {
+  const cityName = String(city ?? '').trim();
+  const districtName = String(district ?? '').trim();
+  if (!cityName || !districtName) {
+    throw new AppError('city and district are required', 400, 'VALIDATION_ERROR');
+  }
+  if (contractType !== 'SHARED_STORAGE') {
+    throw new AppError(
+      'Only SHARED_STORAGE claim candidates are supported',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  const normalizedSuggested = normalizeSuggestedZoneType(suggestedZoneType);
+  const zoneTypePlaceholders = SHARED_POOL_ZONE_TYPES.map((_, i) => `$${i + 3}`).join(', ');
+  const params = [cityName, districtName, ...SHARED_POOL_ZONE_TYPES];
+  let suggestedMatchClause = 'FALSE AS matching_suggested_zone_type';
+  if (normalizedSuggested) {
+    params.push(normalizedSuggested);
+    suggestedMatchClause = `EXISTS (
+      SELECT 1
+      FROM warehouse_zones z3
+      WHERE z3.warehouse_id = w.warehouse_id
+        AND z3.status = 'ACTIVE'
+        AND COALESCE(z3.is_dedicated, false) = false
+        AND z3.zone_type = $${params.length}
+    ) AS matching_suggested_zone_type`;
+  }
+
+  const result = await pool.query(
+    `SELECT w.warehouse_id,
+            w.warehouse_name,
+            w.city,
+            w.district,
+            w.usable_area_m2,
+            COALESCE(pool.shared_zone_count, 0) AS shared_zone_count,
+            COALESCE(pool.shared_zone_area_m2, 0) AS shared_zone_area_m2,
+            COALESCE(zones.used_zone_area_m2, 0) AS used_zone_area_m2,
+            EXISTS (
+              SELECT 1
+              FROM contracts c
+              WHERE c.warehouse_id = w.warehouse_id
+                AND c.contract_type = 'DEDICATED_WAREHOUSE'
+                AND c.status IN ('PENDING_APPROVAL', 'ACTIVE')
+            ) AS has_dedicated_warehouse_lease,
+            ${suggestedMatchClause}
+     FROM warehouses w
+     LEFT JOIN (
+       SELECT warehouse_id, SUM(area_m2) AS used_zone_area_m2
+       FROM warehouse_zones
+       WHERE status = 'ACTIVE' AND area_m2 IS NOT NULL
+       GROUP BY warehouse_id
+     ) zones ON zones.warehouse_id = w.warehouse_id
+     LEFT JOIN (
+       SELECT warehouse_id,
+              COUNT(*)::int AS shared_zone_count,
+              COALESCE(SUM(area_m2), 0) AS shared_zone_area_m2
+       FROM warehouse_zones
+       WHERE status = 'ACTIVE'
+         AND COALESCE(is_dedicated, false) = false
+         AND zone_type IN (${zoneTypePlaceholders})
+       GROUP BY warehouse_id
+     ) pool ON pool.warehouse_id = w.warehouse_id
+     WHERE w.status = 'ACTIVE'
+       AND w.city IS NOT NULL
+       AND w.district IS NOT NULL
+       AND LOWER(TRIM(w.city)) = LOWER(TRIM($1))
+       AND LOWER(TRIM(w.district)) = LOWER(TRIM($2))
+     ORDER BY w.warehouse_name ASC`,
+    params
+  );
+
+  const items = result.rows.map((row) => mapClaimCandidateRow(row, normalizedSuggested));
+
+  return {
+    city: cityName,
+    district: districtName,
+    contractType,
+    count: items.length,
+    items,
+  };
+}
+
+export async function assertWarehouseCanClaimSharedStorage(warehouseId) {
+  const wh = await getWarehouseById(warehouseId);
+  if (!wh.city?.trim() || !wh.district?.trim()) {
+    throw new AppError(
+      'Warehouse must have city and district configured for regional rental requests',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  const result = await listWarehouseClaimCandidates({
+    city: wh.city,
+    district: wh.district,
+    contractType: 'SHARED_STORAGE',
+  });
+  const candidate = result.items.find((item) => item.warehouseId === warehouseId);
+  if (!candidate || candidate.readiness === 'BLOCKED') {
+    throw new AppError(
+      'Kho không phù hợp SHARED_STORAGE — đang thuê nguyên kho hoặc hết diện tích tạo zone chung',
+      400,
+      'WAREHOUSE_NOT_SHARED_STORAGE_READY'
+    );
+  }
 }

@@ -1,5 +1,8 @@
 import { DAYS_PER_BILLING_MONTH } from '../constants/rentalPricingDefaults.js';
-import { STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE } from '../constants/pricingDefaults.js';
+import {
+  STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE,
+  STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE,
+} from '../constants/pricingDefaults.js';
 
 /**
  * Số tháng lịch trong kỳ HĐ (vd. 4/6/2026 → 4/6/2027 = 12).
@@ -103,4 +106,22 @@ export function prorateToBillingMonth(periodTotal, billingDays) {
   const days = Number(billingDays) || DAYS_PER_BILLING_MONTH;
   if (days <= 0) return Math.round(total);
   return Math.round((total * DAYS_PER_BILLING_MONTH) / days);
+}
+
+export function monthlyBoxRentFromAllocation(allocation) {
+  let sum = 0;
+  for (const row of allocation) {
+    const unit = STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE[row.boxType];
+    if (!unit) continue;
+    sum += row.count * unit;
+  }
+  return sum;
+}
+
+/** Tiền cả kỳ SHARED_STORAGE: Σ (số thùng × giá/tháng) × số tháng HĐ. */
+export function amountBoxAllocationForMonthlyBillingPeriod(allocation, billingMonths) {
+  const monthly = monthlyBoxRentFromAllocation(allocation);
+  const months = Number(billingMonths);
+  if (monthly <= 0 || months <= 0) return 0;
+  return Math.round(monthly * months);
 }

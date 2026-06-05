@@ -110,7 +110,22 @@ Duyệt (`approve`): roles `WH_ADMIN` / `SYSTEM_ADMIN`; `reviewedBy` lấy từ 
 
 Hoàn tiền (`refundAmount` trên request) — xử lý kế toán ngoài WMS (chưa tạo invoice `TERMINATION_SETTLEMENT` tự động).
 
-## 4. Công thức tiền thuê tháng (dùng chung)
+## 4. Mốc thời gian HĐ
+
+| Khái niệm | Nguồn | Ghi chú |
+| --------- | ----- | ------- |
+| **Thời hạn thuê** (`startDate` → `endDate`) | Ngày guest/tenant chọn khi gửi yêu cầu thuê | **Không** đổi theo ngày WH duyệt (kể cả WH duyệt trễ vài ngày) |
+| **Ngày ACTIVE** (`activated_at`) | Thời điểm invoice INITIAL `PAID` | Dùng làm mốc thanh toán định kỳ hàng tháng |
+| **Kỳ thanh toán MONTHLY** | Cùng **ngày trong tháng** với `activated_at` | VD: ACTIVE ngày 6 → mỗi tháng đến hạn ngày 6 |
+
+### 4.1 Báo trước khi chấm dứt (MONTHLY)
+
+Tenant phải gửi yêu cầu chấm dứt **trước ít nhất 3 ngày** so với kỳ thanh toán tháng tiếp theo.
+
+- API `GET …/termination/preview` trả `nextBillingDate`, `latestRequestDate`, `canRequestNow`
+- API `POST …/termination/request` trả `403/400` `TERMINATION_NOTICE_TOO_LATE` nếu quá hạn
+
+## 5. Công thức tiền thuê tháng (dùng chung)
 
 ```text
 contractMonths = max(1, floor((endDate − startDate) / 30 ngày billing))
@@ -118,7 +133,7 @@ monthlyRent      = round(estimatedTotalAmount / contractMonths)
 initialInvoice   = MONTHLY ? monthlyRent : estimatedTotalAmount
 ```
 
-## 5. Thay đổi code (checklist)
+## 6. Thay đổi code (checklist)
 
 - [x] Doc này
 - [x] Migration `contract_billing_termination.sql`
@@ -226,11 +241,11 @@ npm run payos:confirm-webhook   # hoặc dán webhook thủ công trên my.payos
 
 **Sandbox / test:** Nếu PayOS bật chế độ thử nghiệm trên kênh, dùng tài khoản / số tiền theo hướng dẫn sandbox của PayOS (xem mục kênh trên my.payos.vn).
 
-## 6. Phụ lục
+## 7. Phụ lục
 
 Chi tiết: **[contract-appendix.md](./contract-appendix.md)** — mở rộng trong trần HĐ, invoice `APPENDIX_INITIAL`, chấm dứt PL riêng hoặc theo HĐ gốc.
 
-## 7. Liên kết
+## 8. Liên kết
 
 - Giá ước tính HĐ: `contractPriceEstimate.service.js`, `docs/pricing.md`
 - Ký HĐ: `contract.service.js` — kho ký trước, tenant ký sau khi có `storage_reservations` ACTIVE

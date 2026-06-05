@@ -4,6 +4,8 @@ import OutboundRequestItem from '../models/OutboundRequestItem.js';
 import PickingTask from '../models/PickingTask.js';
 import PickingTaskItem from '../models/PickingTaskItem.js';
 import InventoryMovement from '../models/InventoryMovement.js';
+import Lpn from '../models/Lpn.js';
+import { reconcileBinOccupancyFromInventories } from './inventory.service.js';
 import AppError from '../utils/AppError.js';
 import { assertOutboundStatusTransition } from '../utils/outboundStatus.js';
 import {
@@ -404,12 +406,14 @@ export async function shipOutbound(outboundRequestId, actor) {
       );
     }
 
+    const affectedBinIds = new Set();
+
     for (const row of pickItems) {
       const qty = Number(row.picked_quantity ?? row.quantity_to_pick ?? 0);
       if (qty <= 0) continue;
 
       const invResult = await client.query(
-        `SELECT quantity, reserved_quantity, available_quantity, bin_id
+        `SELECT quantity, reserved_quantity, available_quantity, bin_id, lpn_id
          FROM inventories WHERE inventory_id = $1 FOR UPDATE`,
         [row.inventory_id]
       );
@@ -437,6 +441,26 @@ export async function shipOutbound(outboundRequestId, actor) {
         [newQty, newReserved, newAvailable, newStatus, row.inventory_id]
       );
 
+      if (inv.bin_id) {
+        affectedBinIds.add(inv.bin_id);
+      }
+
+      if (newQty <= 0 && inv.lpn_id) {
+        const stillInBin = await client.query(
+          `SELECT 1 FROM inventories
+            WHERE lpn_id = $1 AND bin_id = $2 AND quantity > 0
+            LIMIT 1`,
+          [inv.lpn_id, inv.bin_id]
+        );
+        if (stillInBin.rows.length === 0) {
+          await Lpn.updateById(
+            inv.lpn_id,
+            { currentBinId: null, status: 'SHIPPED' },
+            client
+          );
+        }
+      }
+
       await InventoryMovement.create(
         {
           inventoryId: row.inventory_id,
@@ -450,6 +474,10 @@ export async function shipOutbound(outboundRequestId, actor) {
         },
         client
       );
+    }
+
+    for (const binId of affectedBinIds) {
+      await reconcileBinOccupancyFromInventories(binId, client);
     }
 
     const shippedAt = new Date();

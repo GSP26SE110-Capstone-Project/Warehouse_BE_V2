@@ -42,6 +42,13 @@ router.get(
 );
 
 router.get(
+  '/wh-pending-appendices',
+  authenticate,
+  authorize('WH_ADMIN'),
+  asyncHandler(adminNotificationController.getWhPendingAppendixAlerts)
+);
+
+router.get(
   '/transporter-trips',
   authenticate,
   authorize('WH_TRANSPORTER'),

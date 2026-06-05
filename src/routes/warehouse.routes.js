@@ -19,6 +19,11 @@ router.use(authenticate);
 router.post('/', authorize('SYSTEM_ADMIN'), asyncHandler(warehouseController.create));
 router.get('/', authorize(...warehouseReaders), asyncHandler(warehouseController.list));
 router.get(
+  '/claim-candidates',
+  authorize(...warehouseManagers),
+  asyncHandler(warehouseController.listClaimCandidates)
+);
+router.get(
   '/:warehouseId/zone-planning',
   authorize(...warehouseManagers, 'WH_STAFF'),
   asyncHandler(warehouseController.getZonePlanning)

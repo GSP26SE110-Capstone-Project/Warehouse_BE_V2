@@ -26,11 +26,15 @@ export function scoreBinCandidate({
   const sameSkuCluster = scoreSameSkuCluster(location.zoneId, zonesWithSameSku);
   const rackTypeMatch = scoreRackTypeMatch(suggestedRackType, location.rackType);
 
+  const partialConsolidation =
+    occupancy.volumeUsedRatio > 0 && occupancy.volumeUsedRatio < 1 ? 0.15 : 0;
+
   const score =
     freeCapacity * SLOT_SCORE_WEIGHTS.freeCapacity +
     tenantReservationMatch * SLOT_SCORE_WEIGHTS.tenantReservationMatch +
     sameSkuCluster * SLOT_SCORE_WEIGHTS.sameSkuCluster +
-    rackTypeMatch * SLOT_SCORE_WEIGHTS.rackTypeMatch;
+    rackTypeMatch * SLOT_SCORE_WEIGHTS.rackTypeMatch +
+    partialConsolidation;
 
   const reasons = [];
   if (freeCapacity >= 0.5) {
@@ -53,6 +57,9 @@ export function scoreBinCandidate({
   } else if (suggestedRackType && rackTypeMatch < 1) {
     reasons.push(`Rack type ${location.rackType} does not match suggested ${suggestedRackType}`);
   }
+  if (partialConsolidation > 0) {
+    reasons.push('Bin đang có hàng — ưu tiên gộp thêm LPN');
+  }
 
   return {
     score: Math.round(score * 10000) / 10000,
@@ -64,6 +71,7 @@ export function scoreBinCandidate({
       volumeUsedRatio: occupancy.volumeUsedRatio,
       remainingVolumeUnits: occupancy.remainingVolumeUnits,
       remainingLpnSlots: occupancy.remainingLpnSlots,
+      partialConsolidation,
     },
     reasons,
   };

@@ -222,6 +222,7 @@ export async function createInboundRequestItem(body, inboundRequestIdFromPath = 
 
   await assertContractInboundWithinCommittedPieces(inbound.contractId, {
     additionalPieces: data.expectedQuantity,
+    items: [{ skuId: data.skuId, expectedQuantity: data.expectedQuantity }],
   });
 
   data.discrepancyQuantity = data.expectedQuantity;
@@ -247,6 +248,21 @@ export async function updateInboundRequestItem(inboundRequestItemId, body) {
   if (data.expectedQuantity != null && data.receivedQuantity == null) {
     const received = existing.receivedQuantity ?? 0;
     data.discrepancyQuantity = computeDiscrepancy(data.expectedQuantity, received);
+  }
+
+  if (data.expectedQuantity != null) {
+    await assertSkuMatchesInboundTenant(inbound, existing.skuId);
+    await assertContractInboundWithinCommittedPieces(inbound.contractId, {
+      additionalPieces: Math.max(0, data.expectedQuantity - (existing.receivedQuantity ?? 0)),
+      items: [
+        {
+          skuId: existing.skuId,
+          expectedQuantity: data.expectedQuantity,
+          receivedQuantity: existing.receivedQuantity ?? 0,
+        },
+      ],
+      excludeInboundRequestItemId: id,
+    });
   }
 
   await InboundRequestItem.updateById(id, data);

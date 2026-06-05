@@ -11,6 +11,17 @@ import {
 } from '../utils/warehouseAccess.js';
 import { parsePagination } from '../utils/validate.js';
 
+export async function listClaimCandidates(req, res) {
+  const { city, district, contractType, suggestedZoneType } = req.query;
+  const data = await warehouseService.listWarehouseClaimCandidates({
+    city,
+    district,
+    contractType,
+    suggestedZoneType,
+  });
+  success(res, data);
+}
+
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
   const { status } = req.query;
