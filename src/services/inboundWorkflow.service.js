@@ -26,6 +26,7 @@ import {
   createPutawayInventoryRecords,
 } from './inventory.service.js';
 import { resolveRecommendationOnPutaway } from './aiSlotRecommendation.service.js';
+import { evaluateCommitmentAfterPutaway } from './contractInboundCommitment.service.js';
 
 function parseOptionalUserId(value, fieldName) {
   if (value == null || value === '') return undefined;
@@ -123,12 +124,26 @@ export async function completeInbound(inboundRequestId, body = {}) {
     );
   }
 
+  const evaluation = await evaluateCommitmentAfterPutaway(inbound.contractId);
+  const commitmentWarnings = evaluation.warnings ?? [];
+
   const data = { status: 'COMPLETED' };
   if (body.receivedBy != null && body.receivedBy !== '') {
     data.receivedBy = parseOptionalUserId(body.receivedBy, 'receivedBy');
   }
+  if (commitmentWarnings.length > 0) {
+    data.commitmentWarningJson = {
+      recordedAt: new Date().toISOString(),
+      inboundRequestId: id,
+      warnings: commitmentWarnings,
+    };
+  }
 
-  return InboundRequest.updateById(id, data);
+  const updated = await InboundRequest.updateById(id, data);
+  return {
+    ...updated,
+    commitmentWarnings,
+  };
 }
 
 async function listReceivingLpnsForInbound(inboundRequestId) {

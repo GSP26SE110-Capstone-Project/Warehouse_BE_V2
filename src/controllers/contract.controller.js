@@ -38,6 +38,15 @@ export async function getInboundCommitment(req, res) {
   success(res, commitment);
 }
 
+export async function closeInboundCommitmentLine(req, res) {
+  const result = await contractInboundCommitmentService.closeInboundCommitmentLine(
+    req.params.contractId,
+    req.body,
+    req.user
+  );
+  success(res, result, 'Đã đóng phần cam kết còn lại');
+}
+
 export async function create(req, res) {
   const { tenantId, warehouseId } = req.body;
   if (!tenantId) {

@@ -92,6 +92,10 @@ export const contractSchema = {
     required: false,
     foreignKey: 'user_id',
   },
+  activatedAt: {
+    type: 'datetime',
+    required: false,
+  },
   createdAt: {
     type: 'datetime',
     default: 'NOW()',

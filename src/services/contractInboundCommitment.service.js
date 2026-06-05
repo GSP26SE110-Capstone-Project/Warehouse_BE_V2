@@ -2,6 +2,10 @@ import pool from "../config/db.js";
 import AppError from "../utils/AppError.js";
 import { parseUuid } from "../utils/validate.js";
 import { getContract } from "./contract.service.js";
+import {
+  buildCommitmentOverageWarnings,
+  enrichCommitmentLineUsage,
+} from "../constants/inboundCommitment.js";
 
 /**
  * Cam kết số cái từ rental request (SUM product_lines.quantity).
@@ -14,7 +18,7 @@ export async function getContractCommittedPieceQuantity(contractId) {
 
   const result = await pool.query(
     `SELECT COUNT(*)::int AS line_count,
-            COALESCE(SUM(quantity), 0)::int AS committed_pieces
+            COALESCE(SUM(GREATEST(0, quantity - COALESCE(written_off_pieces, 0))), 0)::int AS committed_pieces
      FROM rental_request_product_lines
      WHERE rental_request_id = $1`,
     [contract.rentalRequestId],
@@ -48,11 +52,12 @@ async function getContractCommittedProductLines(contractId) {
   const result = await pool.query(
     `SELECT product_kind,
             COALESCE(size, '') AS size,
-            COALESCE(size_group, '') AS size_group,
-            COALESCE(SUM(quantity), 0)::int AS committed_pieces
+            COALESCE(size_group::text, '') AS size_group,
+            COALESCE(SUM(quantity), 0)::int AS committed_pieces,
+            COALESCE(SUM(written_off_pieces), 0)::int AS written_off_pieces
      FROM rental_request_product_lines
      WHERE rental_request_id = $1
-     GROUP BY product_kind, COALESCE(size, ''), COALESCE(size_group, '')
+     GROUP BY product_kind, COALESCE(size, ''), COALESCE(size_group::text, '')
      ORDER BY MIN(sort_order), product_kind, COALESCE(size, '')`,
     [contract.rentalRequestId],
   );
@@ -66,6 +71,7 @@ async function getContractCommittedProductLines(contractId) {
       size: row.size || null,
       sizeGroup: row.size_group || null,
       committedPieces: Number(row.committed_pieces ?? 0),
+      writtenOffPieces: Number(row.written_off_pieces ?? 0),
     })),
   };
 }
@@ -200,9 +206,11 @@ function mergeUsageRows(lines, usageGroups) {
     const usedPieces = Number(usage?.pieces ?? 0);
     return {
       ...line,
-      usedPieces,
-      remainingPieces: Math.max(0, line.committedPieces - usedPieces),
-      overagePieces: Math.max(0, usedPieces - line.committedPieces),
+      ...enrichCommitmentLineUsage({
+        committedPieces: line.committedPieces,
+        writtenOffPieces: line.writtenOffPieces ?? 0,
+        usedPieces,
+      }),
     };
   }).concat(
     [...usageByKey.values()].map((usage) => ({
@@ -211,9 +219,14 @@ function mergeUsageRows(lines, usageGroups) {
       size: usage.size,
       sizeGroup: null,
       committedPieces: 0,
+      writtenOffPieces: 0,
+      effectiveCommittedPieces: 0,
       usedPieces: usage.pieces,
       remainingPieces: 0,
       overagePieces: usage.pieces,
+      isTailRemaining: false,
+      canCloseLine: false,
+      tailCloseThreshold: 0,
       uncommitted: true,
     })),
   );
@@ -232,6 +245,8 @@ export async function getContractInboundCommitmentDetails(
       productLines: [],
       totals: {
         committedPieces: 0,
+        effectiveCommittedPieces: 0,
+        writtenOffPieces: 0,
         usedPieces: 0,
         remainingPieces: null,
         overagePieces: 0,
@@ -251,12 +266,17 @@ export async function getContractInboundCommitmentDetails(
   const totals = productLines.reduce(
     (sum, line) => ({
       committedPieces: sum.committedPieces + line.committedPieces,
+      effectiveCommittedPieces:
+        sum.effectiveCommittedPieces + line.effectiveCommittedPieces,
+      writtenOffPieces: sum.writtenOffPieces + line.writtenOffPieces,
       usedPieces: sum.usedPieces + line.usedPieces,
       remainingPieces: sum.remainingPieces + line.remainingPieces,
       overagePieces: sum.overagePieces + line.overagePieces,
     }),
     {
       committedPieces: 0,
+      effectiveCommittedPieces: 0,
+      writtenOffPieces: 0,
       usedPieces: 0,
       remainingPieces: 0,
       overagePieces: 0,
@@ -269,6 +289,119 @@ export async function getContractInboundCommitmentDetails(
     rentalRequestId: contract.rentalRequestId,
     productLines,
     totals,
+    warnings: buildCommitmentOverageWarnings(productLines),
+  };
+}
+
+/**
+ * Đánh giá cam kết sau putaway (on-hand thực tế) — dùng khi hoàn tất inbound.
+ * Không chặn; trả warnings COMMITMENT_OVERAGE nếu tồn vượt cam kết hiệu lực.
+ */
+export async function evaluateCommitmentAfterPutaway(contractId) {
+  const details = await getContractInboundCommitmentDetails(contractId);
+  if (!details.applies) {
+    return { applies: false, warnings: [], productLines: [] };
+  }
+  return {
+    applies: true,
+    warnings: details.warnings ?? buildCommitmentOverageWarnings(details.productLines),
+    productLines: details.productLines,
+    totals: details.totals,
+  };
+}
+
+/**
+ * Tenant admin đóng phần cam kết còn lại quá nhỏ (tail) — ghi written_off_pieces.
+ */
+export async function closeInboundCommitmentLine(
+  contractId,
+  { productKind, size = null, note = null } = {},
+  user = null,
+) {
+  const id = parseUuid(contractId, "contractId");
+  const contract = await getContract(id);
+
+  if (user?.role === "TENANT_ADMIN") {
+    if (!user.tenantId || contract.tenantId !== user.tenantId) {
+      throw new AppError(
+        "Chỉ tenant admin của hợp đồng này mới được đóng cam kết",
+        403,
+        "FORBIDDEN",
+      );
+    }
+  }
+
+  if (!contract.rentalRequestId) {
+    throw new AppError(
+      "Hợp đồng không có rental request — không áp dụng cam kết dòng",
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+
+  const kind = String(productKind ?? "").trim();
+  if (!kind) {
+    throw new AppError("productKind is required", 400, "VALIDATION_ERROR");
+  }
+
+  const normalizedSize = normalizeCommitmentSize(size);
+  const details = await getContractInboundCommitmentDetails(contractId);
+  const lineKey = makeCommitmentKey(kind, normalizedSize === "" ? null : normalizedSize);
+  const line = details.productLines.find((row) => row.key === lineKey);
+
+  if (!line || line.uncommitted) {
+    throw new AppError(
+      "Không tìm thấy dòng cam kết rental khớp productKind/size",
+      404,
+      "NOT_FOUND",
+    );
+  }
+
+  if (!line.canCloseLine) {
+    throw new AppError(
+      `Chỉ đóng cam kết khi còn ≤ ${line.tailCloseThreshold} cái (hiện còn ${line.remainingPieces}).`,
+      400,
+      "COMMITMENT_CLOSE_NOT_ALLOWED",
+    );
+  }
+
+  const remaining = Number(line.remainingPieces ?? 0);
+  if (remaining <= 0) {
+    throw new AppError("Dòng cam kết đã đủ — không còn phần cần đóng", 400, "VALIDATION_ERROR");
+  }
+
+  const updateResult = await pool.query(
+    `UPDATE rental_request_product_lines
+     SET written_off_pieces = written_off_pieces + $4,
+         updated_at = NOW()
+     WHERE line_id = (
+       SELECT line_id
+       FROM rental_request_product_lines
+       WHERE rental_request_id = $1
+         AND product_kind = $2
+         AND COALESCE(size, '') = $3
+       ORDER BY sort_order, line_id
+       LIMIT 1
+     )
+     RETURNING line_id, written_off_pieces`,
+    [contract.rentalRequestId, kind, normalizedSize, remaining],
+  );
+
+  if (!updateResult.rows.length) {
+    throw new AppError("Không cập nhật được dòng rental request", 500, "INTERNAL_ERROR");
+  }
+
+  const refreshed = await getContractInboundCommitmentDetails(contractId);
+  const closedLine = refreshed.productLines.find((row) => row.key === lineKey);
+
+  return {
+    contractId: id,
+    productKind: kind,
+    size: normalizedSize || null,
+    closedPieces: remaining,
+    note: note?.trim() || null,
+    line: closedLine,
+    totals: refreshed.totals,
   };
 }
 
@@ -422,7 +555,7 @@ export async function assertContractInboundWithinCommittedPieces(
   const overageLine = details.productLines.find((line) => line.overagePieces > 0);
   if (overageLine) {
     throw new AppError(
-      `Vượt cam kết cho ${describeCommitmentLine(overageLine)} (${overageLine.committedPieces} cái). ` +
+      `Vượt cam kết cho ${describeCommitmentLine(overageLine)} (${overageLine.effectiveCommittedPieces} cái hiệu lực). ` +
         `Đang dùng/dự kiến: ${overageLine.usedPieces} cái; còn được thêm tối đa ` +
         `${Math.max(0, overageLine.remainingPieces)} cái.`,
       400,
