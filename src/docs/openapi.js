@@ -6741,12 +6741,27 @@ const spec = {
         tags: ['InboundRequest'],
         summary: 'Auto putaway inbound items',
         description:
-          'Flow 3 — gán bin theo reservation HĐ + zone (`zoneId` bắt buộc). Khác Flow 5 (AI score bin). Sau auto vẫn có thể dùng AI cho LPN còn lại.',
+          'Flow 3 — gán bin theo reservation HĐ + zone (`zoneId` bắt buộc). Tuỳ chọn `rackId` / `rackLevelId` để giới hạn phạm vi. ' +
+          'Thứ tự ưu tiên: rack đang có hàng → bin PARTIAL (gộp LPN) → bin EMPTY (0 cái) theo tầng/mã bin; ' +
+          'join inventories để mở lại bin FULL desync (0 tồn). Khác Flow 5 (AI score bin).',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {
           required: false,
-          content: { 'application/json': { schema: { type: 'object' } } },
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['zoneId'],
+                properties: {
+                  zoneId: { type: 'string', format: 'uuid' },
+                  rackId: { type: 'string', format: 'uuid', description: 'Giới hạn putaway trong một rack' },
+                  rackLevelId: { type: 'string', format: 'uuid', description: 'Giới hạn putaway trong một tầng' },
+                  movedBy: { type: 'string', format: 'uuid' },
+                },
+              },
+            },
+          },
         },
         responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
       },

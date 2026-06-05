@@ -259,6 +259,69 @@ export async function applyBinPutaway(bin, volumeUnits, client) {
   );
 }
 
+/**
+ * Đồng bộ used_volume / current_lpn_count / status của bin từ inventories thực tế
+ * (sau outbound ship hoặc khi bin metadata lệch tồn kho).
+ */
+export async function reconcileBinOccupancyFromInventories(binId, client) {
+  const id = parseUuid(binId, 'binId');
+
+  const lockResult = await client.query(
+    `SELECT bin_id, max_volume_units, max_lpn_count, status
+       FROM bins
+      WHERE bin_id = $1
+      FOR UPDATE`,
+    [id]
+  );
+  if (lockResult.rows.length === 0) {
+    throw new AppError('Bin not found', 404, 'NOT_FOUND');
+  }
+  const row = lockResult.rows[0];
+  if (row.status === 'BLOCKED' || row.status === 'RESERVED') {
+    return null;
+  }
+
+  const aggResult = await client.query(
+    `WITH active AS (
+       SELECT DISTINCT i.lpn_id
+         FROM inventories i
+        WHERE i.bin_id = $1
+          AND i.quantity > 0
+     )
+     SELECT (SELECT COUNT(*)::int FROM active) AS lpn_count,
+            COALESCE((
+              SELECT SUM(l.volume_units)::int
+                FROM active a
+                INNER JOIN lpns l ON l.lpn_id = a.lpn_id
+            ), 0) AS used_volume`,
+    [id]
+  );
+
+  const lpnCount = Number(aggResult.rows[0]?.lpn_count ?? 0);
+  const usedVolume = Number(aggResult.rows[0]?.used_volume ?? 0);
+  const maxVol = Number(row.max_volume_units ?? 0);
+  const maxLpn = Number(row.max_lpn_count ?? 0);
+
+  let status = 'EMPTY';
+  if (lpnCount > 0) {
+    if ((maxVol > 0 && usedVolume >= maxVol) || (maxLpn > 0 && lpnCount >= maxLpn)) {
+      status = 'FULL';
+    } else {
+      status = 'PARTIAL';
+    }
+  }
+
+  return Bin.updateById(
+    id,
+    {
+      usedVolumeUnits: usedVolume,
+      currentLpnCount: lpnCount,
+      status,
+    },
+    client
+  );
+}
+
 export async function createPutawayInventoryRecords(
   {
     tenantId,

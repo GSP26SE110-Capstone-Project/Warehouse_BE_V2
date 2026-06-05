@@ -1,5 +1,6 @@
 import pool from '../config/db.js';
 import InboundRequest, { inboundRequestSchema } from '../models/InboundRequest.js';
+import InboundRequestItem from '../models/InboundRequestItem.js';
 import { inboundDeliverySchema } from '../models/InboundDelivery.js';
 import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import AppError from '../utils/AppError.js';
@@ -13,6 +14,7 @@ import { assertContractOperational, getContract } from './contract.service.js';
 import { assertContractInboundWithinCommittedPieces } from './contractInboundCommitment.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
+import { getSku } from './sku.service.js';
 
 const CREATE_FIELDS = [
   'tenantId',
@@ -381,8 +383,78 @@ export async function listInboundRequests({
   };
 }
 
+function normalizeInboundItemsPayload(items) {
+  if (items == null) return null;
+  if (!Array.isArray(items)) {
+    throw new AppError('items must be an array', 400, 'VALIDATION_ERROR');
+  }
+  if (items.length === 0) {
+    throw new AppError('items must be a non-empty array when provided', 400, 'VALIDATION_ERROR');
+  }
+
+  const normalized = [];
+  const skuIds = new Set();
+
+  for (const [index, row] of items.entries()) {
+    if (!row?.skuId) {
+      throw new AppError(`items[${index}].skuId is required`, 400, 'VALIDATION_ERROR');
+    }
+    const skuId = parseUuid(row.skuId, `items[${index}].skuId`);
+    if (skuIds.has(skuId)) {
+      throw new AppError(
+        'Duplicate SKU in items — use one line per skuId',
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+    skuIds.add(skuId);
+
+    const qty = Number(row.expectedQuantity);
+    if (!Number.isInteger(qty) || qty < 1) {
+      throw new AppError(
+        `items[${index}].expectedQuantity must be a positive integer`,
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+
+    normalized.push({ skuId, expectedQuantity: qty });
+  }
+
+  return normalized;
+}
+
+async function assertInboundItemsForTenant(tenantId, items) {
+  for (const row of items) {
+    const sku = await getSku(row.skuId);
+    if (sku.tenantId !== tenantId) {
+      throw new AppError('skuId does not belong to this inbound tenant', 400, 'VALIDATION_ERROR');
+    }
+  }
+}
+
+async function createInboundItemsInTransaction(client, inboundRequestId, items) {
+  const created = [];
+  for (const row of items) {
+    const item = await InboundRequestItem.create(
+      {
+        inboundRequestId,
+        skuId: row.skuId,
+        expectedQuantity: row.expectedQuantity,
+        receivedQuantity: 0,
+        discrepancyQuantity: row.expectedQuantity,
+      },
+      client
+    );
+    created.push(item);
+  }
+  return created;
+}
+
 export async function createInboundRequest(body) {
-  const data = normalizeCreatePayload(body);
+  const { items: rawItems, ...headerBody } = body ?? {};
+  const data = normalizeCreatePayload(headerBody);
+  const items = normalizeInboundItemsPayload(rawItems);
 
   await getTenantCompany(data.tenantId);
   await getWarehouseById(data.warehouseId);
@@ -393,7 +465,27 @@ export async function createInboundRequest(body) {
   );
   assertExpectedArrivalOnOrAfterContractStart(contract, data.expectedArrivalDate);
 
-  return InboundRequest.create(data);
+  if (!items) {
+    return InboundRequest.create(data);
+  }
+
+  await assertInboundItemsForTenant(data.tenantId, items);
+  const additionalPieces = items.reduce((sum, row) => sum + row.expectedQuantity, 0);
+  await assertContractInboundWithinCommittedPieces(data.contractId, { additionalPieces });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const inbound = await InboundRequest.create(data, client);
+    await createInboundItemsInTransaction(client, inbound.inboundRequestId, items);
+    await client.query('COMMIT');
+    return inbound;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function updateInboundRequest(inboundRequestId, body) {
