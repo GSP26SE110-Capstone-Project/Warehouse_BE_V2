@@ -11,18 +11,24 @@ const FALLBACK_PRESET = ZONE_BIN_PRESETS.SHARED;
 
 const BOX_TYPE_PRIORITY = ['EXTRA', 'LARGE', 'MEDIUM', 'SMALL'];
 
+/** Loại thùng LPN lớn nhất theo nghiệp vụ zone — đồng bộ FE binCapacityDefaults.ts */
+const ZONE_MAX_LPN_BOX_TYPE = Object.freeze({
+  SHARED: 'EXTRA',
+  PREMIUM: 'LARGE',
+  PRIVATE: 'LARGE',
+});
+
 export function getDefaultBinCapacityForZone(zoneType) {
   if (!zoneType) return FALLBACK_PRESET;
   return ZONE_BIN_PRESETS[String(zoneType).toUpperCase()] ?? FALLBACK_PRESET;
 }
 
-/** LPN box type lớn nhất mà bin mặc định của zone chứa được (theo maxVolumeUnits). */
+/** LPN box type lớn nhất gợi ý cho zone (SHARED → EXTRA; PREMIUM/PRIVATE → LARGE). */
 export function getMaxLpnBoxTypeForZone(zoneType) {
-  const vol = getDefaultBinCapacityForZone(zoneType).maxVolumeUnits;
-  for (const boxType of BOX_TYPE_PRIORITY) {
-    if (BOX_VOLUME_UNITS[boxType] <= vol) return boxType;
-  }
-  return 'SMALL';
+  const key = String(zoneType ?? 'SHARED').toUpperCase();
+  if (ZONE_MAX_LPN_BOX_TYPE[key]) return ZONE_MAX_LPN_BOX_TYPE[key];
+  if (key === 'FAST_MOVING') return 'LARGE';
+  return 'EXTRA';
 }
 
 /** Chọn loại thùng lớn nhất trong các zone được cấp (tối ưu số LPN / chi phí tenant). */

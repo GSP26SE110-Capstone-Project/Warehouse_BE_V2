@@ -35,6 +35,10 @@ router.get(
   '/:outboundRequestId/picking-tasks',
   asyncHandler(outboundRequestController.listPickingTasks)
 );
+router.patch(
+  '/:outboundRequestId/picking-tasks/assign',
+  asyncHandler(outboundRequestController.assignPicker)
+);
 
 router.get('/:outboundRequestId', asyncHandler(outboundRequestController.getById));
 router.patch('/:outboundRequestId', asyncHandler(outboundRequestController.update));

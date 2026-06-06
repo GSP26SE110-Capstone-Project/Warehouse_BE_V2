@@ -135,3 +135,11 @@ export async function reportArrival(req, res) {
   );
   success(res, inbound, 'Arrival reported');
 }
+
+export async function reportPickup(req, res) {
+  const inbound = await inboundDeliveryService.reportInboundPickup(
+    req.params.inboundRequestId,
+    req.user
+  );
+  success(res, inbound, 'Pickup reported');
+}

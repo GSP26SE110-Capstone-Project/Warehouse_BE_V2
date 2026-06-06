@@ -1,3 +1,4 @@
+import pool from '../config/db.js';
 import InboundDelivery from '../models/InboundDelivery.js';
 import User from '../models/User.js';
 import AppError from '../utils/AppError.js';
@@ -9,6 +10,7 @@ import { getInboundRequest } from './inboundRequest.service.js';
 import { applyTransporterProfileToDelivery } from '../utils/transporterProfile.js';
 import {
   notifyInboundArrivalReported,
+  notifyInboundPickupReported,
   notifyTenantAdminTransportAssigned,
 } from './inboundNotify.service.js';
 
@@ -83,6 +85,40 @@ async function assertTransporterAssignable(userId, warehouseId) {
     throw new AppError('Transporter does not belong to this warehouse', 400, 'VALIDATION_ERROR');
   }
   return id;
+}
+
+async function assertTransporterAvailable(userId, warehouseId, excludeInboundRequestId = null) {
+  const driverId = parseUuid(userId, 'assignedDriverUserId');
+  const wId = parseUuid(warehouseId, 'warehouseId');
+  const values = [driverId, wId];
+  let excludeClause = '';
+
+  if (excludeInboundRequestId) {
+    values.push(parseUuid(excludeInboundRequestId, 'inboundRequestId'));
+    excludeClause = `AND ir.inbound_request_id <> $${values.length}`;
+  }
+
+  const result = await pool.query(
+    `SELECT ir.inbound_code
+     FROM inbound_deliveries id
+     INNER JOIN inbound_requests ir ON ir.inbound_request_id = id.inbound_request_id
+     WHERE id.assigned_driver_user_id = $1
+       AND ir.warehouse_id = $2
+       AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
+       AND ir.status IN ('PENDING', 'APPROVED', 'IN_TRANSIT')
+       ${excludeClause}
+     LIMIT 1`,
+    values
+  );
+
+  const row = result.rows[0];
+  if (row) {
+    throw new AppError(
+      `Transporter already has an active trip (${row.inbound_code})`,
+      409,
+      'TRANSPORTER_HAS_ACTIVE_TRIP'
+    );
+  }
 }
 
 function assertActorCanManageDelivery(actor, inbound) {
@@ -248,7 +284,7 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
   const id = parseUuid(inboundRequestId, 'inboundRequestId');
   const inbound = await getInboundRequest(id);
 
-  if (!['PENDING', 'APPROVED', 'ARRIVED'].includes(inbound.status)) {
+  if (!['PENDING', 'APPROVED', 'IN_TRANSIT', 'ARRIVED'].includes(inbound.status)) {
     throw new AppError(
       `Cannot update delivery info when inbound status is ${inbound.status}`,
       400,
@@ -298,6 +334,11 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
     data.assignedDriverUserId = await assertTransporterAssignable(
       data.assignedDriverUserId,
       inbound.warehouseId
+    );
+    await assertTransporterAvailable(
+      data.assignedDriverUserId,
+      inbound.warehouseId,
+      id
     );
     const transporter = await User.findById(data.assignedDriverUserId);
     const merged = applyTransporterProfileToDelivery(transporter, data, existing);
@@ -368,6 +409,61 @@ export async function deleteInboundDelivery(inboundRequestId, actor = null) {
   return InboundDelivery.deleteById(existing.inboundDeliveryId);
 }
 
+export async function reportInboundPickup(inboundRequestId, actor) {
+  if (!actor || !WH_TRANSPORT_ROLES.includes(actor.role)) {
+    throw new AppError('WH_TRANSPORTER only', 403, 'FORBIDDEN');
+  }
+
+  const id = parseUuid(inboundRequestId, 'inboundRequestId');
+  const inbound = await getInboundRequest(id);
+  const delivery = await getInboundDeliveryByRequestId(id);
+
+  assertTransporterCanAccessDelivery(actor, inbound, delivery);
+
+  if (inbound.deliveryMode !== 'WAREHOUSE_TRANSPORT') {
+    throw new AppError('This inbound is not warehouse transport', 400, 'VALIDATION_ERROR');
+  }
+
+  if (inbound.status !== 'APPROVED') {
+    throw new AppError(
+      `Cannot report pickup when inbound status is ${inbound.status}`,
+      400,
+      'INVALID_INBOUND_STATUS'
+    );
+  }
+
+  if (!delivery?.pickupAddress?.trim()) {
+    throw new AppError('pickupAddress is required before reporting pickup', 400, 'VALIDATION_ERROR');
+  }
+
+  await assertInboundHasDeliveryForGate(id);
+
+  assertInboundStatusTransition(inbound.status, 'IN_TRANSIT');
+
+  const pickupAt = new Date();
+  await InboundDelivery.updateById(delivery.inboundDeliveryId, {
+    actualPickupAt: pickupAt,
+  });
+
+  const updated = await InboundRequest.updateById(id, {
+    status: 'IN_TRANSIT',
+  });
+
+  const deliveryWithPickup = { ...delivery, actualPickupAt: pickupAt };
+
+  try {
+    await notifyInboundPickupReported({
+      inbound: updated,
+      delivery: deliveryWithPickup,
+      actor,
+    });
+  } catch {
+    /* email optional */
+  }
+
+  return updated;
+}
+
 export async function reportInboundArrival(inboundRequestId, actor) {
   if (!actor || !WH_TRANSPORT_ROLES.includes(actor.role)) {
     throw new AppError('WH_TRANSPORTER only', 403, 'FORBIDDEN');
@@ -379,7 +475,7 @@ export async function reportInboundArrival(inboundRequestId, actor) {
 
   assertTransporterCanAccessDelivery(actor, inbound, delivery);
 
-  if (inbound.status !== 'APPROVED') {
+  if (inbound.status !== 'IN_TRANSIT') {
     throw new AppError(
       `Cannot report arrival when inbound status is ${inbound.status}`,
       400,

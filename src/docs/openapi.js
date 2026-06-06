@@ -236,15 +236,16 @@ const spec = {
       '6. `PATCH { "status": "APPROVED" }` — duyệt (`approvedBy` từ token); kiểm trần cam kết HĐ\n' +
       '7. *(WAREHOUSE_TRANSPORT)* `PUT …/delivery` — `assignedDriverUserId` (WH_TRANSPORTER)\n\n' +
       '**WH_TRANSPORTER** (chỉ `WAREHOUSE_TRANSPORT`)\n' +
-      '8. `POST …/report-arrival` từ `APPROVED` → **`ARRIVED`** (+ `actualArrivalAt`)\n\n' +
+      '8. `POST …/report-pickup` từ `APPROVED` → **`IN_TRANSIT`** (+ `actualPickupAt` trên delivery)\n' +
+      '9. `POST …/report-arrival` từ `IN_TRANSIT` → **`ARRIVED`** (+ `actualArrivalAt`)\n\n' +
       '**WH_STAFF — receiving & putaway**\n' +
-      '9. `POST …/start-receiving` — `ARRIVED` → **`RECEIVING`**\n' +
-      '10. Ghi nhận số thực nhận: `PATCH /inbound-request-items/{id}` `receivedQuantity` hoặc `POST …/complete-receiving` + `items[]`\n' +
-      '11. `POST /batches` — `{ inboundRequestId, batchCode }` (FIFO `warehouseReceivedAt`)\n' +
-      '12. `POST /lpns` + `POST /lpn-details` — thùng `RECEIVING`, đóng SKU vào LPN\n' +
-      '13. Putaway: **Flow 5** (`POST /ai/slot-recommendations` → `POST /lpns/{id}/putaway`) hoặc `POST …/bulk-putaway` / `…/auto-putaway`\n' +
-      '14. `POST …/complete` — mọi LPN **`STORED`**, có ≥1 batch → inbound **`COMPLETED`** (mở tồn / outbound Flow 4)\n\n' +
-      '**State machine:** `DRAFT` → `PENDING` → `APPROVED` → `ARRIVED` → `RECEIVING` → **`COMPLETED`** · `CANCELLED` (tenant: trước nhận; WH: có rule khi đã duyệt)\n\n' +
+      '10. `POST …/start-receiving` — `ARRIVED` → **`RECEIVING`**\n' +
+      '11. Ghi nhận số thực nhận: `PATCH /inbound-request-items/{id}` `receivedQuantity` hoặc `POST …/complete-receiving` + `items[]`\n' +
+      '12. `POST /batches` — `{ inboundRequestId, batchCode }` (FIFO `warehouseReceivedAt`)\n' +
+      '13. `POST /lpns` + `POST /lpn-details` — thùng `RECEIVING`, đóng SKU vào LPN\n' +
+      '14. Putaway: **Flow 5** (`POST /ai/slot-recommendations` → `POST /lpns/{id}/putaway`) hoặc `POST …/bulk-putaway` / `…/auto-putaway`\n' +
+      '15. `POST …/complete` — mọi LPN **`STORED`**, có ≥1 batch → inbound **`COMPLETED`** (mở tồn / outbound Flow 4)\n\n' +
+      '**State machine:** `DRAFT` → `PENDING` → `APPROVED` → `IN_TRANSIT` → `ARRIVED` → `RECEIVING` → **`COMPLETED`** · `CANCELLED` (tenant: trước nhận; WH: có rule khi đã duyệt)\n\n' +
       '**Master data (cùng flow):** `GET/POST /categories`, `/seasons`, `/collections`, `/skus` · `GET /warehouses/{id}/inbound-requests`\n\n' +
       '### Flow 4 — Outbound request (xuất kho)\n' +
       '**Tiền điều kiện:** HĐ **`ACTIVE`** (invoice INITIAL đã PAID) hoặc `TERMINATED` (xuất hết hàng); đã có SKU + ≥1 inbound **`COMPLETED`**; tồn `available_quantity > 0` (`GET /inventories?tenantId=&warehouseId=`).\n\n' +
@@ -253,15 +254,19 @@ const spec = {
       '2. *(tuỳ chọn)* `POST /outbound-requests/{id}/items` hoặc `POST /outbound-request-items` — thêm/sửa dòng khi `DRAFT`/`PENDING`\n' +
       '3. `GET /outbound-requests` · `GET /outbound-requests/{id}?includeItems=true` — theo dõi phiếu\n' +
       '4. Hủy (tenant): `PATCH { "status": "CANCELLED" }` chỉ khi `DRAFT`/`PENDING`\n\n' +
-      '**WH_ADMIN / WH_STAFF**\n' +
-      '5. `PATCH /outbound-requests/{id}` `{ "status": "APPROVED" }` từ `PENDING` → duyệt + **reserve FIFO** + tạo picking task → phiếu **`RESERVED`** (một bước, không dừng ở `APPROVED`)\n' +
-      '   - Recovery: nếu kẹt `APPROVED`: `PATCH { "status": "RESERVED" }`\n' +
-      '6. `GET /outbound-requests/{id}/picking-tasks` — xem task + dòng pick (LPN, bin, batch, `quantityToPick`)\n' +
-      '7. `PATCH { "status": "PICKING" }` — bắt đầu pick (mobile/scan: `POST /scan/resolve` với mã `OUT-…`)\n' +
-      '8. `PATCH { "status": "PACKING" }` — xác nhận đã pick đủ (`picked_quantity` = `quantity_to_pick`)\n' +
-      '9. `PATCH { "status": "SHIPPED" }` — trừ tồn + `inventory_movements` type `OUTBOUND`, gán `actualShippedAt`\n' +
-      '10. *(tuỳ chọn)* `PATCH { "status": "COMPLETED" }` từ `SHIPPED` · `POST/GET /shipments` — vận chuyển/đóng phiếu\n' +
-      '11. Hủy (WH): `CANCELLED` trước `SHIPPED` — giải phóng reserve nếu đã `RESERVED`+\n\n' +
+      '**WH_ADMIN**\n' +
+      '5. `PATCH /outbound-requests/{id}` `{ "status": "APPROVED", "assignedPickerUserId": "<uuid WH_STAFF>" }` từ `PENDING` → duyệt + **reserve FIFO** + picking task (`assigned_to`) → phiếu **`RESERVED`**\n' +
+      '   - Recovery: nếu kẹt `APPROVED`: `PATCH { "status": "RESERVED", "assignedPickerUserId": "..." }`\n' +
+      '   - Gán lại picker (chưa pick): `PATCH …/picking-tasks/assign` `{ "assignedPickerUserId": "..." }`\n' +
+      '6. `GET /outbound-requests/{id}/picking-tasks` — task + dòng pick (LPN, bin, batch, `quantityToPick`, `assignedTo`)\n\n' +
+      '**WH_STAFF (picker được gán)**\n' +
+      '7. `GET /outbound-requests?assignedPickerMe=true` — phiếu được gán cho user login\n' +
+      '8. `PATCH { "status": "PICKING" }` — bắt đầu pick (chỉ `assigned_to` = user)\n' +
+      '9. `PATCH { "status": "PACKING" }` — xác nhận pick đủ → chờ WH Admin duyệt packing\n\n' +
+      '**WH_ADMIN (duyệt packing)**\n' +
+      '10. `PATCH { "status": "SHIPPED" }` — kiểm tra pick + trừ tồn + `actualShippedAt`\n' +
+      '11. `PATCH { "status": "COMPLETED" }` từ `SHIPPED`\n' +
+      '12. Hủy (WH): `CANCELLED` trước `SHIPPED` — giải phóng reserve nếu đã `RESERVED`+\n\n' +
       '**State machine:** `DRAFT` → `PENDING` → (`APPROVED` nội bộ) → **`RESERVED`** → `PICKING` → `PACKING` → **`SHIPPED`** → `COMPLETED` · `CANCELLED`\n\n' +
       '### Flow 5 — AI slot recommendation (putaway)\n' +
       '**Tiền điều kiện (sau Flow 3 receiving):** LPN `RECEIVING`, có `POST /lpn-details`, `warehouseId` inbound; nên có `weightKg` (rack-suggestion). **Rule engine** chọn bin (`slotting-v1-rule`); **LLM** (Gemini/Ollama) chỉ **giải thích** — không đổi bin.\n\n' +
@@ -946,6 +951,7 @@ const spec = {
               'DRAFT',
               'PENDING',
               'APPROVED',
+              'IN_TRANSIT',
               'ARRIVED',
               'RECEIVING',
               'COMPLETED',
@@ -958,7 +964,7 @@ const spec = {
           deliveryMode: {
             type: 'string',
             enum: ['TENANT_SELF', 'WAREHOUSE_TRANSPORT'],
-            description: 'TENANT_SELF: tenant báo ARRIVED. WAREHOUSE_TRANSPORT: transporter report-arrival.',
+            description: 'TENANT_SELF: tenant báo ARRIVED. WAREHOUSE_TRANSPORT: transporter report-pickup → IN_TRANSIT → report-arrival.',
           },
           ...timestamps,
         },
@@ -991,6 +997,7 @@ const spec = {
               'DRAFT',
               'PENDING',
               'APPROVED',
+              'IN_TRANSIT',
               'ARRIVED',
               'RECEIVING',
               'COMPLETED',
@@ -1028,6 +1035,7 @@ const spec = {
               'DRAFT',
               'PENDING',
               'APPROVED',
+              'IN_TRANSIT',
               'ARRIVED',
               'RECEIVING',
               'COMPLETED',
@@ -1280,8 +1288,13 @@ const spec = {
       OutboundRequestUpdate: {
         type: 'object',
         description:
-          'Không gửi `approvedBy` — khi `status: APPROVED` server lấy user từ Bearer token, reserve FIFO, chuyển `RESERVED`. `PACKING`/`SHIPPED` chạy pick/ship workflow.',
+          'Không gửi `approvedBy`. Khi `status: APPROVED` hoặc `RESERVED`: bắt buộc `assignedPickerUserId` (WH_STAFF cùng kho). WH Admin: duyệt/ship/complete. WH Staff được gán: `PICKING`/`PACKING`.',
         properties: {
+          assignedPickerUserId: {
+            ...uuid,
+            description:
+              'Bắt buộc khi `status: APPROVED` hoặc `RESERVED` (recovery). WH_STAFF ACTIVE cùng warehouse.',
+          },
           requestedShipDate: {
             type: 'string',
             format: 'date-time',
@@ -4543,7 +4556,7 @@ const spec = {
         operationId: 'listOutboundRequests',
         summary: 'List outbound requests (filter by tenant, warehouse, contract, status)',
         description:
-          'Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF`, `TENANT_ADMIN`, `TENANT_STAFF` (theo scope).',
+          'Roles: `SYSTEM_ADMIN`, `WH_ADMIN`, `WH_STAFF` (`assignedPickerMe`), `TENANT_ADMIN`, `TENANT_STAFF` (theo scope).',
         security: bearerSecurity,
         parameters: [
           { in: 'query', name: 'tenantId', schema: uuid },
@@ -4566,6 +4579,12 @@ const spec = {
                 'CANCELLED',
               ],
             },
+          },
+          {
+            in: 'query',
+            name: 'assignedPickerMe',
+            schema: { type: 'boolean' },
+            description: 'WH_STAFF only — chỉ phiếu có picking task gán cho user login',
           },
           { $ref: '#/components/parameters/page' },
           { $ref: '#/components/parameters/limit' },
@@ -4630,6 +4649,53 @@ const spec = {
               },
             },
           }),
+          400: stdErrors[400],
+          401: stdErrors[401],
+          403: stdErrors[403],
+          404: stdErrors[404],
+        },
+      },
+    },
+    '/api/outbound-requests/{outboundRequestId}/picking-tasks/assign': {
+      patch: {
+        tags: ['OutboundRequest'],
+        operationId: 'assignOutboundPickingTask',
+        summary: 'Assign or reassign WH Staff picker',
+        description:
+          '**Flow 4** — WH Admin only. Phiếu `RESERVED`, picking task chưa `PICKING`. Gửi email thông báo picker.',
+        security: bearerSecurity,
+        parameters: [
+          { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['assignedPickerUserId'],
+                properties: {
+                  assignedPickerUserId: uuid,
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: successEnvelope(
+            {
+              type: 'object',
+              properties: {
+                outboundRequestId: uuid,
+                outboundStatus: { type: 'string' },
+                tasks: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/PickingTask' },
+                },
+              },
+            },
+            'Picker assigned successfully'
+          ),
           400: stdErrors[400],
           401: stdErrors[401],
           403: stdErrors[403],
@@ -4710,7 +4776,7 @@ const spec = {
         operationId: 'updateOutboundRequest',
         summary: 'Update outbound request (status workflow, ship dates)',
         description:
-          '**Flow 4 bước 4–5, 7–10, 11.** Tenant: `CANCELLED` (`DRAFT`/`PENDING`). WH: `APPROVED` (bước 5, `PENDING`→`RESERVED`+pick task) · `RESERVED` (recovery) · `PICKING` (7) · `PACKING` (8) · `SHIPPED` (9, trừ tồn) · `COMPLETED` (10). Có thể sửa `requestedShipDate`/`actualShippedAt` khi chưa ship.',
+          '**Flow 4.** Tenant: `CANCELLED` (`DRAFT`/`PENDING`). WH Admin: `APPROVED`+`assignedPickerUserId` (→`RESERVED`) · `RESERVED` recovery · `SHIPPED` (duyệt packing) · `COMPLETED`. WH Staff (assigned): `PICKING` · `PACKING`.',
         security: bearerSecurity,
         parameters: [
           { in: 'path', name: 'outboundRequestId', required: true, schema: uuid },
@@ -4722,8 +4788,11 @@ const spec = {
               schema: { $ref: '#/components/schemas/OutboundRequestUpdate' },
               examples: {
                 approve: {
-                  summary: 'Flow 4 bước 5 — duyệt (→ RESERVED + picking task)',
-                  value: { status: 'APPROVED' },
+                  summary: 'Flow 4 bước 5 — duyệt + gán picker (→ RESERVED)',
+                  value: {
+                    status: 'APPROVED',
+                    assignedPickerUserId: '00000000-0000-4000-8000-000000000001',
+                  },
                 },
                 picking: { summary: 'Flow 4 bước 7 — bắt đầu pick', value: { status: 'PICKING' } },
                 packing: { summary: 'Flow 4 bước 8 — hoàn tất pick', value: { status: 'PACKING' } },
@@ -6774,14 +6843,19 @@ const spec = {
         tags: ['InboundRequest'],
         summary: 'Upsert inbound delivery info',
         description:
-          '**Flow 3 bước 4–7.** Tenant: `pickupAddress` (WAREHOUSE_TRANSPORT). WH: `vehiclePlate`, `assignedDriverUserId`. Transporter: cập nhật xe của chuyến mình. Status inbound: `PENDING`/`APPROVED`/`ARRIVED`.',
+          '**Flow 3 bước 4–7.** Tenant: `pickupAddress` (WAREHOUSE_TRANSPORT). WH: `vehiclePlate`, `assignedDriverUserId`. Transporter: cập nhật xe của chuyến mình. Status inbound: `PENDING`/`APPROVED`/`IN_TRANSIT`/`ARRIVED`. ' +
+          'Gán `assignedDriverUserId`: tài xế không được có chuyến WAREHOUSE_TRANSPORT khác ở `PENDING`/`APPROVED` (409 `TRANSPORTER_HAS_ACTIVE_TRIP`).',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {
           required: true,
           content: { 'application/json': { schema: { type: 'object' } } },
         },
-        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
+        responses: {
+          200: successEnvelope({ type: 'object' }),
+          400: stdErrors[400],
+          409: stdErrors[409],
+        },
       },
       delete: {
         tags: ['InboundRequest'],
@@ -6836,12 +6910,27 @@ const spec = {
         responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
       },
     },
+    '/api/inbound-requests/{inboundRequestId}/report-pickup': {
+      post: {
+        tags: ['InboundRequest'],
+        summary: 'Report pickup at tenant (warehouse transport)',
+        description:
+          '**Flow 3 bước 8.** `WH_TRANSPORTER` + `WAREHOUSE_TRANSPORT` + `APPROVED` → `IN_TRANSIT`. Cần `pickupAddress` và `vehiclePlate`. Thông báo Tenant Admin + WH Admin.',
+        parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
+        security: bearerSecurity,
+        requestBody: {
+          required: false,
+          content: { 'application/json': { schema: { type: 'object' } } },
+        },
+        responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400], 403: stdErrors[403] },
+      },
+    },
     '/api/inbound-requests/{inboundRequestId}/report-arrival': {
       post: {
         tags: ['InboundRequest'],
         summary: 'Report driver arrival at warehouse',
         description:
-          '**Flow 3 bước 8.** `WH_TRANSPORTER` + `WAREHOUSE_TRANSPORT` + `APPROVED` → `ARRIVED`. Không dùng PATCH `ARRIVED` cho mode này.',
+          '**Flow 3 bước 9.** `WH_TRANSPORTER` + `WAREHOUSE_TRANSPORT` + `IN_TRANSIT` → `ARRIVED`. Không dùng PATCH `ARRIVED` cho mode này.',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {

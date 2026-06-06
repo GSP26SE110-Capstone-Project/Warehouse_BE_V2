@@ -277,12 +277,14 @@ export async function getTransporterAssignedTripAlerts(user) {
   }
 
   const countResult = await pool.query(
-    `SELECT COUNT(*)::int AS assigned_count
+    `SELECT
+       COUNT(*) FILTER (WHERE ir.status = 'APPROVED')::int AS assigned_count,
+       COUNT(*) FILTER (WHERE ir.status = 'IN_TRANSIT')::int AS in_transit_count
      FROM inbound_deliveries id
      INNER JOIN inbound_requests ir ON ir.inbound_request_id = id.inbound_request_id
      WHERE id.assigned_driver_user_id = $1
        AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
-       AND ir.status = 'APPROVED'`,
+       AND ir.status IN ('APPROVED', 'IN_TRANSIT')`,
     [user.userId]
   );
 
@@ -300,7 +302,7 @@ export async function getTransporterAssignedTripAlerts(user) {
      INNER JOIN tenant_companies tc ON tc.tenant_id = ir.tenant_id
      WHERE id.assigned_driver_user_id = $1
        AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
-       AND ir.status IN ('APPROVED', 'ARRIVED', 'RECEIVING')
+       AND ir.status IN ('APPROVED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVING')
      ORDER BY id.updated_at DESC
      LIMIT 10`,
     [user.userId]
@@ -308,6 +310,7 @@ export async function getTransporterAssignedTripAlerts(user) {
 
   return {
     assignedCount: Number(countResult.rows[0]?.assigned_count) || 0,
+    inTransitCount: Number(countResult.rows[0]?.in_transit_count) || 0,
     recent: recentResult.rows.map((row) => ({
       inboundRequestId: row.inbound_request_id,
       inboundCode: row.inbound_code,
@@ -320,10 +323,63 @@ export async function getTransporterAssignedTripAlerts(user) {
   };
 }
 
+/** Phiếu xuất được gán cho WH_STAFF — cần pick. */
+export async function getWhStaffAssignedPickAlerts(user) {
+  if (user?.role !== 'WH_STAFF' || !user.userId) {
+    return {
+      assignedCount: 0,
+      pickingCount: 0,
+      recent: [],
+    };
+  }
+
+  const countResult = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE o.status = 'RESERVED')::int AS assigned_count,
+       COUNT(*) FILTER (WHERE o.status = 'PICKING')::int AS picking_count
+     FROM picking_tasks pt
+     INNER JOIN outbound_requests o ON o.outbound_request_id = pt.outbound_request_id
+     WHERE pt.assigned_to = $1
+       AND o.status IN ('RESERVED', 'PICKING')`,
+    [user.userId]
+  );
+
+  const recentResult = await pool.query(
+    `SELECT
+       o.outbound_request_id,
+       o.outbound_code,
+       o.status,
+       o.requested_ship_date,
+       pt.updated_at AS assigned_at,
+       tc.company_name
+     FROM picking_tasks pt
+     INNER JOIN outbound_requests o ON o.outbound_request_id = pt.outbound_request_id
+     INNER JOIN tenant_companies tc ON tc.tenant_id = o.tenant_id
+     WHERE pt.assigned_to = $1
+       AND o.status IN ('RESERVED', 'PICKING', 'PACKING')
+     ORDER BY pt.updated_at DESC
+     LIMIT 10`,
+    [user.userId]
+  );
+
+  return {
+    assignedCount: Number(countResult.rows[0]?.assigned_count) || 0,
+    pickingCount: Number(countResult.rows[0]?.picking_count) || 0,
+    recent: recentResult.rows.map((row) => ({
+      outboundRequestId: row.outbound_request_id,
+      outboundCode: row.outbound_code,
+      status: row.status,
+      requestedShipDate: row.requested_ship_date,
+      companyName: row.company_name,
+      assignedAt: row.assigned_at,
+    })),
+  };
+}
+
 /** Tenant admin — inbound kho đi lấy đã gán tài xế hoặc đã tới kho. */
 export async function getTenantInboundTransportAlerts(user) {
   if (user?.role !== 'TENANT_ADMIN' || !user.tenantId) {
-    return { assignedCount: 0, arrivedCount: 0, recent: [] };
+    return { assignedCount: 0, inTransitCount: 0, arrivedCount: 0, recent: [] };
   }
 
   const countResult = await pool.query(
@@ -332,13 +388,14 @@ export async function getTenantInboundTransportAlerts(user) {
          WHERE ir.status = 'APPROVED'
            AND id.assigned_driver_user_id IS NOT NULL
        )::int AS assigned_count,
+       COUNT(*) FILTER (WHERE ir.status = 'IN_TRANSIT')::int AS in_transit_count,
        COUNT(*) FILTER (WHERE ir.status = 'ARRIVED')::int AS arrived_count
      FROM inbound_deliveries id
      INNER JOIN inbound_requests ir ON ir.inbound_request_id = id.inbound_request_id
      WHERE ir.tenant_id = $1
        AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
        AND id.assigned_driver_user_id IS NOT NULL
-       AND ir.status IN ('APPROVED', 'ARRIVED', 'RECEIVING')`,
+       AND ir.status IN ('APPROVED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVING')`,
     [user.tenantId]
   );
 
@@ -358,8 +415,12 @@ export async function getTenantInboundTransportAlerts(user) {
        AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
        AND id.assigned_driver_user_id IS NOT NULL
      ORDER BY
-       CASE WHEN ir.status = 'ARRIVED' THEN 0 ELSE 1 END,
-       COALESCE(ir.actual_arrival_at, id.updated_at) DESC
+       CASE
+         WHEN ir.status = 'ARRIVED' THEN 0
+         WHEN ir.status = 'IN_TRANSIT' THEN 1
+         ELSE 2
+       END,
+       COALESCE(ir.actual_arrival_at, id.actual_pickup_at, id.updated_at) DESC
      LIMIT 10`,
     [user.tenantId]
   );
@@ -368,6 +429,7 @@ export async function getTenantInboundTransportAlerts(user) {
 
   return {
     assignedCount: Number(counts.assigned_count) || 0,
+    inTransitCount: Number(counts.in_transit_count) || 0,
     arrivedCount: Number(counts.arrived_count) || 0,
     recent: recentResult.rows.map((row) => ({
       inboundRequestId: row.inbound_request_id,
@@ -436,6 +498,61 @@ export async function getWarehouseAdminPendingAppendixAlerts(user) {
       contractCode: row.contract_code,
       companyName: row.company_name,
       createdAt: row.created_at,
+    })),
+  };
+}
+
+/** WH Admin — inbound kho đi lấy: tài xế đã lấy hàng, đang về kho. */
+export async function getWarehouseAdminInTransitInboundAlerts(user) {
+  if (user?.role !== 'WH_ADMIN' || !user.warehouseId) {
+    return { inTransitCount: 0, warehouseName: null, recent: [] };
+  }
+
+  const warehouse = await getWarehouseById(user.warehouseId);
+  const warehouseId = user.warehouseId;
+
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS in_transit_count
+     FROM inbound_requests ir
+     WHERE ir.warehouse_id = $1
+       AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
+       AND ir.status = 'IN_TRANSIT'`,
+    [warehouseId]
+  );
+
+  const recentResult = await pool.query(
+    `SELECT
+       ir.inbound_request_id,
+       ir.inbound_code,
+       ir.status,
+       id.actual_pickup_at,
+       id.vehicle_plate,
+       id.driver_name,
+       id.pickup_address,
+       tc.company_name
+     FROM inbound_requests ir
+     LEFT JOIN inbound_deliveries id ON id.inbound_request_id = ir.inbound_request_id
+     INNER JOIN tenant_companies tc ON tc.tenant_id = ir.tenant_id
+     WHERE ir.warehouse_id = $1
+       AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
+       AND ir.status = 'IN_TRANSIT'
+     ORDER BY id.actual_pickup_at DESC NULLS LAST
+     LIMIT 10`,
+    [warehouseId]
+  );
+
+  return {
+    inTransitCount: Number(countResult.rows[0]?.in_transit_count) || 0,
+    warehouseName: warehouse.warehouseName ?? null,
+    recent: recentResult.rows.map((row) => ({
+      inboundRequestId: row.inbound_request_id,
+      inboundCode: row.inbound_code,
+      status: row.status,
+      actualPickupAt: row.actual_pickup_at,
+      vehiclePlate: row.vehicle_plate,
+      driverName: row.driver_name,
+      pickupAddress: row.pickup_address,
+      companyName: row.company_name,
     })),
   };
 }

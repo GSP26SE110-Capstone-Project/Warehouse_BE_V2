@@ -68,6 +68,10 @@ router.post(
 );
 router.post('/:inboundRequestId/complete', asyncHandler(inboundRequestController.complete));
 router.post(
+  '/:inboundRequestId/report-pickup',
+  asyncHandler(inboundRequestController.reportPickup)
+);
+router.post(
   '/:inboundRequestId/report-arrival',
   asyncHandler(inboundRequestController.reportArrival)
 );

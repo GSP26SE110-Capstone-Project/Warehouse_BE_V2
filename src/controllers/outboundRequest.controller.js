@@ -3,16 +3,26 @@ import * as outboundRequestItemService from '../services/outboundRequestItem.ser
 import * as outboundWorkflowService from '../services/outboundWorkflow.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
+import AppError from '../utils/AppError.js';
 
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);
-  const { tenantId, warehouseId, contractId, status } = req.query;
+  const { tenantId, warehouseId, contractId, status, assignedPickerMe } = req.query;
+
+  let assignedPickerUserId;
+  if (assignedPickerMe === 'true' || assignedPickerMe === '1') {
+    if (req.user?.role !== 'WH_STAFF') {
+      throw new AppError('assignedPickerMe requires WH_STAFF', 403, 'FORBIDDEN');
+    }
+    assignedPickerUserId = req.user.userId;
+  }
 
   const result = await outboundRequestService.listOutboundRequests({
     tenantId,
     warehouseId,
     contractId,
     status,
+    assignedPickerUserId,
     page,
     limit,
     offset,
@@ -56,6 +66,15 @@ export async function listPickingTasks(req, res) {
     req.params.outboundRequestId
   );
   success(res, tasks);
+}
+
+export async function assignPicker(req, res) {
+  const tasks = await outboundWorkflowService.assignPickingTaskPicker(
+    req.params.outboundRequestId,
+    req.user,
+    req.body.assignedPickerUserId
+  );
+  success(res, tasks, 'Picker assigned successfully');
 }
 
 export async function remove(req, res) {

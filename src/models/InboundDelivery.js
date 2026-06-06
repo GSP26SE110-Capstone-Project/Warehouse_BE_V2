@@ -64,6 +64,10 @@ export const inboundDeliverySchema = {
     required: false,
     foreignKey: 'assigned_driver_user_id',
   },
+  actualPickupAt: {
+    type: 'datetime',
+    required: false,
+  },
   createdAt: {
     type: 'datetime',
     default: 'NOW()',

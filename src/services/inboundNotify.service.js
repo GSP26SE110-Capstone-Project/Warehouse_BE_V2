@@ -2,6 +2,8 @@ import pool from '../config/db.js';
 import {
   sendInboundArrivalTenantEmail,
   sendInboundArrivalWhAdminEmail,
+  sendInboundPickupTenantEmail,
+  sendInboundPickupWhAdminEmail,
   sendInboundTransportAssignedEmail,
 } from '../config/mail.js';
 import {
@@ -173,6 +175,79 @@ export async function notifyInboundArrivalReported({ inbound, delivery, actor })
         vehiclePlate,
         warehouseName: warehouse.warehouseName,
         warehouseAddress,
+        inboundUrl: buildTenantInboundUrl(inbound.inboundRequestId),
+      });
+      results.tenantAdmin = { sent: true, to: tenantAdmin.email };
+    } catch (err) {
+      results.tenantAdmin = { sent: false, to: tenantAdmin.email, error: err.message };
+    }
+  } else {
+    results.tenantAdmin = { sent: false, reason: 'NO_TENANT_ADMIN' };
+  }
+
+  return results;
+}
+
+/**
+ * Thông báo WH Admin + Tenant Admin khi tài xế báo đã lấy hàng tại tenant (→ IN_TRANSIT).
+ */
+export async function notifyInboundPickupReported({ inbound, delivery, actor }) {
+  if (inbound?.deliveryMode !== 'WAREHOUSE_TRANSPORT') {
+    return {
+      whAdmin: { sent: false, reason: 'NOT_WAREHOUSE_TRANSPORT' },
+      tenantAdmin: { sent: false, reason: 'NOT_WAREHOUSE_TRANSPORT' },
+    };
+  }
+
+  const actualPickupAt = formatDateVi(delivery?.actualPickupAt ?? new Date());
+  const [tenant, warehouse, driver, whAdmin, tenantAdmin] = await Promise.all([
+    getTenantCompany(inbound.tenantId),
+    getWarehouseById(inbound.warehouseId),
+    delivery?.assignedDriverUserId ? User.findById(delivery.assignedDriverUserId) : Promise.resolve(null),
+    findActiveWhAdmin(inbound.warehouseId),
+    findActiveTenantAdmin(inbound.tenantId),
+  ]);
+
+  const driverName = delivery?.driverName ?? driver?.fullName ?? actor?.fullName ?? '—';
+  const driverPhone = delivery?.driverPhone ?? driver?.phone ?? '—';
+  const vehiclePlate = delivery?.vehiclePlate ?? '—';
+  const pickupAddress = delivery?.pickupAddress ?? tenant.address ?? '—';
+
+  const results = { whAdmin: { sent: false }, tenantAdmin: { sent: false } };
+
+  if (whAdmin?.email) {
+    try {
+      await sendInboundPickupWhAdminEmail({
+        to: whAdmin.email,
+        whAdminName: whAdmin.fullName,
+        inboundCode: inbound.inboundCode,
+        actualPickupAt,
+        driverName,
+        driverPhone,
+        vehiclePlate,
+        companyName: tenant.companyName ?? '—',
+        pickupAddress,
+        inboundUrl: buildWhAdminInboundUrl(inbound.inboundRequestId),
+      });
+      results.whAdmin = { sent: true, to: whAdmin.email };
+    } catch (err) {
+      results.whAdmin = { sent: false, to: whAdmin.email, error: err.message };
+    }
+  } else {
+    results.whAdmin = { sent: false, reason: 'NO_WH_ADMIN' };
+  }
+
+  if (tenantAdmin?.email) {
+    try {
+      await sendInboundPickupTenantEmail({
+        to: tenantAdmin.email,
+        tenantAdminName: tenantAdmin.fullName,
+        inboundCode: inbound.inboundCode,
+        actualPickupAt,
+        driverName,
+        vehiclePlate,
+        pickupAddress,
+        warehouseName: warehouse.warehouseName,
         inboundUrl: buildTenantInboundUrl(inbound.inboundRequestId),
       });
       results.tenantAdmin = { sent: true, to: tenantAdmin.email };

@@ -1,3 +1,4 @@
+import pool from '../config/db.js';
 import OutboundRequest from '../models/OutboundRequest.js';
 import AppError from '../utils/AppError.js';
 import { OUTBOUND_STATUS } from '../constants/outbound.js';
@@ -164,11 +165,72 @@ export async function listOutboundRequests({
   warehouseId,
   contractId,
   status,
+  assignedPickerUserId,
   page,
   limit,
   offset,
 }) {
   assertEnum(status, OUTBOUND_STATUS, 'status');
+
+  if (assignedPickerUserId) {
+    const pickerId = parseUuid(assignedPickerUserId, 'assignedPickerUserId');
+    const conditions = ['pt.assigned_to = $1'];
+    const values = [pickerId];
+    let paramIdx = 2;
+
+    if (tenantId) {
+      const tId = parseUuid(tenantId, 'tenantId');
+      await getTenantCompany(tId);
+      conditions.push(`o.tenant_id = $${paramIdx++}`);
+      values.push(tId);
+    }
+    if (warehouseId) {
+      const wId = parseUuid(warehouseId, 'warehouseId');
+      await getWarehouseById(wId);
+      conditions.push(`o.warehouse_id = $${paramIdx++}`);
+      values.push(wId);
+    }
+    if (contractId) {
+      conditions.push(`o.contract_id = $${paramIdx++}`);
+      values.push(parseUuid(contractId, 'contractId'));
+    }
+    if (status) {
+      conditions.push(`o.status = $${paramIdx++}`);
+      values.push(status);
+    }
+
+    const whereClause = conditions.join(' AND ');
+    const countResult = await pool.query(
+      `SELECT COUNT(DISTINCT o.outbound_request_id)::int AS total
+       FROM outbound_requests o
+       INNER JOIN picking_tasks pt ON pt.outbound_request_id = o.outbound_request_id
+       WHERE ${whereClause}`,
+      values
+    );
+    const total = Number(countResult.rows[0]?.total) || 0;
+
+    values.push(limit, offset);
+    const listResult = await pool.query(
+      `SELECT DISTINCT o.*
+       FROM outbound_requests o
+       INNER JOIN picking_tasks pt ON pt.outbound_request_id = o.outbound_request_id
+       WHERE ${whereClause}
+       ORDER BY o.created_at DESC
+       LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
+      values
+    );
+
+    const items = OutboundRequest._mapRows(listResult.rows);
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 0,
+      },
+    };
+  }
 
   const filters = {};
   if (tenantId) {
@@ -259,6 +321,7 @@ export async function updateOutboundRequest(outboundRequestId, body, actor = nul
   delete sanitized.createdBy;
 
   const data = normalizeUpdatePayload(sanitized);
+  const assignedPickerUserId = body.assignedPickerUserId;
 
   if (data.status !== undefined && data.status !== existing.status) {
     if (data.status === 'PENDING') {
@@ -269,7 +332,7 @@ export async function updateOutboundRequest(outboundRequestId, body, actor = nul
       existing,
       data.status,
       actor,
-      data
+      { ...data, assignedPickerUserId }
     );
 
     if (workflowPatch.__fullyHandled) {
