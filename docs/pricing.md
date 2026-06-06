@@ -44,12 +44,12 @@ lớn (1000m²+)
 
 
 Tao recommend capstone:
-120,000 VNĐ / m² / tháng
+180,000 VNĐ / m² / tháng
 
 Ví dụ:
 500m²:
-500 × 120,000
-= 60 triệu / tháng
+500 × 180,000
+= 90 triệu / tháng
 
 4. Zone Pricing
 Dedicated Zone
@@ -69,13 +69,13 @@ Tao recommend:
 Zone Type
 Price/m²/month
 SHARED
-120k  -> 140k
+120k
 FAST_MOVING
 220k
 PREMIUM
-300k
-PRIVATE
 250k
+PRIVATE
+200k
 
 
 5. Rack Pricing
@@ -118,20 +118,19 @@ pick dễ hơn
 Theo:
 box/day
 
-Tao recommend:
+Tao recommend (flat /tháng — nguồn gốc billing):
 Box Type
-Suggested Price/day
+Price/thùng/month
 SMALL
 10k
 MEDIUM
-20k
+15k
 LARGE
-35k
+25k
 EXTRA
-50k
+45k
 
-
-Đây khá realistic.
+BOX_DAY (prorate): round(giá_tháng / 30) — SMALL ~333 ₫/ngày, MEDIUM 500, LARGE 833, EXTRA 1.500.
 
 8. Fast Moving Surcharge
 
@@ -243,7 +242,7 @@ Unit
 Suggested Price
 Warehouse
 m²/month
-120k
+180k
 Shared Zone
 m²/month
 120k
@@ -252,7 +251,10 @@ m²/month
 220k
 Premium Zone
 m²/month
-300k
+250k
+Private Zone
+m²/month
+200k
 Bulk Zone
 m²/month
 100k
@@ -266,17 +268,17 @@ Rack Level
 level/day
 40k–60k
 SMALL
-box/day
+thùng/month
 10k
 MEDIUM
-box/day
-20k
+thùng/month
+15k
 LARGE
-box/day
-35k
+thùng/month
+25k
 EXTRA
-box/day
-50k
+thùng/month
+45k
 
 
 16. Tao recommend:

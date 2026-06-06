@@ -365,10 +365,10 @@ Approval → Contract → ContractItems (pricingDefaults seed)
 | Shared storage ~10 MEDIUM | 10 × 20k × 30 | **6.000.000 ₫** |
 | Reserved 50 m² | 50 × 140k | **7.000.000 ₫** |
 | Dedicated zone SHARED 50 m² | 50 × 140k | **7.000.000 ₫** |
-| Dedicated warehouse 500 m² | 500 × 120k | **60.000.000 ₫** |
+| Dedicated warehouse 500 m² | 500 × 180k | **90.000.000 ₫** |
 | Dedicated zone FAST 50 m² | 50 × 220k | **11.000.000 ₫** |
 
-→ Tenant cần diện tích lớn (vd. >400 m²) sẽ có động lực chuyển sang **thuê nguyên kho** (120k/m²) thay vì nhiều zone SHARED (140k/m²).
+→ Tenant cần diện tích lớn (vd. >400 m²) sẽ có động lực chuyển sang **thuê nguyên kho** (180k/m²) thay vì nhiều zone SHARED (140k/m²).
 
 ---
 
@@ -376,27 +376,31 @@ Approval → Contract → ContractItems (pricingDefaults seed)
 
 | Constant | File | Giá trị v2 |
 |----------|------|------------|
-| `WAREHOUSE_PRICE_PER_M2_MONTH` | `rentalPricingDefaults.js` | `120_000` |
-| `ZONE_PRICE_PER_M2_MONTH.SHARED` | `rentalPricingDefaults.js` | **`140_000`** |
+| `WAREHOUSE_PRICE_PER_M2_MONTH` | `rentalPricingDefaults.js` | `180_000` |
+| `ZONE_PRICE_PER_M2_MONTH.SHARED` | `rentalPricingDefaults.js` | `120_000` |
 | `ZONE_PRICE_PER_M2_MONTH.FAST_MOVING` | `rentalPricingDefaults.js` | `220_000` |
-| `ZONE_PRICE_PER_M2_MONTH.PREMIUM` | `rentalPricingDefaults.js` | `300_000` |
-| `ZONE_PRICE_PER_M2_MONTH.PRIVATE` | `rentalPricingDefaults.js` | `250_000` |
-| `SHARED_STORAGE_AVG_BOX_DAY` | `rentalPricingDefaults.js` | `20_000` |
-| `STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE` | `pricingDefaults.js` | 10k / 20k / 35k / 50k |
+| `ZONE_PRICE_PER_M2_MONTH.PREMIUM` | `rentalPricingDefaults.js` | `250_000` |
+| `ZONE_PRICE_PER_M2_MONTH.PRIVATE` | `rentalPricingDefaults.js` | `200_000` |
+| `SHARED_STORAGE_AVG_BOX_MONTH` | `rentalPricingDefaults.js` | `23_750` |
+| `SHARED_STORAGE_AVG_BOX_DAY` | `rentalPricingDefaults.js` | `792` (round) |
+| `STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE` | `pricingDefaults.js` | 10k / 15k / 25k / 45k |
+| `STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE` | `pricingDefaults.js` | round(month/30) |
 | `INBOUND_LPN_PRICE_BY_BOX_TYPE` | `pricingDefaults.js` | 10k / 20k / 35k / 50k |
 | `PREMIUM_STORAGE_SURCHARGE_RATIO` | `rentalPricingDefaults.js` | `1.2` |
 | `DAYS_PER_BILLING_MONTH` | cả hai file | `30` |
 
-**Frontend:** `Warehouse_Web_FE/src/data/pricing.ts` — cập nhật `ZONE_PRICING[SHARED].price = 140_000`.
+**Frontend:** `Warehouse_Web_FE/src/data/pricing.ts` — `WAREHOUSE_PRICING` 180k, `ZONE_PRICING` Premium 250k / Private 200k, `BOX_MONTH_PRICING` flat 10k/15k/25k/45k.
 
 ---
 
 ## 16. Thay đổi so với `pricing.md` v1
 
-| Hạng mục | v1 | v2 |
+| Hạng mục | v1 | v3 (hiện tại) |
 |----------|----|----|
-| Zone SHARED | 120.000 ₫/m² | **140.000 ₫/m²** |
-| Warehouse | 120.000 ₫/m² | 120.000 ₫/m² (giữ) |
-| Bulk Zone | 100.000 ₫/m² | **Bỏ** — không có trong enum `ZONE_TYPE` |
-| Hierarchy giá | Warehouse = SHARED zone | Warehouse **rẻ hơn** SHARED zone |
-| RESERVED theo m² | 120k (SHARED cũ) | **140k** |
+| Warehouse | 120.000 ₫/m² | **180.000 ₫/m²** |
+| Premium zone | 300.000 ₫/m² | **250.000 ₫/m²** |
+| Private zone | 250.000 ₫/m² | **200.000 ₫/m²** |
+| Box SMALL/tháng | 300k (10k×30) | **10.000 ₫** flat |
+| Box MEDIUM/tháng | 600k | **15.000 ₫** |
+| Box LARGE/tháng | 1.050k | **25.000 ₫** |
+| Box EXTRA/tháng | 1.500k | **45.000 ₫** |
