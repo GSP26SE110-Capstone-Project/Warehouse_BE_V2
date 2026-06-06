@@ -267,6 +267,11 @@ const spec = {
       '10. `PATCH { "status": "SHIPPED" }` — kiểm tra pick + trừ tồn + `actualShippedAt`\n' +
       '11. `PATCH { "status": "COMPLETED" }` từ `SHIPPED`\n' +
       '12. Hủy (WH): `CANCELLED` trước `SHIPPED` — giải phóng reserve nếu đã `RESERVED`+\n\n' +
+      '**Giao hàng (sau SHIPPED, option B — trừ tồn trước)**\n' +
+      '- `deliveryMode` trên phiếu: `TENANT_SELF` (tenant đến kho lấy, cần `vehiclePlate`) · `WAREHOUSE_TRANSPORT` (kho giao ra, tenant nhập `shipToAddress`)\n' +
+      '- `PUT …/delivery` — tenant (địa chỉ / biển số) · WH Admin gán `assignedDriverUserId` sau `SHIPPED`\n' +
+      '- `POST …/report-pickup` — tài xế lấy hàng khỏi kho → `deliveryStatus: IN_TRANSIT`\n' +
+      '- `POST …/report-delivery` — tài xế giao xong → `DELIVERED` + auto `COMPLETED`\n\n' +
       '**State machine:** `DRAFT` → `PENDING` → (`APPROVED` nội bộ) → **`RESERVED`** → `PICKING` → `PACKING` → **`SHIPPED`** → `COMPLETED` · `CANCELLED`\n\n' +
       '### Flow 5 — AI slot recommendation (putaway)\n' +
       '**Tiền điều kiện (sau Flow 3 receiving):** LPN `RECEIVING`, có `POST /lpn-details`, `warehouseId` inbound; nên có `weightKg` (rack-suggestion). **Rule engine** chọn bin (`slotting-v1-rule`); **LLM** (Gemini/Ollama) chỉ **giải thích** — không đổi bin.\n\n' +

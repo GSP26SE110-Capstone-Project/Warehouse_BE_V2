@@ -159,6 +159,30 @@ const EXACT = Object.freeze({
     'Chỉ gán picker khi phiếu ở trạng thái RESERVED',
   'Cannot reassign picker after picking has started':
     'Không thể đổi nhân viên pick sau khi đã bắt đầu pick',
+  'This outbound is not warehouse transport': 'Phiếu xuất này không phải hình thức kho giao ra',
+  'Outbound delivery trip is only active after SHIPPED':
+    'Chuyến giao outbound chỉ hoạt động sau khi phiếu SHIPPED',
+  'Assign transporter after outbound is SHIPPED (inventory deducted)':
+    'Gán tài xế sau khi phiếu SHIPPED (đã trừ tồn)',
+  'shipToAddress is required for warehouse transport before shipping':
+    'Cần địa chỉ giao hàng trước khi xuất kho (kho giao ra)',
+  'vehiclePlate is required for tenant self pickup before shipping':
+    'Cần biển số xe trước khi xuất kho (tenant tự lấy)',
+  'Save tenant vehicle info on delivery before shipping':
+    'Lưu biển số xe trước khi WH Admin xuất hàng',
+  'Only WAREHOUSE_TRANSPORT outbound supports driver assignment':
+    'Chỉ phiếu kho giao ra mới gán tài xế',
+  'Delivery record not found — ship outbound first': 'Chưa có bản ghi giao hàng — xuất hàng trước',
+  'Cannot change assignment after pickup has started':
+    'Không đổi tài xế sau khi đã lấy hàng khỏi kho',
+  'Transporter already has an active outbound trip': 'Tài xế đang có chuyến giao outbound chưa xong',
+  'Save vehicle plate before reporting pickup': 'Lưu biển số xe trước khi báo lấy hàng',
+  'shipToAddress is required before reporting pickup': 'Cần địa chỉ giao trước khi báo lấy hàng',
+  'shipToAddress is required': 'Địa chỉ giao hàng là bắt buộc',
+  'shipToContactName is required': 'Tên người nhận là bắt buộc',
+  'shipToContactPhone is required': 'SĐT người nhận là bắt buộc',
+  'Tenant can only update delivery info before warehouse processing':
+    'Tenant chỉ sửa thông tin giao hàng khi phiếu còn PENDING/DRAFT',
   'SYSTEM_ADMIN only': 'Chỉ System Admin mới thực hiện được thao tác này',
   'Cannot reactivate blocked user': 'Không thể kích hoạt lại tài khoản đã bị khóa',
   'Cannot deactivate your own account': 'Không thể tự vô hiệu hóa tài khoản của chính bạn',

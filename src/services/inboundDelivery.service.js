@@ -13,6 +13,7 @@ import {
   notifyInboundPickupReported,
   notifyTenantAdminTransportAssigned,
 } from './inboundNotify.service.js';
+import { assertTransporterAvailable } from './transporterAvailability.service.js';
 
 const UPSERT_FIELDS = [
   'vehiclePlate',
@@ -85,40 +86,6 @@ async function assertTransporterAssignable(userId, warehouseId) {
     throw new AppError('Transporter does not belong to this warehouse', 400, 'VALIDATION_ERROR');
   }
   return id;
-}
-
-async function assertTransporterAvailable(userId, warehouseId, excludeInboundRequestId = null) {
-  const driverId = parseUuid(userId, 'assignedDriverUserId');
-  const wId = parseUuid(warehouseId, 'warehouseId');
-  const values = [driverId, wId];
-  let excludeClause = '';
-
-  if (excludeInboundRequestId) {
-    values.push(parseUuid(excludeInboundRequestId, 'inboundRequestId'));
-    excludeClause = `AND ir.inbound_request_id <> $${values.length}`;
-  }
-
-  const result = await pool.query(
-    `SELECT ir.inbound_code
-     FROM inbound_deliveries id
-     INNER JOIN inbound_requests ir ON ir.inbound_request_id = id.inbound_request_id
-     WHERE id.assigned_driver_user_id = $1
-       AND ir.warehouse_id = $2
-       AND ir.delivery_mode = 'WAREHOUSE_TRANSPORT'
-       AND ir.status IN ('PENDING', 'APPROVED', 'IN_TRANSIT')
-       ${excludeClause}
-     LIMIT 1`,
-    values
-  );
-
-  const row = result.rows[0];
-  if (row) {
-    throw new AppError(
-      `Transporter already has an active trip (${row.inbound_code})`,
-      409,
-      'TRANSPORTER_HAS_ACTIVE_TRIP'
-    );
-  }
 }
 
 function assertActorCanManageDelivery(actor, inbound) {
@@ -335,11 +302,9 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
       data.assignedDriverUserId,
       inbound.warehouseId
     );
-    await assertTransporterAvailable(
-      data.assignedDriverUserId,
-      inbound.warehouseId,
-      id
-    );
+    await assertTransporterAvailable(data.assignedDriverUserId, inbound.warehouseId, {
+      excludeInboundRequestId: id,
+    });
     const transporter = await User.findById(data.assignedDriverUserId);
     const merged = applyTransporterProfileToDelivery(transporter, data, existing);
     Object.assign(data, merged);

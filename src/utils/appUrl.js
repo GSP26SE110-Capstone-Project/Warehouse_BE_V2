@@ -36,3 +36,7 @@ export function buildWhStaffOutboundUrl(outboundRequestId) {
 export function buildWhAdminOutboundUrl(outboundRequestId) {
   return `${getFrontendBaseUrl()}/admin/outbound/${outboundRequestId}`;
 }
+
+export function buildTransporterOutboundUrl(outboundRequestId) {
+  return `${getFrontendBaseUrl()}/staff/my-deliveries/outbound/${outboundRequestId}`;
+}

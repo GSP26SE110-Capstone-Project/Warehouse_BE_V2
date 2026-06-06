@@ -18,6 +18,10 @@ import {
 import { parseUuid } from '../utils/validate.js';
 import { assertOutboundInventorySufficient } from './outboundRequestItem.service.js';
 import { notifyPickerAssigned } from './outboundNotify.service.js';
+import {
+  assertOutboundDeliveryReadyToShip,
+  ensureOutboundDeliveryOnShip,
+} from './outboundDelivery.service.js';
 
 async function loadOutboundRequest(outboundRequestId) {
   const id = parseUuid(outboundRequestId, 'outboundRequestId');
@@ -95,26 +99,69 @@ function actorUserId(actor) {
   return actor.userId;
 }
 
+const AVAILABLE_INVENTORY_BASE_SQL = `
+  FROM inventories i
+  INNER JOIN batches bat ON bat.batch_id = i.batch_id
+  INNER JOIN lpns l ON l.lpn_id = i.lpn_id
+  INNER JOIN bins b ON b.bin_id = i.bin_id
+  INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
+  INNER JOIN racks r ON r.rack_id = rl.rack_id
+  INNER JOIN warehouse_zones z ON z.zone_id = r.zone_id
+  WHERE i.tenant_id = $1
+    AND i.sku_id = $2
+    AND z.warehouse_id = $3
+    AND i.status = 'AVAILABLE'
+    AND i.available_quantity > 0
+  ORDER BY i.received_at ASC NULLS LAST, bat.warehouse_received_at ASC NULLS LAST`;
+
 async function fetchAvailableInventoryRows(client, tenantId, skuId, warehouseId) {
   const { rows } = await client.query(
     `SELECT i.inventory_id, i.available_quantity, i.reserved_quantity, i.quantity,
             i.lpn_id, i.bin_id, i.batch_id
-     FROM inventories i
-     INNER JOIN batches bat ON bat.batch_id = i.batch_id
-     INNER JOIN bins b ON b.bin_id = i.bin_id
-     INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
-     INNER JOIN racks r ON r.rack_id = rl.rack_id
-     INNER JOIN warehouse_zones z ON z.zone_id = r.zone_id
-     WHERE i.tenant_id = $1
-       AND i.sku_id = $2
-       AND z.warehouse_id = $3
-       AND i.status = 'AVAILABLE'
-       AND i.available_quantity > 0
-     ORDER BY i.received_at ASC NULLS LAST, bat.warehouse_received_at ASC NULLS LAST
+     ${AVAILABLE_INVENTORY_BASE_SQL}
      FOR UPDATE OF i`,
     [tenantId, skuId, warehouseId]
   );
   return rows;
+}
+
+async function fetchAvailableInventoryRowsForPreview(tenantId, skuId, warehouseId) {
+  const { rows } = await pool.query(
+    `SELECT i.inventory_id, i.available_quantity,
+            i.lpn_id, i.bin_id, i.batch_id, i.received_at,
+            l.lpn_code, b.bin_code, bat.batch_code, bat.warehouse_received_at
+     ${AVAILABLE_INVENTORY_BASE_SQL}`,
+    [tenantId, skuId, warehouseId]
+  );
+  return rows;
+}
+
+function simulateFifoAllocations(rows, requestedQuantity) {
+  let remaining = requestedQuantity;
+  const allocations = [];
+
+  for (const row of rows) {
+    if (remaining <= 0) break;
+    const available = Number(row.available_quantity ?? 0);
+    if (available <= 0) continue;
+
+    const take = Math.min(remaining, available);
+    allocations.push({
+      inventoryId: row.inventory_id,
+      lpnId: row.lpn_id,
+      lpnCode: row.lpn_code,
+      binId: row.bin_id,
+      binCode: row.bin_code,
+      batchId: row.batch_id,
+      batchCode: row.batch_code,
+      quantityToPick: take,
+      receivedAt: row.received_at,
+      warehouseReceivedAt: row.warehouse_received_at,
+    });
+    remaining -= take;
+  }
+
+  return { allocations, shortBy: remaining };
 }
 
 async function reserveLine(client, outbound, line) {
@@ -512,6 +559,8 @@ export async function shipOutbound(outboundRequestId, actor) {
     );
   }
 
+  await assertOutboundDeliveryReadyToShip(outbound);
+
   const movedBy = actorUserId(actor);
   const client = await pool.connect();
 
@@ -616,6 +665,11 @@ export async function shipOutbound(outboundRequestId, actor) {
       client
     );
 
+    await ensureOutboundDeliveryOnShip(
+      { ...outbound, outboundRequestId, status: 'SHIPPED' },
+      client
+    );
+
     await client.query('COMMIT');
     return updated;
   } catch (err) {
@@ -624,6 +678,96 @@ export async function shipOutbound(outboundRequestId, actor) {
   } finally {
     client.release();
   }
+}
+
+/** Xem trước phân bổ FIFO trước khi duyệt (không ghi DB). */
+export async function previewFifoAllocationForOutbound(outboundRequestId, actor) {
+  assertWhAdminOutboundRole(actor, 'preview FIFO allocation');
+  const id = parseUuid(outboundRequestId, 'outboundRequestId');
+  const outbound = await loadOutboundRequest(id);
+
+  if (!['PENDING', 'APPROVED'].includes(outbound.status)) {
+    throw new AppError(
+      'FIFO preview is only available for PENDING or APPROVED outbound requests',
+      400,
+      'INVALID_OUTBOUND_STATUS'
+    );
+  }
+
+  const linesResult = await pool.query(
+    `SELECT oi.outbound_request_item_id, oi.sku_id, oi.requested_quantity,
+            s.sku_code, s.product_name, s.size, s.color
+     FROM outbound_request_items oi
+     INNER JOIN skus s ON s.sku_id = oi.sku_id
+     WHERE oi.outbound_request_id = $1
+     ORDER BY oi.outbound_request_item_id ASC`,
+    [id]
+  );
+
+  if (linesResult.rows.length === 0) {
+    throw new AppError(
+      'Outbound request must have at least one line item',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+
+  const lines = [];
+  const allocations = [];
+  let fifoOrder = 0;
+  let sufficient = true;
+
+  for (const lineRow of linesResult.rows) {
+    const rows = await fetchAvailableInventoryRowsForPreview(
+      outbound.tenantId,
+      lineRow.sku_id,
+      outbound.warehouseId
+    );
+    const { allocations: lineAllocations, shortBy } = simulateFifoAllocations(
+      rows,
+      Number(lineRow.requested_quantity)
+    );
+
+    const lineAllocationsWithOrder = lineAllocations.map((alloc) => {
+      fifoOrder += 1;
+      const enriched = {
+        fifoOrder,
+        outboundRequestItemId: lineRow.outbound_request_item_id,
+        skuId: lineRow.sku_id,
+        skuCode: lineRow.sku_code,
+        productName: lineRow.product_name,
+        size: lineRow.size,
+        color: lineRow.color,
+        ...alloc,
+      };
+      allocations.push(enriched);
+      return enriched;
+    });
+
+    if (shortBy > 0) sufficient = false;
+
+    lines.push({
+      outboundRequestItemId: lineRow.outbound_request_item_id,
+      skuId: lineRow.sku_id,
+      skuCode: lineRow.sku_code,
+      productName: lineRow.product_name,
+      size: lineRow.size,
+      color: lineRow.color,
+      requestedQuantity: Number(lineRow.requested_quantity),
+      allocatedQuantity: lineAllocations.reduce((sum, a) => sum + a.quantityToPick, 0),
+      shortBy,
+      allocations: lineAllocationsWithOrder,
+    });
+  }
+
+  return {
+    outboundRequestId: id,
+    outboundStatus: outbound.status,
+    fifoPolicy: 'received_at ASC, warehouse_received_at ASC',
+    sufficient,
+    lines,
+    allocations,
+  };
 }
 
 export async function listPickingTasksForOutbound(outboundRequestId) {
@@ -658,13 +802,17 @@ export async function listPickingTasksForOutbound(outboundRequestId) {
     const itemsResult = await pool.query(
       `SELECT pti.picking_task_item_id, pti.picking_task_id, pti.inventory_id,
               pti.lpn_id, pti.bin_id, pti.batch_id, pti.quantity_to_pick, pti.picked_quantity,
-              l.lpn_code, b.bin_code, bat.batch_code
+              l.lpn_code, b.bin_code, bat.batch_code,
+              i.received_at, bat.warehouse_received_at,
+              s.sku_id, s.sku_code, s.product_name, s.size, s.color
        FROM picking_task_items pti
        INNER JOIN lpns l ON l.lpn_id = pti.lpn_id
        INNER JOIN bins b ON b.bin_id = pti.bin_id
        INNER JOIN batches bat ON bat.batch_id = pti.batch_id
+       INNER JOIN inventories i ON i.inventory_id = pti.inventory_id
+       INNER JOIN skus s ON s.sku_id = i.sku_id
        WHERE pti.picking_task_id = $1
-       ORDER BY l.lpn_code ASC`,
+       ORDER BY i.received_at ASC NULLS LAST, bat.warehouse_received_at ASC NULLS LAST`,
       [taskRow.picking_task_id]
     );
 
@@ -675,7 +823,8 @@ export async function listPickingTasksForOutbound(outboundRequestId) {
       status: taskRow.status,
       createdAt: taskRow.created_at,
       updatedAt: taskRow.updated_at,
-      items: itemsResult.rows.map((row) => ({
+      items: itemsResult.rows.map((row, index) => ({
+        fifoOrder: index + 1,
         pickingTaskItemId: row.picking_task_item_id,
         pickingTaskId: row.picking_task_id,
         inventoryId: row.inventory_id,
@@ -687,6 +836,13 @@ export async function listPickingTasksForOutbound(outboundRequestId) {
         lpnCode: row.lpn_code,
         binCode: row.bin_code,
         batchCode: row.batch_code,
+        skuId: row.sku_id,
+        skuCode: row.sku_code,
+        productName: row.product_name,
+        size: row.size,
+        color: row.color,
+        receivedAt: row.received_at,
+        warehouseReceivedAt: row.warehouse_received_at,
       })),
     });
   }

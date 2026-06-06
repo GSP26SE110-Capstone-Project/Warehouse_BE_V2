@@ -1,6 +1,6 @@
 import User from '../models/User.js';
-import { sendOutboundPickerAssignedEmail } from '../config/mail.js';
-import { buildWhStaffOutboundUrl } from '../utils/appUrl.js';
+import { sendOutboundPickerAssignedEmail, sendOutboundTransporterAssignedEmail } from '../config/mail.js';
+import { buildWhStaffOutboundUrl, buildTransporterOutboundUrl } from '../utils/appUrl.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
 
@@ -48,4 +48,32 @@ export async function notifyPickerAssigned({ outbound, assignedPickerUserId }) {
       error: err.message || 'Failed to send notification email',
     };
   }
+}
+
+export async function notifyOutboundDeliveryAssigned({ outbound, delivery }) {
+  if (outbound?.deliveryMode !== 'WAREHOUSE_TRANSPORT' || !delivery?.assignedDriverUserId) {
+    return { sent: false, reason: 'NOT_APPLICABLE' };
+  }
+  const driver = await User.findById(delivery.assignedDriverUserId);
+  if (!driver?.email) return { sent: false, reason: 'NO_DRIVER_EMAIL' };
+  try {
+    await sendOutboundTransporterAssignedEmail({
+      to: driver.email,
+      driverName: driver.fullName,
+      outboundCode: outbound.outboundCode,
+      shipToAddress: delivery.shipToAddress ?? '—',
+      tripUrl: buildTransporterOutboundUrl(outbound.outboundRequestId),
+    });
+    return { sent: true, to: driver.email };
+  } catch (err) {
+    return { sent: false, error: err.message };
+  }
+}
+
+export async function notifyOutboundPickupReported({ outbound, delivery, actor }) {
+  return { sent: false, reason: 'EMAIL_OPTIONAL' };
+}
+
+export async function notifyOutboundDelivered({ outbound, delivery, actor }) {
+  return { sent: false, reason: 'EMAIL_OPTIONAL' };
 }

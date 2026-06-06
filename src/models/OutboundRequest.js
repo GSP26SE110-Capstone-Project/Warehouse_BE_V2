@@ -37,6 +37,10 @@ export const outboundRequestSchema = {
     type: 'string',
     required: false,
   },
+  deliveryMode: {
+    type: 'string',
+    required: false,
+  },
   createdBy: {
     type: 'string',
     required: false,

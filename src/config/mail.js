@@ -813,4 +813,41 @@ export async function sendOutboundPickerAssignedEmail({
   });
 }
 
+/** WH_TRANSPORTER — được gán giao outbound sau SHIPPED. */
+export async function sendOutboundTransporterAssignedEmail({
+  to,
+  driverName,
+  outboundCode,
+  shipToAddress,
+  tripUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Chuyến giao hàng xuất kho</h2>
+      <p>Xin chào <strong>${escapeHtml(driverName || 'Tài xế')}</strong>,</p>
+      <p>Bạn được gán giao phiếu xuất <strong>${escapeHtml(outboundCode)}</strong>.</p>
+      <p>Địa chỉ giao: ${escapeHtml(shipToAddress)}</p>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(tripUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Mở chuyến giao
+        </a>
+      </p>
+    </div>
+  `;
+
+  const text = [`Chuyến giao ${outboundCode}`, `Địa chỉ: ${shipToAddress}`, tripUrl].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Gán giao hàng — ${outboundCode}`,
+    text,
+    html,
+  });
+}
+
 export default transporter;
