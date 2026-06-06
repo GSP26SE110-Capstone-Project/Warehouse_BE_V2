@@ -22,7 +22,7 @@ import {
   createInitialInvoice,
 } from './contractInvoice.service.js';
 import { estimateContractPrice } from './contractPriceEstimate.service.js';
-import { startOfDayUtc, resolveEffectiveContractDates } from '../utils/rentalEffectiveDates.js';
+import { resolveEffectiveContractDates, toIsoDateOnly, startOfDayLocal } from '../utils/rentalEffectiveDates.js';
 
 const CREATE_FIELDS = [
   'contractCode',
@@ -79,6 +79,15 @@ function parseDateOnly(value, fieldName) {
     throw new AppError(`${fieldName} is not a valid date`, 400, 'VALIDATION_ERROR');
   }
   return date;
+}
+
+function serializeContractForApi(contract) {
+  if (!contract) return contract;
+  return {
+    ...contract,
+    startDate: toIsoDateOnly(contract.startDate) ?? contract.startDate,
+    endDate: toIsoDateOnly(contract.endDate) ?? contract.endDate,
+  };
 }
 
 function parseNonNegativeInt(value, fieldName) {
@@ -256,22 +265,15 @@ async function applyRentalLinkedEffectiveContractDates(data, rentalRequestId) {
     rr.expectedEndDate
   );
 
-  if (resolved.shifted) {
-    data.startDate = parseDateOnly(resolved.startDate, 'startDate');
-    data.endDate = parseDateOnly(resolved.endDate, 'endDate');
-    return;
-  }
-
-  if (data.startDate != null) {
-    assertRentalLinkedContractStartNotPast(data);
-  }
+  data.startDate = parseDateOnly(resolved.startDate, 'startDate');
+  data.endDate = parseDateOnly(resolved.endDate, 'endDate');
 }
 
 function assertRentalLinkedContractStartNotPast(data) {
   if (data.startDate == null) return;
-  const startDay = startOfDayUtc(data.startDate);
-  const todayDay = startOfDayUtc(new Date());
-  if (startDay < todayDay) {
+  const startIso = toIsoDateOnly(data.startDate);
+  const todayIso = startOfDayLocal();
+  if (startIso && startIso < todayIso) {
     throw new AppError(
       'Ngày bắt đầu HĐ không được trước hôm nay. Dịch start lên ngày duyệt và giữ nguyên số tháng thuê khách đã chọn.',
       400,
@@ -303,16 +305,19 @@ async function resolveEstimatedTotalAmount(contract, user = null) {
 
 /** Bổ sung giá ước tính từ rental request (SHARED_STORAGE = theo thùng) khi HĐ chưa lưu số tiền. */
 async function enrichContractEstimatedTotal(contract, user = null) {
-  if (!contract || hasEstimatedTotalAmount(contract)) return contract;
-  try {
-    const total = await resolveEstimatedTotalAmount(contract, user);
-    if (total != null) {
-      return { ...contract, estimatedTotalAmount: total };
+  if (!contract) return contract;
+  let enriched = contract;
+  if (!hasEstimatedTotalAmount(contract)) {
+    try {
+      const total = await resolveEstimatedTotalAmount(contract, user);
+      if (total != null) {
+        enriched = { ...contract, estimatedTotalAmount: total };
+      }
+    } catch (err) {
+      console.warn('[contract] enrich estimated total failed:', err?.message ?? err);
     }
-  } catch (err) {
-    console.warn('[contract] enrich estimated total failed:', err?.message ?? err);
   }
-  return contract;
+  return serializeContractForApi(enriched);
 }
 
 export async function getContract(contractId, user = null) {
@@ -382,7 +387,7 @@ export async function createContract(tenantId, warehouseId, body) {
 
   const contract = await Contract.create(data);
   await seedDefaultContractItems(contract.contractId);
-  return contract;
+  return serializeContractForApi(contract);
 }
 
 function applySignatureWorkflow(existing, data) {
@@ -498,7 +503,7 @@ export async function updateContract(contractId, body) {
     });
   }
 
-  return updated;
+  return serializeContractForApi(updated);
 }
 
 export async function assertContractOperational(contractId) {
