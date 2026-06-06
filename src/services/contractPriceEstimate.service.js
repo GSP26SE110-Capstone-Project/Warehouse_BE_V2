@@ -155,7 +155,7 @@ export async function estimateContractPrice(
   rentalRequestId,
   warehouseId,
   user,
-  { zoneIds, contractType: contractTypeOverride } = {}
+  { zoneIds, contractType: contractTypeOverride, startDate, endDate } = {}
 ) {
   const id = parseUuid(rentalRequestId, 'rentalRequestId');
   const rr = await getRentalRequest(id);
@@ -166,9 +166,14 @@ export async function estimateContractPrice(
   }
 
   const contractType = contractTypeOverride ?? rr.contractType ?? 'SHARED_STORAGE';
-  const selectedZonePricing = await resolvePricingFromZoneIds(zoneIds, whId, user, rr);
-  const billingDays = contractBillingDays(rr.expectedStartDate, rr.expectedEndDate);
-  const billingMonths = contractBillingMonths(rr.expectedStartDate, rr.expectedEndDate);
+  const usesZoneAreaPricing = contractType === 'DEDICATED_ZONE';
+  const selectedZonePricing = usesZoneAreaPricing
+    ? await resolvePricingFromZoneIds(zoneIds, whId, user, rr)
+    : null;
+  const periodStart = startDate ?? rr.expectedStartDate;
+  const periodEnd = endDate ?? rr.expectedEndDate;
+  const billingDays = contractBillingDays(periodStart, periodEnd);
+  const billingMonths = contractBillingMonths(periodStart, periodEnd);
   const requestedArea = parseArea(rr.requestedAreaM2);
 
   let warehouse = null;

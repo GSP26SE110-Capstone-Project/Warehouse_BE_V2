@@ -46,13 +46,13 @@ function parseZoneIdsQuery(query) {
 
 export async function getPriceEstimate(req, res) {
   const { rentalRequestId } = req.params;
-  const { warehouseId, contractType } = req.query;
+  const { warehouseId, contractType, startDate, endDate } = req.query;
   const zoneIds = parseZoneIdsQuery(req.query);
   const estimate = await contractPriceEstimateService.estimateContractPrice(
     rentalRequestId,
     warehouseId,
     req.user,
-    { zoneIds, contractType }
+    { zoneIds, contractType, startDate, endDate }
   );
   success(res, estimate);
 }

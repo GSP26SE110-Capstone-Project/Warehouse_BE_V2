@@ -76,4 +76,18 @@ router.get(
   asyncHandler(adminNotificationController.getTenantInboundTransportAlerts)
 );
 
+router.get(
+  '/tenant-rental-status',
+  authenticate,
+  authorize('TENANT_ADMIN'),
+  asyncHandler(adminNotificationController.getTenantRentalStatusAlerts)
+);
+
+router.get(
+  '/tenant-contract-actions',
+  authenticate,
+  authorize('TENANT_ADMIN'),
+  asyncHandler(adminNotificationController.getTenantContractActionAlerts)
+);
+
 export default router;
