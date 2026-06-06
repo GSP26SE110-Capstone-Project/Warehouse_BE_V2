@@ -280,7 +280,7 @@ const spec = {
       '- `POST /api/auth/forgot-password` + `/verify` — public (OTP flow)\n' +
       '- `POST /api/auth/change-password` — Bearer token (đổi mật khẩu khi đã đăng nhập)\n' +
       '- `POST /api/auth/reset-password` — public (welcome email token)\n' +
-      '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN; WH_ADMIN → WH_STAFF; TENANT_ADMIN → TENANT_STAFF\n' +
+      '- `/api/users/*` — Bearer token; SYSTEM_ADMIN → WH_ADMIN/TENANT_ADMIN (welcome email); WH_ADMIN → WH_STAFF/WH_TRANSPORTER (welcome email); TENANT_ADMIN → TENANT_STAFF\n' +
       '- `POST /tenants`, `POST /rental-requests`, `GET /rental-requests/guest/lookup` — public (guest onboarding)',
   },
   servers: [
@@ -3095,7 +3095,9 @@ const spec = {
         summary: 'Create user',
         security: bearerSecurity,
         description:
-          'SYSTEM_ADMIN → WH_ADMIN (warehouseId), TENANT_ADMIN (tenantId). WH_ADMIN → WH_STAFF. TENANT_ADMIN → TENANT_STAFF.',
+          'SYSTEM_ADMIN → WH_ADMIN (warehouseId), TENANT_ADMIN (tenantId) — gửi welcome email (mật khẩu tạm + link reset).\n' +
+          'WH_ADMIN → WH_STAFF, WH_TRANSPORTER (warehouseId kế thừa) — gửi welcome email tương tự.\n' +
+          'TENANT_ADMIN → TENANT_STAFF (tenantId kế thừa).',
         requestBody: {
           required: true,
           content: {
