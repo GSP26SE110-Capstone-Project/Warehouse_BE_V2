@@ -19,6 +19,7 @@ import {
 import { getTenantCompany } from './tenantCompany.service.js';
 import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import { rentalRequestSchema } from '../models/RentalRequest.js';
+import { toIsoDateOnly, startOfDayLocal } from '../utils/rentalEffectiveDates.js';
 import {
   assertWarehouseAccess,
   getScopedTenantId,
@@ -225,11 +226,6 @@ function hasMinimumRentalDuration(startDate, endDate) {
   return diffDays >= 30;
 }
 
-function startOfDayUtc(date) {
-  const d = new Date(date);
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
 function assertExpectedRentalDates(data) {
   if (data.expectedStartDate == null) {
     throw new AppError('expectedStartDate is required', 400, 'VALIDATION_ERROR');
@@ -237,9 +233,9 @@ function assertExpectedRentalDates(data) {
   if (data.expectedEndDate == null) {
     throw new AppError('expectedEndDate is required', 400, 'VALIDATION_ERROR');
   }
-  const startDay = startOfDayUtc(data.expectedStartDate);
-  const todayDay = startOfDayUtc(new Date());
-  if (startDay < todayDay) {
+  const startIso = toIsoDateOnly(data.expectedStartDate);
+  const todayIso = startOfDayLocal();
+  if (startIso && startIso < todayIso) {
     throw new AppError(
       'Ngày bắt đầu dự kiến không được trước hôm nay',
       400,
