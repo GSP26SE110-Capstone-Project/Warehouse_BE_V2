@@ -13,8 +13,8 @@ function formatLocalIsoDate(date) {
 export function toIsoDateOnly(value) {
   if (value == null || value === '') return null;
   if (typeof value === 'string') {
-    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (match) return match[1];
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
   }
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
