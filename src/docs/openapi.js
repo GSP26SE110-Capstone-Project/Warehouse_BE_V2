@@ -3639,6 +3639,8 @@ const spec = {
       delete: {
         tags: ['Rack'],
         summary: 'Delete rack',
+        description:
+          'Xóa rack cùng toàn bộ tầng/bin trống. `400 RACK_NOT_EMPTY` nếu còn bin có LPN hoặc hàng putaway.',
         parameters: [{ in: 'path', name: 'rackId', required: true, schema: uuid }],
         responses: {
           200: successEnvelope({ $ref: '#/components/schemas/Rack' }, 'Deleted successfully'),
