@@ -39,6 +39,14 @@ export const outboundDeliverySchema = {
     type: 'string',
     required: false,
   },
+  shipToCity: {
+    type: 'string',
+    required: false,
+  },
+  shipToDistrict: {
+    type: 'string',
+    required: false,
+  },
   shipToContactName: {
     type: 'string',
     required: false,

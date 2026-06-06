@@ -76,6 +76,10 @@ router.post(
   asyncHandler(inboundRequestController.reportArrival)
 );
 
+router.get(
+  '/:inboundRequestId/operational-invoice',
+  asyncHandler(inboundRequestController.getOperationalInvoice)
+);
 router.get('/:inboundRequestId', asyncHandler(inboundRequestController.getById));
 router.patch('/:inboundRequestId', asyncHandler(inboundRequestController.update));
 router.delete('/:inboundRequestId', asyncHandler(inboundRequestController.remove));

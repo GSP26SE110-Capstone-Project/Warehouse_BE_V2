@@ -22,7 +22,11 @@ import {
   createInitialInvoice,
 } from './contractInvoice.service.js';
 import { estimateContractPrice } from './contractPriceEstimate.service.js';
-import { resolveEffectiveContractDates, toIsoDateOnly, startOfDayLocal } from '../utils/rentalEffectiveDates.js';
+import {
+  resolveContractDatesFromApproval,
+  toIsoDateOnly,
+  startOfDayLocal,
+} from '../utils/rentalEffectiveDates.js';
 
 const CREATE_FIELDS = [
   'contractCode',
@@ -253,20 +257,27 @@ async function applyRentalLinkedEffectiveContractDates(data, rentalRequestId) {
   if (rentalRequestId == null) return;
 
   const rr = await RentalRequest.findById(parseUuid(rentalRequestId, 'rentalRequestId'));
-  if (!rr?.expectedStartDate || !rr?.expectedEndDate) {
+  if (!rr?.expectedEndDate) {
     if (data.startDate != null) {
       assertRentalLinkedContractStartNotPast(data);
     }
     return;
   }
 
-  const resolved = resolveEffectiveContractDates(
-    rr.expectedStartDate,
-    rr.expectedEndDate
+  const approveIso =
+    toIsoDateOnly(rr.reviewedAt) ?? toIsoDateOnly(data.startDate) ?? startOfDayLocal();
+
+  const resolved = resolveContractDatesFromApproval(
+    rr.expectedStartDate ?? approveIso,
+    rr.expectedEndDate,
+    approveIso
   );
 
   data.startDate = parseDateOnly(resolved.startDate, 'startDate');
   data.endDate = parseDateOnly(resolved.endDate, 'endDate');
+  if (data.billingCycle == null) {
+    data.billingCycle = 'MONTHLY';
+  }
 }
 
 function assertRentalLinkedContractStartNotPast(data) {

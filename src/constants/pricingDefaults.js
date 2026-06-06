@@ -14,13 +14,25 @@ export const DEFAULT_BIN_MAX_LPN_COUNT = DEFAULT_BIN_MAX_VOLUME_UNITS;
 
 export const DAYS_PER_BILLING_MONTH = 30;
 
-/** docs/pricing.md — inbound LPN theo box type */
+export const INVOICE_PAYMENT_DUE_DAYS = 3;
+
+/** Phí inbound LPN theo box type (thu trước khi WH duyệt) */
 export const INBOUND_LPN_PRICE_BY_BOX_TYPE = Object.freeze({
-  SMALL: 10000,
-  MEDIUM: 20000,
-  LARGE: 35000,
-  EXTRA: 50000,
+  SMALL: 2_000,
+  MEDIUM: 3_000,
+  LARGE: 5_000,
+  EXTRA: 8_000,
 });
+
+/** Phí outbound LPN — cùng bảng giá inbound */
+export const OUTBOUND_LPN_PRICE_BY_BOX_TYPE = Object.freeze({
+  SMALL: 2_000,
+  MEDIUM: 3_000,
+  LARGE: 5_000,
+  EXTRA: 8_000,
+});
+
+export const WAREHOUSE_TRANSPORT_FEE_FLAT = 250_000;
 
 /** Giá lưu kho box/tháng theo box type (nguồn gốc — flat /tháng) */
 export const STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE = Object.freeze({
@@ -51,6 +63,13 @@ export function buildDefaultContractItemRows(contractId) {
       billingUnit: 'INBOUND_LPN',
       boxType,
       unitPrice: INBOUND_LPN_PRICE_BY_BOX_TYPE[boxType],
+    });
+    rows.push({
+      contractId,
+      itemType: 'OUTBOUND',
+      billingUnit: 'OUTBOUND_LPN',
+      boxType,
+      unitPrice: OUTBOUND_LPN_PRICE_BY_BOX_TYPE[boxType],
     });
     rows.push({
       contractId,

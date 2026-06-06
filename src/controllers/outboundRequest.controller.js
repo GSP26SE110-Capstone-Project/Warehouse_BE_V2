@@ -2,6 +2,7 @@ import * as outboundRequestService from '../services/outboundRequest.service.js'
 import * as outboundRequestItemService from '../services/outboundRequestItem.service.js';
 import * as outboundWorkflowService from '../services/outboundWorkflow.service.js';
 import * as outboundDeliveryService from '../services/outboundDelivery.service.js';
+import { getOperationalInvoiceForSource } from '../services/operationalInvoice.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 import AppError from '../utils/AppError.js';
@@ -103,6 +104,14 @@ export async function assignPicker(req, res) {
     req.body.assignedPickerUserId
   );
   success(res, tasks, 'Picker assigned successfully');
+}
+
+export async function getOperationalInvoice(req, res) {
+  const invoice = await getOperationalInvoiceForSource(
+    'OUTBOUND_REQUEST',
+    req.params.outboundRequestId
+  );
+  success(res, invoice);
 }
 
 export async function remove(req, res) {

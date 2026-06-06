@@ -2,6 +2,7 @@ import * as inboundRequestService from '../services/inboundRequest.service.js';
 import * as inboundRequestItemService from '../services/inboundRequestItem.service.js';
 import * as inboundWorkflowService from '../services/inboundWorkflow.service.js';
 import * as inboundApprovalReadinessService from '../services/inboundApprovalReadiness.service.js';
+import { getOperationalInvoiceForSource } from '../services/operationalInvoice.service.js';
 import * as inboundDeliveryService from '../services/inboundDelivery.service.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
@@ -142,4 +143,12 @@ export async function reportPickup(req, res) {
     req.user
   );
   success(res, inbound, 'Pickup reported');
+}
+
+export async function getOperationalInvoice(req, res) {
+  const invoice = await getOperationalInvoiceForSource(
+    'INBOUND_REQUEST',
+    req.params.inboundRequestId
+  );
+  success(res, invoice);
 }

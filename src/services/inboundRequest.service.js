@@ -11,6 +11,10 @@ import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertInboundStatusTransition } from '../utils/inboundStatus.js';
 import { assertNoInboundReceivingActivity } from './inboundApprovalReadiness.service.js';
 import { assertContractOperational, getContract } from './contract.service.js';
+import {
+  assertOperationalInvoicePaid,
+  createOperationalInvoiceForInbound,
+} from './operationalInvoice.service.js';
 import { assertContractInboundWithinCommittedPieces } from './contractInboundCommitment.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
@@ -492,6 +496,7 @@ export async function createInboundRequest(body) {
     const inbound = await InboundRequest.create(data, client);
     await createInboundItemsInTransaction(client, inbound.inboundRequestId, items);
     await client.query('COMMIT');
+    await createOperationalInvoiceForInbound(inbound.inboundRequestId);
     return inbound;
   } catch (err) {
     await client.query('ROLLBACK');
@@ -519,6 +524,7 @@ export async function updateInboundRequest(inboundRequestId, body) {
   if (data.status !== undefined && data.status !== existing.status) {
     assertInboundStatusTransition(existing.status, data.status);
     if (data.status === 'APPROVED') {
+      await assertOperationalInvoicePaid('INBOUND_REQUEST', id);
       await assertContractInboundWithinCommittedPieces(existing.contractId);
     }
     if (existing.status === 'APPROVED' && data.status === 'PENDING') {

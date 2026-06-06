@@ -1,4 +1,5 @@
 import * as adminNotificationService from '../services/adminNotification.service.js';
+import { getTenantRecurringRentAlerts as buildTenantRecurringRentAlerts } from '../services/recurringRentReminder.service.js';
 import { success } from '../utils/apiResponse.js';
 
 export async function getGuestAccountAlerts(req, res) {
@@ -58,5 +59,10 @@ export async function getTenantRentalStatusAlerts(req, res) {
 
 export async function getTenantContractActionAlerts(req, res) {
   const data = await adminNotificationService.getTenantContractActionAlerts(req.user);
+  success(res, data);
+}
+
+export async function getTenantRecurringRentAlerts(req, res) {
+  const data = await buildTenantRecurringRentAlerts(req.user);
   success(res, data);
 }

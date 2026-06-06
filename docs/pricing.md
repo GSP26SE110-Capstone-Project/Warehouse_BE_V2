@@ -216,25 +216,21 @@ Ví dụ:
 Công thức:
 warehouse area × warehouse rate
 
-14. Handling Fee
-Tao recommend thêm
+14. Handling Fee (thu trước — OPERATIONAL invoice)
 
-Operation
-Fee
-inbound LPN
-5k–15k
-outbound LPN
-7k–20k
-repacking
-10k
-QC inspection
-5k
-relocation
-3k
+| Operation | Fee (VNĐ) |
+| --------- | --------- |
+| Inbound LPN SMALL | 2.000 / LPN |
+| Inbound LPN MEDIUM | 3.000 / LPN |
+| Inbound LPN LARGE | 5.000 / LPN |
+| Inbound LPN EXTRA | 8.000 / LPN |
+| Outbound LPN | Cùng bảng inbound |
+| WAREHOUSE_TRANSPORT | 250.000 / chuyến (cùng city + district kho) |
+| repacking | 10.000 (tùy chọn phase sau) |
+| QC inspection | 5.000 |
+| relocation | 3.000 |
 
-
-Vì warehouse thật:
-storage fee ≠ handling fee.
+Storage fee ≠ handling fee. Phụ phí **không** dồn sang invoice thuê tháng sau.
 
 15. Pricing Table Final
 Level
@@ -281,18 +277,9 @@ thùng/month
 45k
 
 
-16. Tao recommend:
-default capstone flow
+16. Default capstone flow (MONTHLY only)
 
-SHARED_STORAGE
-usage-based — hóa đơn MONTHLY / YEARLY
-
-RESERVED_STORAGE
-fixed reserved — hóa đơn MONTHLY / YEARLY
-
-DEDICATED_ZONE
-fixed — theo m², MONTHLY / YEARLY
-
-DEDICATED_WAREHOUSE
-fixed — theo m², MONTHLY / YEARLY
+- SHARED_STORAGE / RESERVED_STORAGE / DEDICATED_ZONE / DEDICATED_WAREHOUSE: hóa đơn **MONTHLY**
+- INITIAL = tháng đầu; RECURRING_RENT hàng tháng theo ngày `startDate`
+- OPERATIONAL = prepaid khi tạo inbound/outbound
 

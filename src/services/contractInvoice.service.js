@@ -5,6 +5,7 @@ import AppError from '../utils/AppError.js';
 import { parseUuid } from '../utils/validate.js';
 import { INVOICE_CATEGORY } from '../constants/tenantOnboarding.js';
 import { initialInvoiceAmount } from '../utils/contractBilling.js';
+import { computeInvoiceDueDate } from '../utils/invoiceDueDate.js';
 import { getContract } from './contract.service.js';
 import { notifyWarehouseAdminContractPaymentReceived } from './contractNotify.service.js';
 import { activateAppendixAfterPayment } from './contractAppendixInvoice.service.js';
@@ -59,13 +60,9 @@ export async function createInitialInvoice(contract) {
 
   const start = toDateOnly(contract.startDate);
   const end = toDateOnly(contract.endDate);
-  const due = new Date();
-  due.setDate(due.getDate() + 7);
-
-  const label =
-    contract.billingCycle === 'YEARLY'
-      ? 'Thanh toán tiền thuê cả kỳ hợp đồng'
-      : 'Thanh toán tiền thuê tháng đầu';
+  const issuedAt = new Date();
+  const due = computeInvoiceDueDate(issuedAt);
+  const label = 'Thanh toán tiền thuê tháng đầu';
 
   const invoice = await Invoice.create({
     tenantId: contract.tenantId,
@@ -78,7 +75,7 @@ export async function createInitialInvoice(contract) {
     totalAmount: amount,
     paymentStatus: 'PENDING',
     invoiceCategory: 'INITIAL',
-    issuedAt: new Date(),
+    issuedAt,
     dueDate: due,
   });
 

@@ -96,6 +96,45 @@ export function resolveEffectiveContractDates(
   };
 }
 
+/**
+ * HĐ bắt đầu từ ngày WH approve — giữ số tháng thuê khách đã chọn.
+ * @param {string|Date|null} expectedStart
+ * @param {string|Date|null} expectedEnd
+ * @param {string} approveDateIso YYYY-MM-DD (reviewed_at)
+ */
+export function resolveContractDatesFromApproval(
+  expectedStart,
+  expectedEnd,
+  approveDateIso = startOfDayLocal()
+) {
+  const start = toIsoDateOnly(expectedStart);
+  const end = toIsoDateOnly(expectedEnd);
+  const approve = toIsoDateOnly(approveDateIso) ?? startOfDayLocal();
+
+  if (!start || !end) {
+    return {
+      startDate: approve,
+      endDate: end ?? '',
+      shifted: Boolean(start && start !== approve),
+      billingMonths: start && end ? contractBillingMonths(start, end) : 0,
+      requestedStartDate: start ?? undefined,
+      requestedEndDate: end ?? undefined,
+    };
+  }
+
+  const billingMonths = contractBillingMonths(start, end);
+  const effectiveEnd = addCalendarMonthsToDateOnly(approve, billingMonths);
+
+  return {
+    startDate: approve,
+    endDate: effectiveEnd || end,
+    shifted: approve !== start,
+    billingMonths,
+    requestedStartDate: start,
+    requestedEndDate: end,
+  };
+}
+
 export function startOfDayUtc(date) {
   const d = new Date(date);
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));

@@ -18,6 +18,7 @@ import {
   applyOutboundStatusChange,
   releaseOutboundReservations,
 } from './outboundWorkflow.service.js';
+import { createOperationalInvoiceForOutbound } from './operationalInvoice.service.js';
 
 const CREATE_FIELDS = [
   'tenantId',
@@ -370,6 +371,8 @@ export async function createOutboundRequest(body, actor = null) {
   if (data.status === 'PENDING') {
     await assertOutboundHasAtLeastOneItem(outbound.outboundRequestId);
   }
+
+  await createOperationalInvoiceForOutbound(outbound.outboundRequestId);
 
   if (Array.isArray(rawItems) && rawItems.length > 0) {
     return getOutboundRequestWithItems(outbound.outboundRequestId);

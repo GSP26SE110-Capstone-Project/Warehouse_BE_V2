@@ -29,6 +29,7 @@
     "db:migrate:locations": "node scripts/run-migration.mjs scripts/sql/locations.sql",
     "db:migrate:rental-requested-area": "node scripts/run-migration.mjs scripts/sql/rental_requests_add_requested_area_m2.sql",
     "db:migrate:in-transit": "node scripts/run-migration.mjs scripts/sql/inbound_in_transit_status.sql",
+    "db:migrate:billing-operational": "node scripts/run-migration.mjs scripts/sql/invoice_operational_refs.sql",
     "seed:locations": "node scripts/seed-locations.mjs",
     "db:reset": "node scripts/run-migration.mjs scripts/sql/db4_drop_legacy.sql && node scripts/run-migration.mjs scripts/sql/db4_schema.sql",
     "db:fresh": "npm run db:reset && node scripts/run-migration.mjs scripts/sql/inbound_delivery_shipment_vehicle.sql && node scripts/run-migration.mjs scripts/sql/add_wh_transporter.sql && node scripts/run-migration.mjs scripts/sql/bin_max_volume_16.sql && node scripts/run-migration.mjs scripts/sql/contract_type_needs_consultation.sql && node scripts/run-migration.mjs scripts/sql/contracts_add_signatures.sql && node scripts/run-migration.mjs scripts/sql/contracts_add_rental_request_id.sql && node scripts/run-migration.mjs scripts/sql/simplify_zone_rack_enums.sql && node scripts/run-migration.mjs scripts/sql/rental_requests_add_requested_area_m2.sql && node scripts/run-migration.mjs scripts/sql/lpns_add_weight_kg.sql && node scripts/run-migration.mjs scripts/sql/add_yearly_billing_cycle.sql",
@@ -36,7 +37,8 @@
     "db:tables": "node scripts/list-db-tables.mjs",
     "models:generate": "node scripts/generate-schema-models.mjs",
     "payos:confirm-webhook": "node scripts/payos-confirm-webhook.mjs",
-    "payos:test-webhook": "node scripts/payos-test-webhook.mjs"
+    "payos:test-webhook": "node scripts/payos-test-webhook.mjs",
+    "billing:run": "node scripts/run-billing-job.mjs"
   },
   "keywords": [],
   "author": "",
@@ -50,6 +52,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "node-cron": "^4.2.1",
     "nodemailer": "^6.9.16",
     "nodemon": "^3.1.11",
     "pg": "^8.16.3",

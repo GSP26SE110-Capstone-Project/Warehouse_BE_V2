@@ -47,6 +47,14 @@ export const inboundDeliverySchema = {
     type: 'string',
     required: false,
   },
+  pickupCity: {
+    type: 'string',
+    required: false,
+  },
+  pickupDistrict: {
+    type: 'string',
+    required: false,
+  },
   pickupContactName: {
     type: 'string',
     required: false,

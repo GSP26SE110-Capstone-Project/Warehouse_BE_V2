@@ -14,6 +14,8 @@ import {
   notifyTenantAdminTransportAssigned,
 } from './inboundNotify.service.js';
 import { assertTransporterAvailable } from './transporterAvailability.service.js';
+import { assertWarehouseTransportRegion } from './transportRegion.service.js';
+import { assertOperationalInvoicePaid } from './operationalInvoice.service.js';
 
 const UPSERT_FIELDS = [
   'vehiclePlate',
@@ -27,6 +29,8 @@ const UPSERT_FIELDS = [
 
 const PICKUP_FIELDS = [
   'pickupAddress',
+  'pickupCity',
+  'pickupDistrict',
   'pickupContactName',
   'pickupContactPhone',
   'pickupNotes',
@@ -176,7 +180,13 @@ function normalizePickupPayload(body, { requireAddress = false } = {}) {
     throw new AppError('pickupAddress is required', 400, 'VALIDATION_ERROR');
   }
 
-  for (const key of ['pickupContactName', 'pickupContactPhone', 'pickupNotes']) {
+  for (const key of [
+    'pickupCity',
+    'pickupDistrict',
+    'pickupContactName',
+    'pickupContactPhone',
+    'pickupNotes',
+  ]) {
     if (data[key] !== undefined) {
       data[key] = trimOptionalString(data[key]);
     }
@@ -280,6 +290,11 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
       throw new AppError('Forbidden: tenant out of scope', 403, 'FORBIDDEN');
     }
     const pickupData = normalizePickupPayload(body, { requireAddress: !existing });
+    const pickupCity = pickupData.pickupCity ?? existing?.pickupCity;
+    const pickupDistrict = pickupData.pickupDistrict ?? existing?.pickupDistrict;
+    if (pickupCity && pickupDistrict) {
+      await assertWarehouseTransportRegion(inbound.warehouseId, pickupCity, pickupDistrict);
+    }
     if (existing) {
       return InboundDelivery.updateById(existing.inboundDeliveryId, pickupData);
     }
@@ -298,6 +313,12 @@ export async function upsertInboundDelivery(inboundRequestId, body, actor = null
   });
 
   if (data.assignedDriverUserId) {
+    await assertOperationalInvoicePaid('INBOUND_REQUEST', id);
+    const pickupCity = body.pickupCity ?? existing?.pickupCity;
+    const pickupDistrict = body.pickupDistrict ?? existing?.pickupDistrict;
+    if (inbound.deliveryMode === 'WAREHOUSE_TRANSPORT') {
+      await assertWarehouseTransportRegion(inbound.warehouseId, pickupCity, pickupDistrict);
+    }
     data.assignedDriverUserId = await assertTransporterAssignable(
       data.assignedDriverUserId,
       inbound.warehouseId

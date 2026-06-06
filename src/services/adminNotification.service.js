@@ -395,7 +395,14 @@ export async function getTenantContractActionAlerts(user) {
                AND sr.status = 'ACTIVE'
            )
        )::int AS needs_sign_count,
-       COUNT(*) FILTER (WHERE c.status = 'PENDING_PAYMENT')::int AS needs_payment_count
+       COUNT(*) FILTER (WHERE c.status = 'PENDING_PAYMENT')::int AS needs_payment_count,
+       (
+         SELECT COUNT(*)::int
+         FROM invoices i
+         WHERE i.tenant_id = $1
+           AND i.payment_status = 'PENDING'
+           AND i.invoice_category IN ('INITIAL', 'RECURRING_RENT', 'APPENDIX_INITIAL')
+       ) AS pending_invoice_count
      FROM contracts c
      WHERE c.tenant_id = $1
        AND c.status IN ('PENDING_APPROVAL', 'PENDING_PAYMENT')`,
@@ -437,7 +444,10 @@ export async function getTenantContractActionAlerts(user) {
 
   return {
     needsSignCount: Number(counts.needs_sign_count) || 0,
-    needsPaymentCount: Number(counts.needs_payment_count) || 0,
+    needsPaymentCount:
+      Number(counts.pending_invoice_count) ||
+      Number(counts.needs_payment_count) ||
+      0,
     recent: recentResult.rows.map((row) => ({
       contractId: row.contract_id,
       contractCode: row.contract_code,

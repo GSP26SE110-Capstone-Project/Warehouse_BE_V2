@@ -53,6 +53,14 @@ export const invoiceSchema = {
     type: 'string',
     required: false,
   },
+  sourceType: {
+    type: 'string',
+    required: false,
+  },
+  sourceId: {
+    type: 'string',
+    required: false,
+  },
   issuedAt: {
     type: 'datetime',
     required: false,

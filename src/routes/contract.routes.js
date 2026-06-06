@@ -11,6 +11,12 @@ const terminationReaders = [...terminationManagers, 'TENANT_ADMIN', 'TENANT_STAF
 
 router.post('/', asyncHandler(contractController.create));
 router.get('/', asyncHandler(contractController.list));
+router.get(
+  '/recurring-rent/overview',
+  authenticate,
+  authorize('TENANT_ADMIN', 'TENANT_STAFF'),
+  asyncHandler(contractController.getRecurringRentOverview)
+);
 router.use('/:contractId/appendices', contractAppendixRoutes);
 router.get('/:contractId/termination/preview', asyncHandler(contractController.previewTermination));
 router.post('/:contractId/termination/request', asyncHandler(contractController.requestTermination));

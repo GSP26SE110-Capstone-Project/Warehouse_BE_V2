@@ -16,6 +16,8 @@ import {
   notifyOutboundPickupReported,
   notifyOutboundDelivered,
 } from './outboundNotify.service.js';
+import { assertWarehouseTransportRegion } from './transportRegion.service.js';
+import { assertOperationalInvoicePaid } from './operationalInvoice.service.js';
 
 const WAREHOUSE_DISPATCH_ROLES = Object.freeze(['SYSTEM_ADMIN', 'WH_ADMIN', 'WH_STAFF']);
 
@@ -30,6 +32,8 @@ const DISPATCH_FIELDS = [
 
 const SHIP_TO_FIELDS = [
   'shipToAddress',
+  'shipToCity',
+  'shipToDistrict',
   'shipToContactName',
   'shipToContactPhone',
   'shipToNotes',
@@ -155,7 +159,13 @@ function normalizeShipToPayload(body, { requireAddress = false } = {}) {
     throw new AppError('shipToAddress is required', 400, 'VALIDATION_ERROR');
   }
 
-  for (const key of ['shipToContactName', 'shipToContactPhone', 'shipToNotes']) {
+  for (const key of [
+    'shipToCity',
+    'shipToDistrict',
+    'shipToContactName',
+    'shipToContactPhone',
+    'shipToNotes',
+  ]) {
     if (data[key] !== undefined) {
       data[key] = trimOptionalString(data[key]);
     }
@@ -326,6 +336,11 @@ export async function upsertOutboundDelivery(outboundRequestId, body, actor = nu
       throw new AppError('Forbidden: tenant out of scope', 403, 'FORBIDDEN');
     }
     const shipToData = normalizeShipToPayload(body, { requireAddress: !existing });
+    const shipCity = shipToData.shipToCity ?? existing?.shipToCity;
+    const shipDistrict = shipToData.shipToDistrict ?? existing?.shipToDistrict;
+    if (shipCity && shipDistrict) {
+      await assertWarehouseTransportRegion(outbound.warehouseId, shipCity, shipDistrict);
+    }
     if (existing) {
       return OutboundDelivery.updateById(existing.outboundDeliveryId, shipToData);
     }
@@ -387,6 +402,10 @@ export async function upsertOutboundDelivery(outboundRequestId, body, actor = nu
   let nextStatus = existing.deliveryStatus ?? 'PENDING';
 
   if (data.assignedDriverUserId) {
+    await assertOperationalInvoicePaid('OUTBOUND_REQUEST', id);
+    const shipCity = existing?.shipToCity;
+    const shipDistrict = existing?.shipToDistrict;
+    await assertWarehouseTransportRegion(outbound.warehouseId, shipCity, shipDistrict);
     data.assignedDriverUserId = await assertTransporterAssignable(
       data.assignedDriverUserId,
       outbound.warehouseId

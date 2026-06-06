@@ -57,21 +57,8 @@ export function computeTerminationSettlement(contract, { hasInbound, totalPaid }
   let terminationFee = 0;
   let refundAmount = 0;
 
-  if (billingCycle === 'MONTHLY') {
-    terminationFee = 0;
-    refundAmount = 0;
-  } else if (billingCycle === 'YEARLY') {
-    if (!hasInbound) {
-      processingFee = Math.round(paid * YEARLY_EARLY_REFUND_PROCESSING_RATE);
-      refundAmount = Math.max(0, paid - processingFee);
-    } else {
-      terminationFee = monthlyRate;
-      refundAmount = Math.max(
-        0,
-        paid - unusedMonths * monthlyRate - terminationFee
-      );
-    }
-  }
+  terminationFee = 0;
+  refundAmount = 0;
 
   return {
     billingCycle,
@@ -84,7 +71,7 @@ export function computeTerminationSettlement(contract, { hasInbound, totalPaid }
     processingFee,
     terminationFee,
     refundAmount,
-    processingRatePercent: billingCycle === 'YEARLY' && !hasInbound ? 1 : 0,
+    processingRatePercent: 0,
   };
 }
 

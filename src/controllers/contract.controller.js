@@ -1,4 +1,5 @@
 import * as contractService from '../services/contract.service.js';
+import { listTenantRecurringRentOverview } from '../services/recurringRentOverview.service.js';
 import * as contractInboundCommitmentService from '../services/contractInboundCommitment.service.js';
 import * as contractInvoiceService from '../services/contractInvoice.service.js';
 import * as contractTerminationService from '../services/contractTermination.service.js';
@@ -6,6 +7,15 @@ import * as payosPaymentService from '../services/payosPayment.service.js';
 import AppError from '../utils/AppError.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
 import { parsePagination, parseUuid } from '../utils/validate.js';
+
+export async function getRecurringRentOverview(req, res) {
+  const tenantId = req.user?.tenantId;
+  if (!tenantId) {
+    throw new AppError('Chỉ tenant mới xem được tiền thuê định kỳ', 403, 'FORBIDDEN');
+  }
+  const data = await listTenantRecurringRentOverview(tenantId);
+  success(res, data);
+}
 
 export async function list(req, res) {
   const { page, limit, offset } = parsePagination(req.query);

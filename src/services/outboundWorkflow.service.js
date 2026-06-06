@@ -22,6 +22,7 @@ import {
   assertOutboundDeliveryReadyToShip,
   ensureOutboundDeliveryOnShip,
 } from './outboundDelivery.service.js';
+import { assertOperationalInvoicePaid } from './operationalInvoice.service.js';
 
 async function loadOutboundRequest(outboundRequestId) {
   const id = parseUuid(outboundRequestId, 'outboundRequestId');
@@ -275,6 +276,8 @@ async function createPickingTaskWithReservations(client, outbound, assignedPicke
 export async function approveAndReserveOutbound(outboundRequestId, actor, assignedPickerUserId) {
   assertWhAdminOutboundRole(actor, 'approve outbound');
   const outbound = await loadOutboundRequest(outboundRequestId);
+
+  await assertOperationalInvoicePaid('OUTBOUND_REQUEST', outboundRequestId);
 
   if (outbound.status !== 'PENDING') {
     throw new AppError(

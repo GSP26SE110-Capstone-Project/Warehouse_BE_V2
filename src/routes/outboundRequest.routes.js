@@ -62,6 +62,10 @@ router.post(
   asyncHandler(outboundDeliveryController.reportDelivery)
 );
 
+router.get(
+  '/:outboundRequestId/operational-invoice',
+  asyncHandler(outboundRequestController.getOperationalInvoice)
+);
 router.get('/:outboundRequestId', asyncHandler(outboundRequestController.getById));
 router.patch('/:outboundRequestId', asyncHandler(outboundRequestController.update));
 router.delete('/:outboundRequestId', asyncHandler(outboundRequestController.remove));

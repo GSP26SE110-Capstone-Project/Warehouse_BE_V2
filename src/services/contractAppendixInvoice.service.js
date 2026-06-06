@@ -8,6 +8,7 @@ import {
   appendixPaymentBreakdown,
 } from '../utils/contractAppendixBilling.js';
 import { getContract } from './contract.service.js';
+import { computeInvoiceDueDate } from '../utils/invoiceDueDate.js';
 
 function generateInvoiceCode() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -42,8 +43,8 @@ export async function createAppendixInitialInvoice(appendix, parentContract) {
     );
   }
 
-  const due = new Date();
-  due.setDate(due.getDate() + 7);
+  const issuedAt = new Date();
+  const due = computeInvoiceDueDate(issuedAt);
 
   const label = `Thanh toán phụ lục ${appendix.appendixCode} (${breakdown.billableMonths} tháng × ${breakdown.monthlyRate}đ/tháng)`;
 
@@ -59,7 +60,7 @@ export async function createAppendixInitialInvoice(appendix, parentContract) {
     totalAmount: amount,
     paymentStatus: 'PENDING',
     invoiceCategory: 'APPENDIX_INITIAL',
-    issuedAt: new Date(),
+    issuedAt,
     dueDate: due,
   });
 

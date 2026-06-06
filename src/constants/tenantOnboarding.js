@@ -22,8 +22,15 @@ export const BILLABLE_CONTRACT_TYPE = Object.freeze(
 
 export const PRICING_MODEL = Object.freeze(['USAGE_BASED', 'FIXED', 'HYBRID']);
 
-/** Chu kỳ billing được phép trên HĐ mới (legacy DAILY/QUARTERLY chỉ còn trong DB cũ). */
-export const BILLING_CYCLE = Object.freeze(['MONTHLY', 'YEARLY']);
+/** Chu kỳ billing được phép trên HĐ mới — chỉ MONTHLY. */
+export const BILLING_CYCLE = Object.freeze(['MONTHLY']);
+
+export const INVOICE_SOURCE_TYPE = Object.freeze([
+  'INBOUND_REQUEST',
+  'OUTBOUND_REQUEST',
+  'INBOUND_TRANSPORT',
+  'OUTBOUND_TRANSPORT',
+]);
 
 /** Giá trị enum PostgreSQL (bao gồm legacy). */
 export const BILLING_CYCLE_DB = Object.freeze(['DAILY', 'MONTHLY', 'QUARTERLY', 'YEARLY']);

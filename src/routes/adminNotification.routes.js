@@ -90,4 +90,11 @@ router.get(
   asyncHandler(adminNotificationController.getTenantContractActionAlerts)
 );
 
+router.get(
+  '/tenant-recurring-rent',
+  authenticate,
+  authorize('TENANT_ADMIN'),
+  asyncHandler(adminNotificationController.getTenantRecurringRentAlerts)
+);
+
 export default router;

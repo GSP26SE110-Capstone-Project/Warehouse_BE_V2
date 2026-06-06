@@ -1,43 +1,63 @@
-# Hợp đồng — Billing cycle, thanh toán, chấm dứt
+# Hợp đồng — Billing MONTHLY, phụ phí trả trước, chấm dứt
 
-Tài liệu chốt nghiệp vụ (tháng 6/2026). Tham chiếu schema: `scripts/sql/db4_schema.sql`, API tổng: `docs/request.md`.
+Tài liệu chốt nghiệp vụ (tháng 6/2026). Tham chiếu schema: `scripts/sql/db4_schema.sql`, migration `scripts/sql/invoice_operational_refs.sql`.
 
-## 1. Billing cycle (chỉ MONTHLY & YEARLY)
+## 1. Billing cycle — chỉ MONTHLY
 
-| Giá trị              | Cho phép API/FE   | Ghi chú                              |
-| -------------------- | ----------------- | ------------------------------------ |
-| `MONTHLY`            | Có                | Thuê theo tháng                      |
-| `YEARLY`             | Có                | Trả trước cả kỳ HĐ (thường 12 tháng) |
-| `DAILY`, `QUARTERLY` | Không (legacy DB) | Migration ép bản ghi cũ → `MONTHLY`  |
+| Giá trị   | Cho phép API/FE | Ghi chú                          |
+| --------- | --------------- | -------------------------------- |
+| `MONTHLY` | Có              | Thuê theo tháng                  |
+| `YEARLY`  | **Không**       | Migration ép bản ghi cũ → MONTHLY |
 
-### 1.1 Sau khi ký đủ hai bên
+### 1.1 Mốc hợp đồng
 
-| Chu kỳ      | Invoice đầu (`INITIAL`)                                        | Kích hoạt HĐ                                          |
-| ----------- | -------------------------------------------------------------- | ----------------------------------------------------- |
-| **MONTHLY** | Tiền thuê **tháng đầu** = `estimatedTotalAmount ÷ số tháng HĐ` | `PENDING_PAYMENT` → thanh toán invoice đầu → `ACTIVE` |
-| **YEARLY**  | **Toàn bộ** `estimatedTotalAmount` (full kỳ)                   | Cùng luồng                                            |
+- **`startDate` = ngày WH approve** rental request (`reviewed_at`), không dùng `expectedStartDate` của tenant làm mốc.
+- **`endDate` = startDate + số tháng** khách chọn khi đăng ký.
+- **Billing anchor** cho invoice định kỳ = `startDate` (không dùng `activated_at`).
 
-**Không** chuyển thẳng `ACTIVE` khi tenant ký; trạng thái `PENDING_PAYMENT` cho đến khi invoice đầu `PAID`.
+### 1.2 Sau khi ký đủ hai bên
 
-### 1.2 Phụ phí vận hành (inbound/outbound/handling…)
+| Bước | Hành vi |
+| ---- | ------- |
+| Tenant ký | `PENDING_PAYMENT` + tạo invoice `INITIAL` |
+| INITIAL | Tiền thuê **tháng đầu** = `deriveMonthlyRent(contract)` |
+| Hạn thanh toán | **3 ngày** kể từ `issuedAt` (`INVOICE_PAYMENT_DUE_DAYS`) |
+| Tenant thanh toán INITIAL | `ACTIVE` (+ set `activated_at` để audit) |
 
-| Chu kỳ      | Lịch phát hành     | Nội dung invoice                                                             |
-| ----------- | ------------------ | ---------------------------------------------------------------------------- |
-| **MONTHLY** | **Đầu mỗi tháng**  | Tiền thuê tháng mới (`RECURRING_RENT`) + phụ phí tháng trước (`OPERATIONAL`) |
-| **YEARLY**  | **Cuối mỗi tháng** | Chỉ phụ phí tháng đó (`OPERATIONAL`) — tiền thuê năm đã thu ở invoice đầu    |
+### 1.3 Invoice định kỳ (RECURRING_RENT)
 
-> Cron/job phát hành định kỳ: phase sau; schema đã có `invoice_category` để phân loại.
+- Cron hàng ngày (`billingJobs.js` — `0 1 * * *`).
+- Với HĐ `ACTIVE`, `billing_cycle = MONTHLY`, `end_date >= today`:
+  - Nếu hôm nay trùng **ngày trong tháng** của `startDate` → tạo `RECURRING_RENT`.
+  - **Chỉ tiền thuê tháng mới** — không cộng phụ phí tháng trước.
+  - Bỏ qua kỳ trùng tháng đầu (đã thu qua INITIAL).
+- `dueDate = issuedAt + 3 ngày`.
+
+### 1.4 Phụ phí vận hành (OPERATIONAL) — trả trước
+
+| Loại | Trigger | Gate |
+| ---- | ------- | ---- |
+| Inbound LPN (+ transport nếu `WAREHOUSE_TRANSPORT`) | Tạo inbound request | WH **approve** chỉ khi invoice `PAID` |
+| Outbound LPN (+ transport) | Tạo outbound request | WH **approve / pick** chỉ khi invoice `PAID` |
+| Transport assign driver | WH gán tài xế | Invoice `PAID` + **cùng city + district** với kho |
+
+Giá (xem `pricingDefaults.js`):
+
+- Inbound/Outbound LPN: SMALL 2k, MEDIUM 3k, LARGE 5k, EXTRA 8k / LPN
+- `WAREHOUSE_TRANSPORT`: **250.000 ₫** / chuyến — **cấm cross-city**, chỉ cùng quận kho
+
+Schema: `invoices.source_type` + `source_id` (unique per contract).
 
 ## 2. Máy trạng thái hợp đồng
 
 ```
 DRAFT
-  → WH gửi / ký → PENDING_APPROVAL (kho đã ký, chờ cấp bin + tenant ký)
-  → Tenant ký (đủ chữ ký) → PENDING_PAYMENT + tạo invoice INITIAL
-  → Tenant thanh toán invoice đầu → ACTIVE
-  → Hết hạn tự nhiên → EXPIRED
-  → Chấm dứt sớm (đã duyệt) → TERMINATED
-  → Hủy trước ký / hủy nội bộ → CANCELLED
+  → WH gửi / ký → PENDING_APPROVAL
+  → Tenant ký → PENDING_PAYMENT + invoice INITIAL
+  → Thanh toán INITIAL (3 ngày) → ACTIVE
+  → Hết hạn → EXPIRED
+  → Chấm dứt sớm / quá hạn invoice → TERMINATED
+  → Hủy trước ký → CANCELLED
 ```
 
 ### Điều kiện inbound / outbound
@@ -45,207 +65,36 @@ DRAFT
 **Inbound**
 
 - `contract.status === 'ACTIVE'`
-- Invoice đầu (`invoice_category = 'INITIAL'`) có `payment_status = 'PAID'`
+- Invoice INITIAL `PAID`
+- Invoice OPERATIONAL inbound `PAID` (trước WH approve)
 
-**Outbound** (thêm so với inbound)
+**Outbound**
 
-- HĐ `ACTIVE` hoặc `TERMINATED` (xuất hết sau chấm dứt); `ACTIVE` cần invoice INITIAL `PAID`
-- ≥ 1 `inbound_requests` trên HĐ có `status = 'COMPLETED'`
-- Tồn kho tenant tại kho đó: `available_quantity > 0` (sau putaway)
+- HĐ `ACTIVE` (hoặc `TERMINATED` để xuất hết tồn)
+- Invoice INITIAL `PAID` (khi ACTIVE)
+- Invoice OPERATIONAL outbound `PAID` (trước approve/pick)
+- ≥ 1 inbound `COMPLETED` trên HĐ; tồn khả dụng > 0
 
-## 3. Chấm dứt hợp đồng sớm
+## 3. Quá hạn thanh toán (3 ngày)
+
+Job `invoiceOverdue.service.js` (cùng cron billing):
+
+1. `invoices` WHERE `payment_status = 'PENDING'` AND `due_date < NOW()`
+2. HĐ `ACTIVE` hoặc `PENDING_PAYMENT` → `TERMINATED`
+3. `storage_reservations` → `CANCELLED`
+4. Thông báo tenant + WH
+
+Áp dụng **mọi** invoice (INITIAL, RECURRING_RENT, OPERATIONAL).
+
+## 4. Chấm dứt hợp đồng sớm (tenant request)
 
 Bảng: `contract_termination_requests`.
 
-### 3.1 MONTHLY
+- **MONTHLY only**: không phạt thêm 1 tháng tiền thuê; preview refund mặc định theo chính sách vận hành.
+- Logic YEARLY refund đã bỏ.
 
-- **Không** phạt thêm 1 tháng tiền thuê (termination fee = 0).
-- Hoàn tiền: theo chính sách vận hành (mặc định preview = 0 nếu không có logic prorate riêng).
+## 5. PayOS & FE
 
-### 3.2 YEARLY — chưa có inbound
-
-- `processingFee = round(totalPaid × 1%)`
-- `refundAmount = max(0, totalPaid − processingFee)`
-- `hasInbound = false`
-
-### 3.3 YEARLY — đã có inbound
-
-- `monthlyRate = estimatedTotalAmount ÷ contractMonths` (làm tròn VND)
-- `usedMonths` = số tháng đã qua kể từ `startDate` (tối thiểu 1 nếu đã vào kỳ)
-- `unusedMonths = max(0, contractMonths − usedMonths)`
-- `terminationFee = 1 × monthlyRate` (phạt 1 tháng)
-- `refundAmount = max(0, totalPaid − unusedMonths × monthlyRate − terminationFee)`
-
-**Ví dụ:** Trả 120.000.000 VND / 12 tháng, dùng 6 tháng, đã inbound:
-
-- `monthlyRate = 10.000.000`
-- `unusedMonths = 6`
-- `refund = 120.000.000 − 6×10.000.000 − 10.000.000 = 50.000.000`
-
-### 3.4 Luồng API
-
-| Method | Path                                                                        | Mô tả                              |
-| ------ | --------------------------------------------------------------------------- | ---------------------------------- |
-| `GET`  | `/contracts/:contractId/termination/preview`                                | Xem phí / hoàn trước khi gửi       |
-| `POST` | `/contracts/:contractId/termination/request`                                | Tạo yêu cầu `PENDING`              |
-| `GET`  | `/contracts/:contractId/termination/requests`                               | Danh sách yêu cầu (query `status`) |
-| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/approve` | WH duyệt → `TERMINATED`            |
-| `POST` | `/contracts/:contractId/termination/requests/:terminationRequestId/reject`  | WH từ chối → HĐ vẫn `ACTIVE`       |
-| `POST` | `/contracts/:contractId/invoices/:invoiceId/payos/create-link`              | Link thanh toán PayOS              |
-| `POST` | `/api/payos/webhook`                                                        | Webhook PayOS                      |
-| `POST` | `/contracts/:contractId/invoices/:invoiceId/mark-paid`                      | Ghi nhận thủ công (dev)            |
-
-Duyệt (`approve`): roles `WH_ADMIN` / `SYSTEM_ADMIN`; `reviewedBy` lấy từ JWT. **`WH_ADMIN` chỉ được duyệt/từ chối HĐ có `warehouse_id` trùng `warehouseId` trong JWT** (403 nếu kho khác).
-
-### 3.5 Hàng còn trong kho sau khi duyệt chấm dứt
-
-| Hạng mục                    | Xử lý                                                                                   |
-| --------------------------- | --------------------------------------------------------------------------------------- |
-| **Tồn kho (`inventories`)** | **Không** tự xóa / trừ kho. Hàng vẫn thuộc tenant cho đến khi xuất hết qua outbound.    |
-| **Inbound mới**             | **Chặn** — chỉ HĐ `ACTIVE` mới tạo inbound.                                             |
-| **Outbound (lấy hàng)**     | **Cho phép** — HĐ `TERMINATED` vẫn tạo phiếu xuất để tenant thu hồi hàng (liquidation). |
-| **Storage reservation**     | `ACTIVE` → `CANCELLED` (không giữ chỗ bin sau chấm dứt).                                |
-| **Inbound DRAFT/PENDING**   | Tự `CANCELLED` khi duyệt. Inbound đã `APPROVED` trở đi — WH xử lý thủ công.             |
-| **Response approve**        | Trả `inventoryRemainder` (tổng qty, SKU count) + `nextSteps` hướng dẫn tạo outbound.    |
-
-Hoàn tiền (`refundAmount` trên request) — xử lý kế toán ngoài WMS (chưa tạo invoice `TERMINATION_SETTLEMENT` tự động).
-
-## 4. Mốc thời gian HĐ
-
-| Khái niệm | Nguồn | Ghi chú |
-| --------- | ----- | ------- |
-| **Thời hạn thuê** (`startDate` → `endDate`) | Ngày guest/tenant chọn khi gửi yêu cầu thuê | **Không** đổi theo ngày WH duyệt (kể cả WH duyệt trễ vài ngày) |
-| **Ngày ACTIVE** (`activated_at`) | Thời điểm invoice INITIAL `PAID` | Dùng làm mốc thanh toán định kỳ hàng tháng |
-| **Kỳ thanh toán MONTHLY** | Cùng **ngày trong tháng** với `activated_at` | VD: ACTIVE ngày 6 → mỗi tháng đến hạn ngày 6 |
-
-### 4.1 Báo trước khi chấm dứt (MONTHLY)
-
-Tenant phải gửi yêu cầu chấm dứt **trước ít nhất 3 ngày** so với kỳ thanh toán tháng tiếp theo.
-
-- API `GET …/termination/preview` trả `nextBillingDate`, `latestRequestDate`, `canRequestNow`
-- API `POST …/termination/request` trả `403/400` `TERMINATION_NOTICE_TOO_LATE` nếu quá hạn
-
-## 5. Công thức tiền thuê tháng (dùng chung)
-
-```text
-contractMonths = max(1, floor((endDate − startDate) / 30 ngày billing))
-monthlyRent      = round(estimatedTotalAmount / contractMonths)
-initialInvoice   = MONTHLY ? monthlyRent : estimatedTotalAmount
-```
-
-## 6. Thay đổi code (checklist)
-
-- [x] Doc này
-- [x] Migration `contract_billing_termination.sql`
-- [x] `BILLING_CYCLE` chỉ `MONTHLY` | `YEARLY`
-- [x] `PENDING_PAYMENT` + invoice INITIAL + mark-paid → ACTIVE
-- [x] Inbound gate: ACTIVE + invoice INITIAL PAID
-- [x] Termination preview / request / approve / reject
-- [x] Sau duyệt: outbound trên HĐ TERMINATED; tồn kho giữ nguyên đến khi xuất hết
-- [ ] Cron invoice định kỳ (MONTHLY đầu tháng / YEARLY cuối tháng)
-- [x] UI tenant: **Thanh toán PayOS** → redirect `checkoutUrl`; return `/staff/contracts/payment/return`
-- [x] BE: `@payos/node`, webhook `/api/payos/webhook`, bảng `payments.payos_order_code`
-
-### Hướng dẫn dev ngrok + PayOS
-
-**Chi tiết từng bước (cài ngrok, `.env`, PayOS, test):** [ngrok-payos-dev.md](./ngrok-payos-dev.md)
-
-### Hướng dẫn cấu hình PayOS (my.payos.vn + project)
-
-#### A. Trên cổng PayOS
-
-1. **Đăng ký / đăng nhập**  
-   Vào [https://my.payos.vn](https://my.payos.vn) → tạo tài khoản merchant.
-
-2. **Xác thực tổ chức**  
-   Menu **Tổ chức** (hoặc **Xác thực**) → nộp giấy tờ doanh nghiệp / cá nhân → chờ PayOS duyệt.  
-   Chưa duyệt thì thường **không tạo được kênh thanh toán** hoặc không nhận tiền thật.
-
-3. **Liên kết ngân hàng**  
-   Thêm ít nhất **một tài khoản ngân hàng** nhận tiền (theo hướng dẫn PayOS: “Kết nối tài khoản ngân hàng”).
-
-4. **Tạo kênh thanh toán**  
-   Menu **Kênh thanh toán** → **Tạo kênh thanh toán** → điền tên, logo → chọn ngân hàng chính → **Hoàn tất**.  
-   Sau bước này PayOS hiển thị **3 key** (copy ngay, chỉ hiện đầy đủ lúc tạo / trong chi tiết kênh):
-
-   | Key trên PayOS | Biến `.env` project  |
-   | -------------- | -------------------- |
-   | Client ID      | `PAYOS_CLIENT_ID`    |
-   | API Key        | `PAYOS_API_KEY`      |
-   | Checksum Key   | `PAYOS_CHECKSUM_KEY` |
-
-5. **Cấu hình Webhook URL (quan trọng)**  
-   Vào **chi tiết kênh thanh toán** vừa tạo → mục **Webhook** → nhập URL:
-
-   | Môi trường  | Webhook URL                                            |
-   | ----------- | ------------------------------------------------------ |
-   | Dev (ngrok) | `https://<subdomain>.ngrok-free.app/api/payos/webhook` |
-   | Production  | `https://<domain-api-của-bạn>/api/payos/webhook`       |
-   - URL phải là **HTTPS**, trỏ tới **backend** (port 3000), **không** trỏ FE (5173).
-   - PayOS có thể gửi **giao dịch mẫu** để test — server phải trả **HTTP 200**.
-   - Nếu dashboard có nút **Lưu / Xác nhận webhook**, bấm sau khi BE đang chạy và ngrok bật.
-
-   Tài liệu PayOS: [Tạo kênh thanh toán](https://payos.vn/docs/huong-dan-su-dung/tao-kenh-thanh-toan/) · [Webhook](https://payos.vn/docs/api/).
-
-6. **Return / Cancel URL**  
-   **Không** cấu hình cố định trên PayOS cho từng đơn — project **tự gửi** khi tạo link:
-   - Thành công: `{PAYOS_RETURN_ORIGIN}/staff/contracts/payment/return?contractId=...&invoiceId=...`
-   - Hủy: `{PAYOS_RETURN_ORIGIN}/staff/contracts/payment/cancel?...`
-
-#### B. Trong project (Warehouse_BE_V2)
-
-1. Mở `Warehouse_BE_V2/.env`, thêm (không commit file này):
-
-```env
-PAYOS_CLIENT_ID=<Client ID từ kênh>
-PAYOS_API_KEY=<API Key từ kênh>
-PAYOS_CHECKSUM_KEY=<Checksum Key từ kênh>
-# URL giao diện FE — không slash cuối
-PAYOS_RETURN_ORIGIN=http://localhost:5173
-```
-
-2. **Restart backend** (`npm run dev`) sau khi sửa `.env`.
-
-3. **Dev local — dùng ngrok** (xem [ngrok-payos-dev.md](./ngrok-payos-dev.md)):
-
-```env
-PAYOS_WEBHOOK_PUBLIC_URL=https://xxxx.ngrok-free.app
-```
-
-```bash
-ngrok http 3000
-npm run payos:confirm-webhook   # hoặc dán webhook thủ công trên my.payos.vn
-```
-
-4. **FE:** chạy Vite (thường `http://localhost:5173`), proxy API về `http://127.0.0.1:3000` (đã có trong `vite.config.ts`).
-
-#### C. Kiểm tra luồng
-
-| Bước | Việc cần thấy                                                      |
-| ---- | ------------------------------------------------------------------ |
-| 1    | Tenant ký HĐ → status `PENDING_PAYMENT`, có invoice INITIAL        |
-| 2    | **Thanh toán PayOS** → mở trang checkout PayOS (QR / chuyển khoản) |
-| 3    | Thanh toán xong → redirect về `/staff/contracts/payment/return`    |
-| 4    | Vài giây sau webhook chạy → invoice `PAID`, HĐ `ACTIVE`            |
-| 5    | Tạo được inbound                                                   |
-
-**Lỗi thường gặp**
-
-| Triệu chứng                               | Cách xử lý                                                               |
-| ----------------------------------------- | ------------------------------------------------------------------------ |
-| `PayOS chưa cấu hình`                     | Thiếu 1 trong 3 biến `.env` hoặc chưa restart BE                         |
-| Mở PayOS lỗi 401                          | Sai Client ID / API Key hoặc nhầm kênh                                   |
-| Trả tiền xong nhưng HĐ vẫn chờ thanh toán | Webhook sai URL, ngrok tắt, hoặc BE không nhận POST `/api/payos/webhook` |
-| Return về FE nhưng không ACTIVE           | Chờ webhook; refresh trang Hợp đồng; xem log BE khi PayOS gọi webhook    |
-| Số tiền &lt; 1000 VND                     | Invoice `estimatedTotalAmount` quá nhỏ — PayOS tối thiểu ~1000           |
-
-**Sandbox / test:** Nếu PayOS bật chế độ thử nghiệm trên kênh, dùng tài khoản / số tiền theo hướng dẫn sandbox của PayOS (xem mục kênh trên my.payos.vn).
-
-## 7. Phụ lục
-
-Chi tiết: **[contract-appendix.md](./contract-appendix.md)** — mở rộng trong trần HĐ, invoice `APPENDIX_INITIAL`, chấm dứt PL riêng hoặc theo HĐ gốc.
-
-## 8. Liên kết
-
-- Giá ước tính HĐ: `contractPriceEstimate.service.js`, `docs/pricing.md`
-- Ký HĐ: `contract.service.js` — kho ký trước, tenant ký sau khi có `storage_reservations` ACTIVE
+- Tenant thanh toán qua PayOS trên `TenantContractsPage` (INITIAL, RECURRING_RENT).
+- Phụ phí: panel PayOS trên chi tiết inbound/outbound trước thao tác WH.
+- Notification bell: đếm mọi invoice `PENDING` trên HĐ tenant.

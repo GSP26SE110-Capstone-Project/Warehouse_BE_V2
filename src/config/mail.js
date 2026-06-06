@@ -1062,4 +1062,70 @@ export async function sendRentalRequestRejectedEmail({
   });
 }
 
+/** Tenant admin — nhắc tiền thuê định kỳ trước 3 ngày đến hạn. */
+export async function sendRecurringRentReminderEmail({
+  to,
+  tenantAdminName,
+  contractCode,
+  contractName,
+  nextBillingDate,
+  monthlyRent,
+  reminderDays,
+  overviewUrl,
+}) {
+  assertMailConfigured();
+
+  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
+  const safeCode = escapeHtml(contractCode || '—');
+  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
+  const safeDate = escapeHtml(nextBillingDate || '—');
+  const safeAmount = escapeHtml(monthlyRent || '—');
+  const safeDays = escapeHtml(String(reminderDays ?? 3));
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Nhắc thanh toán tiền thuê định kỳ</h2>
+      <p>Xin chào <strong>${safeName}</strong>,</p>
+      <p>
+        Hợp đồng <strong>${safeCode}</strong> sẽ đến kỳ thanh toán tiền thuê định kỳ sau
+        <strong>${safeDays} ngày</strong> (ngày <strong>${safeDate}</strong>).
+        Vui lòng chuẩn bị thanh toán để tránh quá hạn.
+      </p>
+      <div style="background: #fffbeb; border-radius: 8px; padding: 16px; margin: 20px 0; border: 1px solid #fde68a">
+        <p style="margin: 0 0 8px"><strong>Chi tiết</strong></p>
+        <p style="margin: 4px 0">Mã HĐ: <code>${safeCode}</code></p>
+        <p style="margin: 4px 0">Tên: ${safeTitle}</p>
+        <p style="margin: 4px 0">Ngày thanh toán dự kiến: <strong>${safeDate}</strong></p>
+        <p style="margin: 4px 0">Tiền thuê tháng: <strong>${safeAmount} ₫</strong></p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(overviewUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem tiền thuê định kỳ
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
+    '',
+    `HĐ ${contractCode} sẽ đến kỳ thanh toán tiền thuê định kỳ sau ${reminderDays ?? 3} ngày (${nextBillingDate}).`,
+    `Tiền thuê tháng: ${monthlyRent} ₫`,
+    '',
+    overviewUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Nhắc tiền thuê định kỳ — HĐ ${contractCode} — NEXSPACE Smart Warehouse`,
+    text,
+    html,
+  });
+}
+
 export default transporter;
