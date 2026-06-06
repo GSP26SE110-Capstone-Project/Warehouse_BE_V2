@@ -31,6 +31,14 @@ export function getMaxLpnBoxTypeForZone(zoneType) {
   return 'EXTRA';
 }
 
+/** Số LPN cỡ lớn nhất của zone có thể xếp trong 1 ô bin (theo volume bin + loại thùng zone). */
+export function maxLpnsPerBinSlotForZone(zoneType) {
+  const maxBoxType = getMaxLpnBoxTypeForZone(zoneType);
+  const binVolume = getDefaultBinCapacityForZone(zoneType).maxVolumeUnits;
+  const boxVol = BOX_VOLUME_UNITS[maxBoxType] ?? 1;
+  return Math.max(1, Math.floor(binVolume / boxVol));
+}
+
 /** Chọn loại thùng lớn nhất trong các zone được cấp (tối ưu số LPN / chi phí tenant). */
 export function pickLargestBoxTypeForZoneTypes(zoneTypes) {
   const types = zoneTypes?.length ? zoneTypes : ['SHARED'];

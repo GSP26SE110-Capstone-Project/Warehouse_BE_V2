@@ -23,6 +23,7 @@ import {
   sendWarehouseTransporterWelcomeEmail,
 } from '../config/mail.js';
 import { buildLoginUrl, buildPasswordResetUrl } from '../utils/appUrl.js';
+import { assertOptionalPhone } from '../utils/phone.js';
 
 /** HĐ còn hiệu lực — chặn vô hiệu hóa WH_ADMIN / TENANT_ADMIN */
 const ADMIN_DEACTIVATION_BLOCKING_CONTRACT_STATUSES = Object.freeze([
@@ -255,6 +256,9 @@ async function normalizeCreatePayload(body, creator) {
 
   data.fullName = data.fullName.trim();
   data.email = data.email.trim().toLowerCase();
+  if (data.phone !== undefined) {
+    data.phone = assertOptionalPhone(data.phone, 'phone');
+  }
   assertEnum(data.role, ROLES, 'role');
   assertCanCreateRole(creator.role, data.role);
 
@@ -549,6 +553,9 @@ export async function updateSelfProfile(currentUser, body) {
       throw new AppError('fullName cannot be empty', 400, 'VALIDATION_ERROR');
     }
   }
+  if (data.phone !== undefined) {
+    data.phone = assertOptionalPhone(data.phone, 'phone');
+  }
   if (Object.keys(data).length === 0) {
     throw new AppError('No valid fields to update', 400, 'VALIDATION_ERROR');
   }
@@ -572,6 +579,9 @@ export async function updateUser(creator, userId, body) {
     if (!data.fullName) {
       throw new AppError('fullName cannot be empty', 400, 'VALIDATION_ERROR');
     }
+  }
+  if (data.phone !== undefined) {
+    data.phone = assertOptionalPhone(data.phone, 'phone');
   }
   assertEnum(data.status, USER_STATUS, 'status');
 
