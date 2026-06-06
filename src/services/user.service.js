@@ -24,6 +24,58 @@ import {
 } from '../config/mail.js';
 import { buildLoginUrl, buildPasswordResetUrl } from '../utils/appUrl.js';
 
+/** HĐ còn hiệu lực — chặn vô hiệu hóa WH_ADMIN / TENANT_ADMIN */
+const ADMIN_DEACTIVATION_BLOCKING_CONTRACT_STATUSES = Object.freeze([
+  'DRAFT',
+  'PENDING_APPROVAL',
+  'PENDING_PAYMENT',
+  'ACTIVE',
+]);
+
+async function assertAdminDeactivationAllowed(user) {
+  if (!['WH_ADMIN', 'TENANT_ADMIN'].includes(user.role)) return;
+
+  let rows = [];
+  if (user.role === 'WH_ADMIN' && user.warehouseId) {
+    const result = await pool.query(
+      `SELECT contract_code, status, end_date
+       FROM contracts
+       WHERE warehouse_id = $1
+         AND status = ANY($2::contract_status_enum[])
+       ORDER BY end_date ASC NULLS LAST
+       LIMIT 10`,
+      [user.warehouseId, ADMIN_DEACTIVATION_BLOCKING_CONTRACT_STATUSES]
+    );
+    rows = result.rows;
+  } else if (user.role === 'TENANT_ADMIN' && user.tenantId) {
+    const result = await pool.query(
+      `SELECT contract_code, status, end_date
+       FROM contracts
+       WHERE tenant_id = $1
+         AND status = ANY($2::contract_status_enum[])
+       ORDER BY end_date ASC NULLS LAST
+       LIMIT 10`,
+      [user.tenantId, ADMIN_DEACTIVATION_BLOCKING_CONTRACT_STATUSES]
+    );
+    rows = result.rows;
+  }
+
+  if (rows.length === 0) return;
+
+  const codes = rows
+    .map((c) => c.contract_code || '—')
+    .slice(0, 5)
+    .join(', ');
+  const more = rows.length > 5 ? ` (+${rows.length - 5} HĐ khác)` : '';
+  const roleLabel = user.role === 'WH_ADMIN' ? 'Warehouse Admin' : 'Tenant Admin';
+
+  throw new AppError(
+    `Không thể vô hiệu hóa ${roleLabel} — còn hợp đồng đang hiệu lực (${codes}${more}). Hợp đồng phải hết hạn hoặc được chấm dứt (TERMINATED) trước khi khóa tài khoản.`,
+    400,
+    'ADMIN_HAS_ACTIVE_CONTRACT'
+  );
+}
+
 const CREATE_FIELDS = ['fullName', 'email', 'password', 'phone', 'role', 'tenantId', 'warehouseId', 'status'];
 
 const UPDATE_FIELDS = ['fullName', 'phone', 'status'];
@@ -539,6 +591,14 @@ export async function updateUser(creator, userId, body) {
 
   if (creator.role !== 'SYSTEM_ADMIN' && data.status === 'ACTIVE' && existing.status === 'BLOCKED') {
     throw new AppError('Cannot reactivate blocked user', 403, 'FORBIDDEN');
+  }
+
+  if (
+    data.status !== undefined &&
+    data.status !== 'ACTIVE' &&
+    existing.status === 'ACTIVE'
+  ) {
+    await assertAdminDeactivationAllowed(existing);
   }
 
   if (Object.keys(data).length === 0) {
