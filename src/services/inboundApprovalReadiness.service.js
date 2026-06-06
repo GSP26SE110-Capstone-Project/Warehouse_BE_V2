@@ -541,7 +541,7 @@ export async function getInboundApprovalReadiness(inboundRequestId) {
     warnings,
     batchCount,
     canRevokeApproval: status === 'APPROVED' && batchCount === 0,
-    canWarehouseCancel: ['PENDING', 'APPROVED', 'ARRIVED'].includes(status),
+    canWarehouseCancel: ['PENDING', 'APPROVED', 'IN_TRANSIT', 'ARRIVED'].includes(status),
     canWarehouseReject: status === 'PENDING',
   };
 }

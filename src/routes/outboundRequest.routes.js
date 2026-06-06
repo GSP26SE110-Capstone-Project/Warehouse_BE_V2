@@ -4,6 +4,7 @@ import authenticate from '../middleware/authenticate.js';
 import AppError from '../utils/AppError.js';
 import * as outboundRequestController from '../controllers/outboundRequest.controller.js';
 import * as outboundRequestItemController from '../controllers/outboundRequestItem.controller.js';
+import * as outboundDeliveryController from '../controllers/outboundDelivery.controller.js';
 
 const router = Router();
 const blockWhAdminCreate = (req, _res, next) => {
@@ -32,8 +33,33 @@ router.post(
   asyncHandler(outboundRequestItemController.create)
 );
 router.get(
+  '/:outboundRequestId/fifo-preview',
+  asyncHandler(outboundRequestController.previewFifoAllocation)
+);
+router.get(
   '/:outboundRequestId/picking-tasks',
   asyncHandler(outboundRequestController.listPickingTasks)
+);
+router.patch(
+  '/:outboundRequestId/picking-tasks/assign',
+  asyncHandler(outboundRequestController.assignPicker)
+);
+
+router.get(
+  '/:outboundRequestId/delivery',
+  asyncHandler(outboundDeliveryController.getByOutboundRequest)
+);
+router.put(
+  '/:outboundRequestId/delivery',
+  asyncHandler(outboundDeliveryController.upsert)
+);
+router.post(
+  '/:outboundRequestId/report-pickup',
+  asyncHandler(outboundDeliveryController.reportPickup)
+);
+router.post(
+  '/:outboundRequestId/report-delivery',
+  asyncHandler(outboundDeliveryController.reportDelivery)
 );
 
 router.get('/:outboundRequestId', asyncHandler(outboundRequestController.getById));

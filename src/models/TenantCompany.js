@@ -26,6 +26,7 @@ export const tenantCompanySchema = {
   contactEmail: {
     type: 'string',
     required: false,
+    unique: true,
   },
   contactPhone: {
     type: 'string',

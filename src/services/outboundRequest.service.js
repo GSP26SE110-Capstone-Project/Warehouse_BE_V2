@@ -1,6 +1,8 @@
+import pool from '../config/db.js';
 import OutboundRequest from '../models/OutboundRequest.js';
 import AppError from '../utils/AppError.js';
 import { OUTBOUND_STATUS } from '../constants/outbound.js';
+import { DELIVERY_MODE } from '../constants/delivery.js';
 import { assertEnum, parseUuid } from '../utils/validate.js';
 import { assertContractAllowsOutbound } from './contract.service.js';
 import { assertOutboundOperationalGate } from '../utils/contractOperationalGate.js';
@@ -25,6 +27,7 @@ const CREATE_FIELDS = [
   'requestedShipDate',
   'actualShippedAt',
   'status',
+  'deliveryMode',
 ];
 
 const UPDATE_FIELDS = ['requestedShipDate', 'actualShippedAt', 'status'];
@@ -115,6 +118,9 @@ function normalizeCreatePayload(body) {
   if (data.status == null) data.status = 'PENDING';
   assertEnum(data.status, OUTBOUND_STATUS, 'status');
 
+  if (data.deliveryMode == null) data.deliveryMode = 'TENANT_SELF';
+  assertEnum(data.deliveryMode, DELIVERY_MODE, 'deliveryMode');
+
   return data;
 }
 
@@ -164,11 +170,133 @@ export async function listOutboundRequests({
   warehouseId,
   contractId,
   status,
+  assignedPickerUserId,
+  assignedDriverUserId,
   page,
   limit,
   offset,
 }) {
   assertEnum(status, OUTBOUND_STATUS, 'status');
+
+  if (assignedDriverUserId) {
+    const driverId = parseUuid(assignedDriverUserId, 'assignedDriverUserId');
+    const conditions = [
+      'od.assigned_driver_user_id = $1',
+      "o.delivery_mode = 'WAREHOUSE_TRANSPORT'",
+      "o.status = 'SHIPPED'",
+      "od.delivery_status IN ('ASSIGNED', 'IN_TRANSIT', 'DELIVERED')",
+    ];
+    const values = [driverId];
+    let paramIdx = 2;
+
+    if (tenantId) {
+      const tId = parseUuid(tenantId, 'tenantId');
+      await getTenantCompany(tId);
+      conditions.push(`o.tenant_id = $${paramIdx++}`);
+      values.push(tId);
+    }
+    if (warehouseId) {
+      const wId = parseUuid(warehouseId, 'warehouseId');
+      await getWarehouseById(wId);
+      conditions.push(`o.warehouse_id = $${paramIdx++}`);
+      values.push(wId);
+    }
+    if (contractId) {
+      conditions.push(`o.contract_id = $${paramIdx++}`);
+      values.push(parseUuid(contractId, 'contractId'));
+    }
+    if (status) {
+      conditions.push(`o.status = $${paramIdx++}`);
+      values.push(status);
+    }
+
+    const whereClause = conditions.join(' AND ');
+    const countResult = await pool.query(
+      `SELECT COUNT(DISTINCT o.outbound_request_id)::int AS total
+       FROM outbound_requests o
+       INNER JOIN outbound_deliveries od ON od.outbound_request_id = o.outbound_request_id
+       WHERE ${whereClause}`,
+      values
+    );
+    const total = Number(countResult.rows[0]?.total) || 0;
+
+    values.push(limit, offset);
+    const listResult = await pool.query(
+      `SELECT DISTINCT o.*
+       FROM outbound_requests o
+       INNER JOIN outbound_deliveries od ON od.outbound_request_id = o.outbound_request_id
+       WHERE ${whereClause}
+       ORDER BY o.created_at DESC
+       LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
+      values
+    );
+
+    const items = OutboundRequest._mapRows(listResult.rows);
+    return {
+      items,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 0 },
+    };
+  }
+
+  if (assignedPickerUserId) {
+    const pickerId = parseUuid(assignedPickerUserId, 'assignedPickerUserId');
+    const conditions = ['pt.assigned_to = $1'];
+    const values = [pickerId];
+    let paramIdx = 2;
+
+    if (tenantId) {
+      const tId = parseUuid(tenantId, 'tenantId');
+      await getTenantCompany(tId);
+      conditions.push(`o.tenant_id = $${paramIdx++}`);
+      values.push(tId);
+    }
+    if (warehouseId) {
+      const wId = parseUuid(warehouseId, 'warehouseId');
+      await getWarehouseById(wId);
+      conditions.push(`o.warehouse_id = $${paramIdx++}`);
+      values.push(wId);
+    }
+    if (contractId) {
+      conditions.push(`o.contract_id = $${paramIdx++}`);
+      values.push(parseUuid(contractId, 'contractId'));
+    }
+    if (status) {
+      conditions.push(`o.status = $${paramIdx++}`);
+      values.push(status);
+    }
+
+    const whereClause = conditions.join(' AND ');
+    const countResult = await pool.query(
+      `SELECT COUNT(DISTINCT o.outbound_request_id)::int AS total
+       FROM outbound_requests o
+       INNER JOIN picking_tasks pt ON pt.outbound_request_id = o.outbound_request_id
+       WHERE ${whereClause}`,
+      values
+    );
+    const total = Number(countResult.rows[0]?.total) || 0;
+
+    values.push(limit, offset);
+    const listResult = await pool.query(
+      `SELECT DISTINCT o.*
+       FROM outbound_requests o
+       INNER JOIN picking_tasks pt ON pt.outbound_request_id = o.outbound_request_id
+       WHERE ${whereClause}
+       ORDER BY o.created_at DESC
+       LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
+      values
+    );
+
+    const items = OutboundRequest._mapRows(listResult.rows);
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 0,
+      },
+    };
+  }
 
   const filters = {};
   if (tenantId) {
@@ -259,6 +387,7 @@ export async function updateOutboundRequest(outboundRequestId, body, actor = nul
   delete sanitized.createdBy;
 
   const data = normalizeUpdatePayload(sanitized);
+  const assignedPickerUserId = body.assignedPickerUserId;
 
   if (data.status !== undefined && data.status !== existing.status) {
     if (data.status === 'PENDING') {
@@ -269,7 +398,7 @@ export async function updateOutboundRequest(outboundRequestId, body, actor = nul
       existing,
       data.status,
       actor,
-      data
+      { ...data, assignedPickerUserId }
     );
 
     if (workflowPatch.__fullyHandled) {

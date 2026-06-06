@@ -141,6 +141,106 @@ export async function sendWarehouseAdminWelcomeEmail({
 }
 
 /**
+ * Email chào mừng nhân viên kho / tài xế — gửi sau khi WH Admin tạo tài khoản.
+ */
+async function sendWarehouseMemberWelcomeEmail({
+  to,
+  fullName,
+  email,
+  temporaryPassword,
+  warehouseName,
+  warehouseCode,
+  loginUrl,
+  resetPasswordUrl,
+  roleTitle,
+  roleDescription,
+  subject,
+  defaultName,
+  supportContactLabel,
+}) {
+  assertMailConfigured();
+
+  const safeName = escapeHtml(fullName || defaultName);
+  const safeEmail = escapeHtml(email);
+  const safeWarehouse = escapeHtml(
+    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : 'kho được gán',
+  );
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Tài khoản ${escapeHtml(roleTitle)}</h2>
+      <p>Xin chào <strong>${safeName}</strong>,</p>
+      <p>Bạn đã được cấp quyền <strong>${escapeHtml(roleTitle)}</strong> cho <strong>${safeWarehouse}</strong> trên hệ thống NEXSPACE Smart Warehouse — ${escapeHtml(roleDescription)}.</p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Thông tin đăng nhập</strong></p>
+        <p style="margin: 4px 0">Email: <code>${safeEmail}</code></p>
+        <p style="margin: 4px 0">Mật khẩu tạm: <code>${escapeHtml(temporaryPassword)}</code></p>
+      </div>
+      <p>Vì lý do bảo mật, vui lòng <strong>đổi mật khẩu ngay</strong> sau khi đăng nhập lần đầu.</p>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(resetPasswordUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Đặt lại mật khẩu
+        </a>
+      </p>
+      <p style="font-size: 14px; color: #4b5563">
+        Hoặc đăng nhập tại:
+        <a href="${escapeHtml(loginUrl)}">${escapeHtml(loginUrl)}</a>
+      </p>
+      <p style="font-size: 13px; color: #6b7280">Link đặt lại mật khẩu có thời hạn giới hạn. Nếu hết hạn, liên hệ ${escapeHtml(supportContactLabel)} để được cấp link mới.</p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${fullName || defaultName},`,
+    '',
+    `Bạn đã được cấp quyền ${roleTitle} cho ${warehouseName || 'kho'}.`,
+    '',
+    'Thông tin đăng nhập:',
+    `Email: ${email}`,
+    `Mật khẩu tạm: ${temporaryPassword}`,
+    '',
+    `Đặt lại mật khẩu: ${resetPasswordUrl}`,
+    `Đăng nhập: ${loginUrl}`,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject,
+    text,
+    html,
+  });
+}
+
+/** WH Admin tạo WH_STAFF — welcome email kèm mật khẩu tạm và link reset. */
+export async function sendWarehouseStaffWelcomeEmail(params) {
+  return sendWarehouseMemberWelcomeEmail({
+    ...params,
+    roleTitle: 'Warehouse Staff',
+    roleDescription: 'nhận hàng, putaway, picking/xuất kho và tra cứu tồn kho',
+    subject: 'Tài khoản Warehouse Staff — NEXSPACE Smart Warehouse',
+    defaultName: 'Warehouse Staff',
+    supportContactLabel: 'Warehouse Admin',
+  });
+}
+
+/** WH Admin tạo WH_TRANSPORTER — welcome email kèm mật khẩu tạm và link reset. */
+export async function sendWarehouseTransporterWelcomeEmail(params) {
+  return sendWarehouseMemberWelcomeEmail({
+    ...params,
+    roleTitle: 'Warehouse Transporter',
+    roleDescription: 'xem chuyến giao hàng được gán và báo xe đến kho',
+    subject: 'Tài khoản Tài xế kho — NEXSPACE Smart Warehouse',
+    defaultName: 'Tài xế kho',
+    supportContactLabel: 'Warehouse Admin',
+  });
+}
+
+/**
  * Email chào mừng Tenant Admin mới — gửi sau khi System Admin tạo tài khoản.
  */
 export async function sendTenantAdminWelcomeEmail({
@@ -543,6 +643,208 @@ export async function sendInboundArrivalTenantEmail({
     from: FROM_ADDRESS,
     to,
     subject: `Hàng đã tới kho — ${inboundCode}`,
+    text,
+    html,
+  });
+}
+
+/** WH Admin — tài xế đã lấy hàng tại tenant, đang về kho. */
+export async function sendInboundPickupWhAdminEmail({
+  to,
+  whAdminName,
+  inboundCode,
+  actualPickupAt,
+  driverName,
+  driverPhone,
+  vehiclePlate,
+  companyName,
+  pickupAddress,
+  inboundUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Tài xế đã lấy hàng</h2>
+      <p>Xin chào <strong>${escapeHtml(whAdminName || 'WH Admin')}</strong>,</p>
+      <p>
+        Tài xế đã báo <strong>đã lấy hàng</strong> cho inbound <strong>${escapeHtml(inboundCode)}</strong>
+        (tenant: ${escapeHtml(companyName)}). Xe đang về kho.
+      </p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 4px 0">Thời điểm lấy hàng: ${escapeHtml(actualPickupAt)}</p>
+        <p style="margin: 4px 0">Điểm lấy: ${escapeHtml(pickupAddress)}</p>
+        <p style="margin: 4px 0">Tài xế: ${escapeHtml(driverName)} · ${escapeHtml(driverPhone)}</p>
+        <p style="margin: 4px 0">Biển số: ${escapeHtml(vehiclePlate)}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(inboundUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem inbound
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Tài xế đã lấy hàng — inbound ${inboundCode} (${companyName}).`,
+    `Thời điểm: ${actualPickupAt}. Điểm lấy: ${pickupAddress}.`,
+    `Tài xế: ${driverName}, ${driverPhone}, biển số ${vehiclePlate}.`,
+    inboundUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Đã lấy hàng — ${inboundCode}`,
+    text,
+    html,
+  });
+}
+
+/** Tenant admin — tài xế kho đã lấy hàng tại địa điểm tenant. */
+export async function sendInboundPickupTenantEmail({
+  to,
+  tenantAdminName,
+  inboundCode,
+  actualPickupAt,
+  driverName,
+  vehiclePlate,
+  pickupAddress,
+  warehouseName,
+  inboundUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Tài xế đã lấy hàng</h2>
+      <p>Xin chào <strong>${escapeHtml(tenantAdminName || 'Tenant Admin')}</strong>,</p>
+      <p>
+        Tài xế kho đã báo <strong>đã lấy hàng</strong> cho inbound <strong>${escapeHtml(inboundCode)}</strong>
+        tại điểm lấy của bạn. Hàng đang được vận chuyển về kho <strong>${escapeHtml(warehouseName)}</strong>.
+      </p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 4px 0">Thời điểm: ${escapeHtml(actualPickupAt)}</p>
+        <p style="margin: 4px 0">Điểm lấy: ${escapeHtml(pickupAddress)}</p>
+        <p style="margin: 4px 0">Tài xế: ${escapeHtml(driverName)} · ${escapeHtml(vehiclePlate)}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(inboundUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem chi tiết inbound
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Tài xế đã lấy hàng inbound ${inboundCode} lúc ${actualPickupAt}.`,
+    `Điểm lấy: ${pickupAddress}. Tài xế: ${driverName}, biển số ${vehiclePlate}.`,
+    `Đang về kho: ${warehouseName}.`,
+    inboundUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Tài xế đã lấy hàng — ${inboundCode}`,
+    text,
+    html,
+  });
+}
+
+/** WH Staff — được gán pick phiếu xuất. */
+export async function sendOutboundPickerAssignedEmail({
+  to,
+  pickerName,
+  outboundCode,
+  requestedShipDate,
+  companyName,
+  warehouseName,
+  outboundUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Bạn được gán pick phiếu xuất</h2>
+      <p>Xin chào <strong>${escapeHtml(pickerName || 'Nhân viên kho')}</strong>,</p>
+      <p>
+        Quản trị kho đã gán bạn thực hiện picking cho phiếu
+        <strong>${escapeHtml(outboundCode)}</strong>.
+      </p>
+      <div style="background: #f3f4f6; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 4px 0">Tenant: ${escapeHtml(companyName)}</p>
+        <p style="margin: 4px 0">Kho: ${escapeHtml(warehouseName)}</p>
+        <p style="margin: 4px 0">Ngày xuất dự kiến: ${escapeHtml(requestedShipDate)}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(outboundUrl)}"
+           style="display: inline-block; background: #f97316; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Mở phiếu pick
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Bạn được gán pick phiếu ${outboundCode}.`,
+    `Tenant: ${companyName}. Kho: ${warehouseName}.`,
+    `Ngày xuất dự kiến: ${requestedShipDate}.`,
+    outboundUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Gán pick — ${outboundCode}`,
+    text,
+    html,
+  });
+}
+
+/** WH_TRANSPORTER — được gán giao outbound sau SHIPPED. */
+export async function sendOutboundTransporterAssignedEmail({
+  to,
+  driverName,
+  outboundCode,
+  shipToAddress,
+  tripUrl,
+}) {
+  assertMailConfigured();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Chuyến giao hàng xuất kho</h2>
+      <p>Xin chào <strong>${escapeHtml(driverName || 'Tài xế')}</strong>,</p>
+      <p>Bạn được gán giao phiếu xuất <strong>${escapeHtml(outboundCode)}</strong>.</p>
+      <p>Địa chỉ giao: ${escapeHtml(shipToAddress)}</p>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(tripUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Mở chuyến giao
+        </a>
+      </p>
+    </div>
+  `;
+
+  const text = [`Chuyến giao ${outboundCode}`, `Địa chỉ: ${shipToAddress}`, tripUrl].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Gán giao hàng — ${outboundCode}`,
     text,
     html,
   });

@@ -126,12 +126,63 @@ const EXACT = Object.freeze({
   'Transporter account is not active': 'Tài khoản tài xế chưa được kích hoạt',
   'Transporter does not belong to this warehouse': 'Tài xế không thuộc kho này',
   'assignedDriverUserId must be a WH_TRANSPORTER user': 'Tài xế được gán phải có role WH_TRANSPORTER',
+  'Transporter already has an active trip': 'Tài xế đang có chuyến vận chuyển chưa hoàn thành',
   'Use transporter delivery update for this role': 'Vui lòng dùng luồng cập nhật dành cho tài xế',
   'Transporter cannot reassign driver': 'Tài xế không thể tự gán lại người khác',
   'WH_TRANSPORTER only': 'Chỉ tài xế kho mới thực hiện được thao tác này',
+  'Warehouse transport pickup must be reported by the assigned transporter':
+    'Inbound kho đi lấy — chỉ tài xế được gán mới báo đã lấy hàng',
   'Warehouse transport arrivals must be reported by the assigned transporter':
-    'Inbound kho đi lấy hàng — chỉ tài xế được gán mới báo xe đã đến',
+    'Inbound kho đi lấy — chỉ tài xế được gán mới báo xe đã đến kho',
+  'pickupAddress is required before reporting pickup':
+    'Cần có điểm lấy hàng trước khi báo đã lấy hàng',
   'assignedToMe requires WH_TRANSPORTER': 'Chỉ tài xế kho mới dùng được bộ lọc assignedToMe',
+  'assignedPickerMe requires WH_STAFF': 'Chỉ nhân viên kho mới dùng được bộ lọc assignedPickerMe',
+  'assignedPickerUserId is required when approving outbound':
+    'Phải chọn nhân viên pick (assignedPickerUserId) khi duyệt phiếu xuất',
+  'assignedPickerUserId is required when reserving outbound':
+    'Phải chọn nhân viên pick (assignedPickerUserId) khi reserve phiếu xuất',
+  'assignedPickerUserId must be a WH_STAFF user':
+    'assignedPickerUserId phải là tài khoản WH_STAFF',
+  'Picker account is not active': 'Tài khoản nhân viên pick chưa được kích hoạt',
+  'Picker does not belong to this warehouse': 'Nhân viên pick không thuộc kho này',
+  'No picker assigned to this outbound': 'Phiếu xuất chưa được gán nhân viên pick',
+  'Outbound pick is not assigned to you': 'Phiếu pick này không được gán cho bạn',
+  'Only assigned warehouse staff can perform picking':
+    'Chỉ nhân viên kho được gán mới thực hiện pick',
+  'Only warehouse admin can approve outbound': 'Chỉ quản trị kho mới duyệt phiếu xuất',
+  'Only warehouse admin can reserve inventory': 'Chỉ quản trị kho mới reserve tồn cho phiếu xuất',
+  'Only warehouse admin can assign picker': 'Chỉ quản trị kho mới gán nhân viên pick',
+  'Only warehouse admin can ship outbound': 'Chỉ quản trị kho mới xuất hàng (duyệt packing)',
+  'Only warehouse admin can complete outbound': 'Chỉ quản trị kho mới hoàn tất phiếu xuất',
+  'Picker can only be assigned when outbound is RESERVED':
+    'Chỉ gán picker khi phiếu ở trạng thái RESERVED',
+  'Cannot reassign picker after picking has started':
+    'Không thể đổi nhân viên pick sau khi đã bắt đầu pick',
+  'This outbound is not warehouse transport': 'Phiếu xuất này không phải hình thức kho giao ra',
+  'Outbound delivery trip is only active after SHIPPED':
+    'Chuyến giao outbound chỉ hoạt động sau khi phiếu SHIPPED',
+  'Assign transporter after outbound is SHIPPED (inventory deducted)':
+    'Gán tài xế sau khi phiếu SHIPPED (đã trừ tồn)',
+  'shipToAddress is required for warehouse transport before shipping':
+    'Cần địa chỉ giao hàng trước khi xuất kho (kho giao ra)',
+  'vehiclePlate is required for tenant self pickup before shipping':
+    'Cần biển số xe trước khi xuất kho (tenant tự lấy)',
+  'Save tenant vehicle info on delivery before shipping':
+    'Lưu biển số xe trước khi WH Admin xuất hàng',
+  'Only WAREHOUSE_TRANSPORT outbound supports driver assignment':
+    'Chỉ phiếu kho giao ra mới gán tài xế',
+  'Delivery record not found — ship outbound first': 'Chưa có bản ghi giao hàng — xuất hàng trước',
+  'Cannot change assignment after pickup has started':
+    'Không đổi tài xế sau khi đã lấy hàng khỏi kho',
+  'Transporter already has an active outbound trip': 'Tài xế đang có chuyến giao outbound chưa xong',
+  'Save vehicle plate before reporting pickup': 'Lưu biển số xe trước khi báo lấy hàng',
+  'shipToAddress is required before reporting pickup': 'Cần địa chỉ giao trước khi báo lấy hàng',
+  'shipToAddress is required': 'Địa chỉ giao hàng là bắt buộc',
+  'shipToContactName is required': 'Tên người nhận là bắt buộc',
+  'shipToContactPhone is required': 'SĐT người nhận là bắt buộc',
+  'Tenant can only update delivery info before warehouse processing':
+    'Tenant chỉ sửa thông tin giao hàng khi phiếu còn PENDING/DRAFT',
   'SYSTEM_ADMIN only': 'Chỉ System Admin mới thực hiện được thao tác này',
   'Cannot reactivate blocked user': 'Không thể kích hoạt lại tài khoản đã bị khóa',
   'Cannot deactivate your own account': 'Không thể tự vô hiệu hóa tài khoản của chính bạn',
@@ -247,8 +298,16 @@ export function toVietnameseErrorMessage(message) {
   m = trimmed.match(/^Cannot update delivery info when inbound status is (.+)$/);
   if (m) return `Không thể cập nhật vận chuyển khi trạng thái inbound là ${m[1]}`;
 
+  m = trimmed.match(/^Cannot report pickup when inbound status is (.+)$/);
+  if (m) return `Không thể báo đã lấy hàng khi trạng thái inbound là ${m[1]}`;
+
   m = trimmed.match(/^Cannot report arrival when inbound status is (.+)$/);
   if (m) return `Không thể báo đến kho khi trạng thái inbound là ${m[1]}`;
+
+  m = trimmed.match(/^Transporter already has an active trip \((.+)\)$/);
+  if (m) {
+    return `Tài xế đang có chuyến chưa hoàn thành (${m[1]}). Chọn tài xế khác hoặc chờ tài xế báo xe đến kho.`;
+  }
 
   m = trimmed.match(/^vehiclePlate or assignedDriverUserId is required$/);
   if (m) return 'Cần nhập biển số xe hoặc chọn tài xế được gán';

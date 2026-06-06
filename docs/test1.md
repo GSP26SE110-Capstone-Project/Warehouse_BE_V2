@@ -981,13 +981,31 @@ PUT /api/inbound-requests/{id}/delivery
 
 ---
 
-### #66 Report Arrival at Warehouse ✅
+### #65b Report Pickup at Tenant ✅
 
 **Điều kiện**:
 - Status `APPROVED`
+- `deliveryMode = WAREHOUSE_TRANSPORT`
+- Đã có `pickupAddress` và `vehiclePlate`
+
+**FE**: Trip detail → **Đã lấy hàng**
+
+**API**:
+```http
+POST /api/inbound-requests/{id}/report-pickup
+```
+
+**Kết quả**: Status → `IN_TRANSIT`, `actualPickupAt` trên delivery → email Tenant Admin + WH Admin.
+
+---
+
+### #66 Report Arrival at Warehouse ✅
+
+**Điều kiện**:
+- Status `IN_TRANSIT` (sau #65b)
 - Đã có `vehiclePlate` (#65)
 
-**FE**: Trip detail → **Báo xe đến kho**
+**FE**: Trip detail → **Xe đã đến kho**
 
 **API**:
 ```http
@@ -1292,10 +1310,13 @@ Authorization: Bearer <accessToken>
 | TC_WHAD_017 | Approve inbound request | 1. Open inbound detail (`/admin/inbound/{id}`).<br>2. Click **Duyệt** and confirm the dialog. | • Status → `APPROVED`.<br>• Tenant notified (if email enabled). | • Inbound `PENDING`, contract `ACTIVE`. |
 | TC_WHAD_018 | Reject inbound request | 1. Open inbound detail → click **Hủy yêu cầu** / reject. | • Status → `CANCELLED`. | • Inbound `PENDING`. |
 | TC_WHAD_019 | Assign transporter to inbound trip | 1. Open inbound detail with **Kho đi lấy hàng** type (`WAREHOUSE_TRANSPORT`).<br>2. In the delivery section, select driver from dropdown.<br>3. Click **Lưu vận chuyển**. | • `assignedDriverUserId` saved.<br>• Transporter sees trip at **Chuyến vận chuyển của tôi** (`/staff/my-deliveries`). | • Transporter account exists.<br>• Inbound approved. |
+| TC_WHAD_020 | Cannot assign transporter with active trip | 1. WH Admin assigns Transporter B to inbound #1 (`WAREHOUSE_TRANSPORT`, status `APPROVED` or `IN_TRANSIT`).<br>2. Open inbound #2 (same warehouse, `WAREHOUSE_TRANSPORT`, `PENDING` or `APPROVED`).<br>3. Attempt to assign Transporter B again and save. | • HTTP `409 Conflict` with code `TRANSPORTER_HAS_ACTIVE_TRIP`.<br>• Vietnamese message mentions inbound #1 code.<br>• FE dropdown shows Transporter B as disabled with note **đang có chuyến** (when #2 is not #1).<br>• After Transporter B reports arrival on #1 (`ARRIVED`), assignment on #2 succeeds. | • Two WAREHOUSE_TRANSPORT inbounds exist.<br>• Transporter B is `ACTIVE`. |
 | TC_WHAD_024 | View tenant company info | 1. Open rental request or contract detail.<br>2. View linked tenant information. | • Tenant name, tax code, contact displayed. | • Tenant linked to contract/request. |
-| TC_WHAD_020 | View outbound request list | 1. `GET /api/outbound-requests?warehouseId=` via Swagger. | • HTTP `200` with outbound list scoped to warehouse. | • Outbound request exists. |
-| TC_WHAD_021 | Approve outbound request | 1. PATCH outbound status to `APPROVED`. | • Status → `APPROVED` then system reserves inventory (`RESERVED`). | • Sufficient inventory available. |
-| TC_WHAD_022 | Reject outbound request | 1. PATCH outbound to `CANCELLED`. | • Outbound cancelled.<br>• No inventory locked. | • Outbound in `PENDING`. |
+| TC_WHAD_020b | View outbound request list | 1. `GET /api/outbound-requests?warehouseId=` via Swagger. | • HTTP `200` with outbound list scoped to warehouse. | • Outbound request exists. |
+| TC_WHAD_021 | Assign picker when approving outbound | 1. Open outbound detail (`/admin/outbound/{id}`) in `PENDING`.<br>2. Select WH Staff from **Gán nhân viên pick** dropdown.<br>3. Click **Duyệt + reserve FIFO**. | • Status → `RESERVED`.<br>• `picking_tasks.assigned_to` = selected WH_STAFF.<br>• Picker receives email; sees phiếu via `assignedPickerMe=true`. | • WH Staff `ACTIVE` same warehouse.<br>• Sufficient inventory. |
+| TC_WHAD_022 | Approve outbound without picker fails | 1. PATCH `{ "status": "APPROVED" }` without `assignedPickerUserId`. | • HTTP `400` — must select picker. | • Outbound `PENDING`. |
+| TC_WHAD_022b | Reject outbound request | 1. PATCH outbound to `CANCELLED`. | • Outbound cancelled.<br>• No inventory locked. | • Outbound in `PENDING`. |
+| TC_WHAD_028 | WH Admin ships after staff pick (packing approval) | 1. Assigned WH Staff completes pick → `PACKING`.<br>2. WH Admin opens detail → **Duyệt packing & xuất hàng**. | • Status → `SHIPPED`.<br>• Inventory deducted. | • Outbound in `PACKING`. |
 
 ## **Monitoring & Billing** (#22–#26)
 
@@ -1370,8 +1391,9 @@ Authorization: Bearer <accessToken>
 
 | Test Case ID | Test Case Description | Test Case Procedure | Expected Results | Pre-conditions |
 |--------------|----------------------|---------------------|------------------|----------------|
-| TC_WHST_007 | Execute outbound picking | 1. Open outbound detail in `RESERVED`/`PICKING` status.<br>2. Confirm pick quantities per task (API/UI). | • Status → `PICKING`.<br>• Picked qty recorded. | • Outbound approved and reserved. |
-| TC_WHST_008 | Pack and create shipment | 1. Mark outbound `PACKING` then `SHIPPED`.<br>2. Enter tracking number. | • Status → `SHIPPED`.<br>• Shipment record created. | • Picking completed. |
+| TC_WHST_007 | Execute outbound picking (assigned only) | 1. WH Admin approves outbound and assigns this staff (#TC_WHAD_021).<br>2. Open `/staff/outbound-ops/{id}` in `RESERVED`.<br>3. Click **Bắt đầu pick** then **Xác nhận pick đủ**. | • Status → `PICKING` then `PACKING`.<br>• Other WH Staff cannot pick same outbound (`403`). | • Outbound `RESERVED` with `assigned_to` = this user. |
+| TC_WHST_007b | Non-assigned staff cannot pick | 1. Log in as WH Staff B (not assigned).<br>2. PATCH outbound to `PICKING` or open detail. | • HTTP `403` — not assigned to you.<br>• No workflow buttons on FE. | • Outbound assigned to WH Staff A. |
+| TC_WHST_008 | WH Staff cannot ship (packing approval) | 1. Outbound in `PACKING`.<br>2. WH Staff attempts `PATCH { "status": "SHIPPED" }`. | • HTTP `403` — only WH Admin can ship. | • Pick completed by assigned staff. |
 
 ## **Inventory & Damage** (#54–#55)
 
@@ -1471,7 +1493,8 @@ Authorization: Bearer <accessToken>
 |--------------|----------------------|---------------------|------------------|----------------|
 | TC_WHTR_013 | Report arrival at warehouse successfully | 1. Log in as assigned Transporter.<br>2. Open trip detail (`APPROVED`) with vehicle plate saved (#65).<br>3. Click **Báo đã đến kho**. | • Success message displayed.<br>• Inbound status: `APPROVED` → `ARRIVED`.<br>• `actualArrivalAt` recorded.<br>• WH Staff can continue receiving (#49). | • Trip assigned to logged-in transporter.<br>• Inbound status = `APPROVED`.<br>• Vehicle plate is saved on delivery record. |
 | TC_WHTR_014 | Report arrival fails without vehicle plate | 1. Log in as assigned Transporter.<br>2. Open trip detail without saved vehicle plate.<br>3. Click **Báo đã đến kho**. | • HTTP `400 Bad Request`.<br>• Error indicates vehicle plate must be saved first.<br>• Inbound status remains `APPROVED`. | • Trip assigned to logged-in transporter.<br>• Delivery record has no `vehiclePlate`. |
-| TC_WHTR_015 | Report arrival fails when status is not APPROVED | 1. Log in as assigned Transporter.<br>2. Open trip detail already in `ARRIVED` status.<br>3. Call `POST /api/inbound-requests/{id}/report-arrival` again. | • HTTP `400 Bad Request`.<br>• Error indicates invalid status transition.<br>• Status stays `ARRIVED`. | • Arrival was already reported once. |
+| TC_WHTR_015 | Report arrival fails when status is not IN_TRANSIT | 1. Log in as assigned Transporter.<br>2. Call `POST …/report-arrival` while inbound is still `APPROVED` (chưa report-pickup). | • HTTP `400 Bad Request`.<br>• Error indicates invalid status.<br>• Status stays `APPROVED`. | • Trip assigned; vehicle plate saved. |
+| TC_WHTR_015b | Report pickup at tenant | 1. Log in as assigned Transporter on `APPROVED` trip.<br>2. Click **Đã lấy hàng** (or `POST …/report-pickup`). | • Status → `IN_TRANSIT`.<br>• `actualPickupAt` set on delivery.<br>• Tenant Admin + WH Admin notified. | • `pickupAddress` and `vehiclePlate` exist. |
 | TC_WHTR_016 | Warehouse Staff cannot use report-arrival endpoint | 1. Log in as Warehouse Staff.<br>2. Call `POST /api/inbound-requests/{id}/report-arrival` for a TENANT_SELF inbound. | • System returns HTTP `403 Forbidden`.<br>• Error message: **"WH_TRANSPORTER only"**. | • WH Staff account is `ACTIVE`.<br>• Valid inbound exists. |
 | TC_WHTR_017 | Unassigned transporter cannot report arrival | 1. Log in as Transporter A.<br>2. Call report-arrival API for inbound assigned to Transporter B. | • System returns HTTP `403 Forbidden`.<br>• Error message: **"Trip is not assigned to you"**. | • Inbound assigned to a different transporter. |
 
@@ -1490,7 +1513,7 @@ Authorization: Bearer <accessToken>
 
 | Test Case ID | Test Case Description | Test Case Procedure | Expected Results | Pre-conditions |
 |--------------|----------------------|---------------------|------------------|----------------|
-| TC_WHTR_E2E_001 | Complete warehouse-transport inbound pickup flow | 1. Tenant Admin creates inbound with `WAREHOUSE_TRANSPORT` (#43).<br>2. WH Admin approves inbound (#33).<br>3. WH Admin assigns transporter (#29).<br>4. Transporter updates vehicle info (#65).<br>5. Transporter reports arrival (#66).<br>6. WH Staff starts receiving (#49). | • Step 4: delivery info saved.<br>• Step 5: inbound status = `ARRIVED`.<br>• Step 6: WH Staff can receive goods without transporter involvement.<br>• Full chain completes without permission errors. | • Active contract exists.<br>• SKU and transporter account exist.<br>• WH Admin, Transporter, and WH Staff accounts are `ACTIVE`. |
+| TC_WHTR_E2E_001 | Complete warehouse-transport inbound pickup flow | 1. Tenant Admin creates inbound with `WAREHOUSE_TRANSPORT` (#43).<br>2. WH Admin approves inbound (#33).<br>3. WH Admin assigns transporter (#29).<br>4. Transporter updates vehicle info (#65).<br>5. Transporter reports pickup (#65b) → `IN_TRANSIT`.<br>6. Transporter reports arrival (#66) → `ARRIVED`.<br>7. WH Staff starts receiving (#49). | • Step 4: delivery info saved.<br>• Step 5: status = `IN_TRANSIT`; tenant/WH admin see update.<br>• Step 6: status = `ARRIVED`.<br>• Step 7: WH Staff can receive goods.<br>• Full chain completes without permission errors. | • Active contract exists.<br>• SKU and transporter account exist.<br>• WH Admin, Transporter, and WH Staff accounts are `ACTIVE`. |
 
 ---
 

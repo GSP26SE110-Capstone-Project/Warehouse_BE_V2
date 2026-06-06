@@ -30,7 +30,7 @@ DO $do$ BEGIN CREATE TYPE rental_request_status_enum AS ENUM ('PENDING','UNDER_R
 DO $do$ BEGIN CREATE TYPE box_type_enum AS ENUM ('SMALL','MEDIUM','LARGE','EXTRA'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE movement_category_enum AS ENUM ('FAST','NORMAL','SLOW'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE sku_status_enum AS ENUM ('ACTIVE','INACTIVE'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
-DO $do$ BEGIN CREATE TYPE inbound_status_enum AS ENUM ('DRAFT','PENDING','APPROVED','ARRIVED','RECEIVING','COMPLETED','CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
+DO $do$ BEGIN CREATE TYPE inbound_status_enum AS ENUM ('DRAFT','PENDING','APPROVED','IN_TRANSIT','ARRIVED','RECEIVING','COMPLETED','CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE delivery_mode_enum AS ENUM ('TENANT_SELF','WAREHOUSE_TRANSPORT'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE lpn_status_enum AS ENUM ('RECEIVING','STORED','PICKED','SHIPPED','DAMAGED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
 DO $do$ BEGIN CREATE TYPE inventory_status_enum AS ENUM ('AVAILABLE','RESERVED','PICKED','DAMAGED','IN_TRANSIT','SHIPPED'); EXCEPTION WHEN duplicate_object THEN NULL; END $do$;
@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS tenant_companies (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tenant_companies_status ON tenant_companies (status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS tenant_companies_contact_email_key
+  ON tenant_companies (LOWER(TRIM(contact_email)))
+  WHERE contact_email IS NOT NULL AND TRIM(contact_email) <> '';
 
 CREATE TABLE IF NOT EXISTS warehouses (
   warehouse_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

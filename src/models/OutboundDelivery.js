@@ -1,14 +1,14 @@
 import defineModel from './defineModel.js';
 
-export const inboundDeliverySchema = {
-  inboundDeliveryId: {
+export const outboundDeliverySchema = {
+  outboundDeliveryId: {
     type: 'string',
     primaryKey: true,
   },
-  inboundRequestId: {
+  outboundRequestId: {
     type: 'string',
     required: true,
-    foreignKey: 'inbound_request_id',
+    foreignKey: 'outbound_request_id',
   },
   tenantId: {
     type: 'string',
@@ -35,27 +35,19 @@ export const inboundDeliverySchema = {
     type: 'string',
     required: false,
   },
-  scheduledAt: {
-    type: 'datetime',
-    required: false,
-  },
-  notes: {
+  shipToAddress: {
     type: 'string',
     required: false,
   },
-  pickupAddress: {
+  shipToContactName: {
     type: 'string',
     required: false,
   },
-  pickupContactName: {
+  shipToContactPhone: {
     type: 'string',
     required: false,
   },
-  pickupContactPhone: {
-    type: 'string',
-    required: false,
-  },
-  pickupNotes: {
+  shipToNotes: {
     type: 'string',
     required: false,
   },
@@ -64,8 +56,20 @@ export const inboundDeliverySchema = {
     required: false,
     foreignKey: 'assigned_driver_user_id',
   },
+  deliveryStatus: {
+    type: 'string',
+    required: false,
+  },
   actualPickupAt: {
     type: 'datetime',
+    required: false,
+  },
+  actualDeliveredAt: {
+    type: 'datetime',
+    required: false,
+  },
+  notes: {
+    type: 'string',
     required: false,
   },
   createdAt: {
@@ -78,9 +82,9 @@ export const inboundDeliverySchema = {
   },
 };
 
-export const tableName = 'inbound_deliveries';
+export const tableName = 'outbound_deliveries';
 
-const InboundDelivery = defineModel(tableName, inboundDeliverySchema);
+const OutboundDelivery = defineModel(tableName, outboundDeliverySchema);
 
-export { InboundDelivery };
-export default InboundDelivery;
+export { OutboundDelivery };
+export default OutboundDelivery;

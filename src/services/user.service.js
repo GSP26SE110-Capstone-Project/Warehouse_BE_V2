@@ -19,6 +19,8 @@ import { signPasswordResetToken } from '../config/jwt.js';
 import {
   sendTenantAdminWelcomeEmail,
   sendWarehouseAdminWelcomeEmail,
+  sendWarehouseStaffWelcomeEmail,
+  sendWarehouseTransporterWelcomeEmail,
 } from '../config/mail.js';
 import { buildLoginUrl, buildPasswordResetUrl } from '../utils/appUrl.js';
 
@@ -263,6 +265,45 @@ async function sendWhAdminWelcomeEmail(createdUser, plainPassword, warehouseId) 
   }
 }
 
+async function sendWhMemberWelcomeEmail(createdUser, plainPassword, warehouseId, role) {
+  const resetToken = signPasswordResetToken(createdUser.userId);
+  const resetPasswordUrl = buildPasswordResetUrl(resetToken);
+  const loginUrl = buildLoginUrl();
+
+  let warehouseName = null;
+  let warehouseCode = null;
+  if (warehouseId) {
+    const warehouse = await Warehouse.findById(warehouseId);
+    warehouseName = warehouse?.warehouseName ?? null;
+    warehouseCode = warehouse?.warehouseCode ?? null;
+  }
+
+  const sendFn =
+    role === 'WH_TRANSPORTER'
+      ? sendWarehouseTransporterWelcomeEmail
+      : sendWarehouseStaffWelcomeEmail;
+
+  try {
+    await sendFn({
+      to: createdUser.email,
+      fullName: createdUser.fullName,
+      email: createdUser.email,
+      temporaryPassword: plainPassword,
+      warehouseName,
+      warehouseCode,
+      loginUrl,
+      resetPasswordUrl,
+    });
+    return { sent: true, to: createdUser.email };
+  } catch (err) {
+    return {
+      sent: false,
+      to: createdUser.email,
+      error: err.message || 'Failed to send welcome email',
+    };
+  }
+}
+
 async function sendTenantAdminWelcome(createdUser, plainPassword, tenantId) {
   const resetToken = signPasswordResetToken(createdUser.userId);
   const resetPasswordUrl = buildPasswordResetUrl(resetToken);
@@ -317,6 +358,18 @@ export async function createUser(creator, body) {
         created,
         plainPassword,
         data.tenantId
+      );
+      return { user, welcomeEmail };
+    }
+  }
+
+  if (creator.role === 'WH_ADMIN' && plainPassword) {
+    if (data.role === 'WH_STAFF' || data.role === 'WH_TRANSPORTER') {
+      const welcomeEmail = await sendWhMemberWelcomeEmail(
+        created,
+        plainPassword,
+        data.warehouseId,
+        data.role
       );
       return { user, welcomeEmail };
     }

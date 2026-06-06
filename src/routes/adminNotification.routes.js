@@ -35,6 +35,13 @@ router.get(
 );
 
 router.get(
+  '/wh-in-transit-inbounds',
+  authenticate,
+  authorize('WH_ADMIN'),
+  asyncHandler(adminNotificationController.getWhInTransitInboundAlerts)
+);
+
+router.get(
   '/wh-contract-payments',
   authenticate,
   authorize('WH_ADMIN'),
@@ -53,6 +60,13 @@ router.get(
   authenticate,
   authorize('WH_TRANSPORTER'),
   asyncHandler(adminNotificationController.getTransporterTripAlerts)
+);
+
+router.get(
+  '/wh-staff-assigned-picks',
+  authenticate,
+  authorize('WH_STAFF'),
+  asyncHandler(adminNotificationController.getWhStaffAssignedPickAlerts)
 );
 
 router.get(

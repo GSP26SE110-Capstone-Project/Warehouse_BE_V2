@@ -1,6 +1,7 @@
 import Rack, { rackSchema } from '../models/Rack.js';
 import { fromDbRecord } from '../models/utils/fieldMapper.js';
 import WarehouseZone from '../models/WarehouseZone.js';
+import pool from '../config/db.js';
 import AppError from '../utils/AppError.js';
 import {
   RACK_FIXED_LEVEL_COUNT,
@@ -324,13 +325,74 @@ export async function updateRack(rackId, body) {
   return Rack.updateById(id, data);
 }
 
+async function assertRackDeletable(rackId) {
+  const { rows } = await pool.query(
+    `SELECT b.bin_id, b.bin_code, b.used_volume_units, b.current_lpn_count,
+            COALESCE(inv.cnt, 0)::int AS inv_count,
+            COALESCE(lpn.cnt, 0)::int AS lpn_count
+     FROM bins b
+     INNER JOIN rack_levels rl ON rl.rack_level_id = b.rack_level_id
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*)::int AS cnt
+       FROM inventories i
+       WHERE i.bin_id = b.bin_id AND i.quantity > 0
+     ) inv ON true
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*)::int AS cnt
+       FROM lpns l
+       WHERE l.current_bin_id = b.bin_id
+     ) lpn ON true
+     WHERE rl.rack_id = $1`,
+    [rackId]
+  );
+
+  const blocked = rows.filter((row) => {
+    const usedVol = Number(row.used_volume_units ?? 0);
+    const lpnCount = Number(row.current_lpn_count ?? 0);
+    return usedVol > 0 || lpnCount > 0 || row.inv_count > 0 || row.lpn_count > 0;
+  });
+
+  if (blocked.length === 0) return;
+
+  const samples = blocked
+    .slice(0, 5)
+    .map((r) => r.bin_code)
+    .join(', ');
+  const more = blocked.length > 5 ? ` (+${blocked.length - 5} bin khác)` : '';
+
+  throw new AppError(
+    `Không thể xóa rack — còn ${blocked.length} bin đang chứa LPN hoặc hàng (putaway): ${samples}${more}. Dời hết hàng/LPN ra khỏi bin trước khi xóa rack.`,
+    400,
+    'RACK_NOT_EMPTY'
+  );
+}
+
 export async function deleteRack(rackId) {
   const id = parseUuid(rackId, 'rackId');
   await getRack(id);
+  await assertRackDeletable(id);
 
-  const deleted = await Rack.deleteById(id);
-  if (!deleted) {
-    throw new AppError('Rack not found', 404, 'NOT_FOUND');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM bins
+       WHERE rack_level_id IN (
+         SELECT rack_level_id FROM rack_levels WHERE rack_id = $1
+       )`,
+      [id]
+    );
+    await client.query(`DELETE FROM rack_levels WHERE rack_id = $1`, [id]);
+    const deleted = await Rack.deleteById(id, client);
+    if (!deleted) {
+      throw new AppError('Rack not found', 404, 'NOT_FOUND');
+    }
+    await client.query('COMMIT');
+    return deleted;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
-  return deleted;
 }

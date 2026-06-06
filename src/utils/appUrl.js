@@ -28,3 +28,15 @@ export function buildWhAdminInboundUrl(inboundRequestId) {
 export function buildTransporterTripUrl(inboundRequestId) {
   return `${getFrontendBaseUrl()}/staff/my-deliveries/${inboundRequestId}`;
 }
+
+export function buildWhStaffOutboundUrl(outboundRequestId) {
+  return `${getFrontendBaseUrl()}/staff/outbound-ops/${outboundRequestId}`;
+}
+
+export function buildWhAdminOutboundUrl(outboundRequestId) {
+  return `${getFrontendBaseUrl()}/admin/outbound/${outboundRequestId}`;
+}
+
+export function buildTransporterOutboundUrl(outboundRequestId) {
+  return `${getFrontendBaseUrl()}/staff/my-deliveries/outbound/${outboundRequestId}`;
+}

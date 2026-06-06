@@ -221,6 +221,11 @@ function mapInboundRow(row) {
       carrier_name: row.delivery_carrier_name,
       scheduled_at: row.delivery_scheduled_at,
       notes: row.delivery_notes,
+      pickup_address: row.delivery_pickup_address,
+      pickup_contact_name: row.delivery_pickup_contact_name,
+      pickup_contact_phone: row.delivery_pickup_contact_phone,
+      pickup_notes: row.delivery_pickup_notes,
+      actual_pickup_at: row.delivery_actual_pickup_at,
       assigned_driver_user_id: row.delivery_assigned_driver_user_id,
       created_at: row.delivery_created_at,
       updated_at: row.delivery_updated_at,
@@ -280,6 +285,11 @@ async function listInboundRequestsWithAssignedDriver({
       id.carrier_name AS delivery_carrier_name,
       id.scheduled_at AS delivery_scheduled_at,
       id.notes AS delivery_notes,
+      id.pickup_address AS delivery_pickup_address,
+      id.pickup_contact_name AS delivery_pickup_contact_name,
+      id.pickup_contact_phone AS delivery_pickup_contact_phone,
+      id.pickup_notes AS delivery_pickup_notes,
+      id.actual_pickup_at AS delivery_actual_pickup_at,
       id.assigned_driver_user_id AS delivery_assigned_driver_user_id,
       id.created_at AS delivery_created_at,
       id.updated_at AS delivery_updated_at`
@@ -515,8 +525,15 @@ export async function updateInboundRequest(inboundRequestId, body) {
       await assertNoInboundReceivingActivity(id);
       data.approvedBy = null;
     }
-    if (data.status === 'CANCELLED' && ['APPROVED', 'ARRIVED'].includes(existing.status)) {
+    if (data.status === 'CANCELLED' && ['APPROVED', 'IN_TRANSIT', 'ARRIVED'].includes(existing.status)) {
       await assertNoInboundReceivingActivity(id);
+    }
+    if (data.status === 'IN_TRANSIT') {
+      throw new AppError(
+        'Warehouse transport pickup must be reported by the assigned transporter',
+        403,
+        'FORBIDDEN'
+      );
     }
     if (data.status === 'ARRIVED') {
       await assertInboundHasDeliveryForGate(id);

@@ -21,6 +21,11 @@ export async function getWhArrivedInboundAlerts(req, res) {
   success(res, data);
 }
 
+export async function getWhInTransitInboundAlerts(req, res) {
+  const data = await adminNotificationService.getWarehouseAdminInTransitInboundAlerts(req.user);
+  success(res, data);
+}
+
 export async function getWhContractPaymentAlerts(req, res) {
   const data = await adminNotificationService.getWarehouseAdminContractPaymentAlerts(req.user);
   success(res, data);
@@ -33,6 +38,11 @@ export async function getWhPendingAppendixAlerts(req, res) {
 
 export async function getTransporterTripAlerts(req, res) {
   const data = await adminNotificationService.getTransporterAssignedTripAlerts(req.user);
+  success(res, data);
+}
+
+export async function getWhStaffAssignedPickAlerts(req, res) {
+  const data = await adminNotificationService.getWhStaffAssignedPickAlerts(req.user);
   success(res, data);
 }
 
