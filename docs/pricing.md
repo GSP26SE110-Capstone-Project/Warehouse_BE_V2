@@ -5,32 +5,31 @@ và:
 dễ demo capstone
 
 1. Pricing Philosophy
-Mày đang có:
-warehouse thuê nguyên
-zone thuê riêng
-rack/bin shared
-billing theo usage
-→ vậy nên:
-pricing phải theo hierarchy.
+   Mày đang có:
+   warehouse thuê nguyên
+   zone thuê riêng
+   rack/bin shared
+   billing theo usage
+   → vậy nên:
+   pricing phải theo hierarchy.
 
 2. Tao recommend:
-Storage Level
-Pricing Logic
-Warehouse
-theo m²/tháng
-Zone
-theo m²/tháng
-Rack
-theo rack/day
-Rack Level
-theo level/day
-Bin
-theo box/day
-
+   Storage Level
+   Pricing Logic
+   Warehouse
+   theo m²/tháng
+   Zone
+   theo m²/tháng
+   Rack
+   theo rack/day
+   Rack Level
+   theo level/day
+   Bin
+   theo box/day
 
 3. Warehouse Pricing
-Dedicated Warehouse
-Nguyên kho
+   Dedicated Warehouse
+   Nguyên kho
 
 Pricing realistic:
 Warehouse Size
@@ -42,7 +41,6 @@ vừa (~500m²)
 lớn (1000m²+)
 150–300 triệu/tháng
 
-
 Tao recommend capstone:
 180,000 VNĐ / m² / tháng
 
@@ -52,7 +50,7 @@ Ví dụ:
 = 90 triệu / tháng
 
 4. Zone Pricing
-Dedicated Zone
+   Dedicated Zone
 
 Pricing:
 120,000–300,000 VNĐ / m² / tháng
@@ -77,11 +75,9 @@ PREMIUM
 PRIVATE
 200k
 
-
 5. Rack Pricing
 
-	Dưới đây là trường mới của rental_requests, dựa vào đây mới đánh giá được nên chọn rack nào 
-
+   Dưới đây là trường mới của rental_requests, dựa vào đây mới đánh giá được nên chọn rack nào
 
 Pricing theo:
 rack/day
@@ -93,7 +89,6 @@ STANDARD
 120k/day
 HIGH_CAPACITY
 200k/day
-
 
 6. Rack Level Pricing
 
@@ -107,13 +102,12 @@ middle level
 upper level
 40k
 
-
 Vì:
 lower level:
 pick dễ hơn
 
 7. Bin Pricing
-Đây là core của project mày 😄
+   Đây là core của project mày 😄
 
 Theo:
 box/day
@@ -135,7 +129,7 @@ BOX_DAY (prorate): round(giá_tháng / 30) — SMALL ~333 ₫/ngày, MEDIUM 500,
 8. Fast Moving Surcharge
 
 Nếu:
- SKU:
+SKU:
 FAST_MOVING
 
 → cộng:
@@ -158,7 +152,6 @@ camera/security
 restricted access
 +10%
 
-
 10. Shared Storage Pricing
 
 Đây là:
@@ -169,9 +162,10 @@ dynamic pricing — tenant dùng bao nhiêu (box/rack thực tế) tính bấy n
 Cách tính gợi ý (một hóa đơn cuối kỳ, không snapshot từng ngày trên UI guest):
 
 Ví dụ tháng 30 ngày, mức sử dụng trung bình:
+
 - Nửa đầu tháng ~10 EXTRA
 - Nửa sau ~5 EXTRA
-→ Có thể ghi nhận **mức trung bình ~7–8 EXTRA** cho kỳ, hoặc peak tùy policy hợp đồng.
+  → Có thể ghi nhận **mức trung bình ~7–8 EXTRA** cho kỳ, hoặc peak tùy policy hợp đồng.
 
 Billing tháng (minh họa):
 (7.5 EXTRA × 50k × 30 ngày tương đương) ≈ **11.25 triệu / tháng**
@@ -218,68 +212,66 @@ warehouse area × warehouse rate
 
 14. Handling Fee (thu trước — OPERATIONAL invoice)
 
-| Operation | Fee (VNĐ) |
-| --------- | --------- |
-| Inbound LPN SMALL | 2.000 / LPN |
-| Inbound LPN MEDIUM | 3.000 / LPN |
-| Inbound LPN LARGE | 5.000 / LPN |
-| Inbound LPN EXTRA | 8.000 / LPN |
-| Outbound LPN | Cùng bảng inbound |
+| Operation           | Fee (VNĐ)                                   |
+| ------------------- | ------------------------------------------- |
+| Inbound LPN SMALL   | 2.000 / LPN                                 |
+| Inbound LPN MEDIUM  | 3.000 / LPN                                 |
+| Inbound LPN LARGE   | 5.000 / LPN                                 |
+| Inbound LPN EXTRA   | 8.000 / LPN                                 |
+| Outbound LPN        | Cùng bảng inbound                           |
 | WAREHOUSE_TRANSPORT | 250.000 / chuyến (cùng city + district kho) |
-| repacking | 10.000 (tùy chọn phase sau) |
-| QC inspection | 5.000 |
-| relocation | 3.000 |
+| repacking           | 10.000 (tùy chọn phase sau)                 |
+| QC inspection       | 5.000                                       |
+| relocation          | 3.000                                       |
 
 Storage fee ≠ handling fee. Phụ phí **không** dồn sang invoice thuê tháng sau.
 
 15. Pricing Table Final
-Level
-Unit
-Suggested Price
-Warehouse
-m²/month
-180k
-Shared Zone
-m²/month
-120k
-Fast Moving Zone
-m²/month
-220k
-Premium Zone
-m²/month
-250k
-Private Zone
-m²/month
-200k
-Bulk Zone
-m²/month
-100k
-Rack STANDARD
-rack/day
-120k
-Rack HIGH_CAPACITY
-rack/day
-200k
-Rack Level
-level/day
-40k–60k
-SMALL
-thùng/month
-10k
-MEDIUM
-thùng/month
-15k
-LARGE
-thùng/month
-25k
-EXTRA
-thùng/month
-45k
-
+    Level
+    Unit
+    Suggested Price
+    Warehouse
+    m²/month
+    180k
+    Shared Zone
+    m²/month
+    120k
+    Fast Moving Zone
+    m²/month
+    220k
+    Premium Zone
+    m²/month
+    250k
+    Private Zone
+    m²/month
+    200k
+    Bulk Zone
+    m²/month
+    100k
+    Rack STANDARD
+    rack/day
+    120k
+    Rack HIGH_CAPACITY
+    rack/day
+    200k
+    Rack Level
+    level/day
+    40k–60k
+    SMALL
+    thùng/month
+    10k
+    MEDIUM
+    thùng/month
+    15k
+    LARGE
+    thùng/month
+    25k
+    EXTRA
+    thùng/month
+    45k
 
 16. Default capstone flow (MONTHLY only)
 
 - SHARED_STORAGE / RESERVED_STORAGE / DEDICATED_ZONE / DEDICATED_WAREHOUSE: hóa đơn **MONTHLY**
 - INITIAL = tháng đầu; RECURRING_RENT hàng tháng theo ngày `startDate`
 - OPERATIONAL = prepaid khi tạo inbound/outbound
-

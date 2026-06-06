@@ -1,4 +1,4 @@
-import { BOX_TYPE } from './warehouseStructure.js';
+import { BOX_TYPE } from "./warehouseStructure.js";
 
 /**
  * Giới hạn vật lý mặc định cho bin (seed / ước tính).
@@ -44,10 +44,18 @@ export const STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE = Object.freeze({
 
 /** Prorate BOX_DAY billing từ giá tháng */
 export const STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE = Object.freeze({
-  SMALL: Math.round(STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.SMALL / DAYS_PER_BILLING_MONTH),
-  MEDIUM: Math.round(STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.MEDIUM / DAYS_PER_BILLING_MONTH),
-  LARGE: Math.round(STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.LARGE / DAYS_PER_BILLING_MONTH),
-  EXTRA: Math.round(STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.EXTRA / DAYS_PER_BILLING_MONTH),
+  SMALL: Math.round(
+    STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.SMALL / DAYS_PER_BILLING_MONTH,
+  ),
+  MEDIUM: Math.round(
+    STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.MEDIUM / DAYS_PER_BILLING_MONTH,
+  ),
+  LARGE: Math.round(
+    STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.LARGE / DAYS_PER_BILLING_MONTH,
+  ),
+  EXTRA: Math.round(
+    STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE.EXTRA / DAYS_PER_BILLING_MONTH,
+  ),
 });
 
 export const HANDLING_UNIT_FALLBACK_PRICE = 10000;
@@ -59,23 +67,23 @@ export function buildDefaultContractItemRows(contractId) {
   for (const boxType of BOX_TYPE) {
     rows.push({
       contractId,
-      itemType: 'INBOUND',
-      billingUnit: 'INBOUND_LPN',
+      itemType: "INBOUND",
+      billingUnit: "INBOUND_LPN",
       boxType,
       unitPrice: INBOUND_LPN_PRICE_BY_BOX_TYPE[boxType],
     });
     rows.push({
       contractId,
-      itemType: 'OUTBOUND',
-      billingUnit: 'OUTBOUND_LPN',
+      itemType: "OUTBOUND",
+      billingUnit: "OUTBOUND_LPN",
       boxType,
       unitPrice: OUTBOUND_LPN_PRICE_BY_BOX_TYPE[boxType],
     });
     rows.push({
       contractId,
-      itemType: 'STORAGE',
-      storageLevel: 'BIN',
-      billingUnit: 'BOX_DAY',
+      itemType: "STORAGE",
+      storageLevel: "BIN",
+      billingUnit: "BOX_DAY",
       boxType,
       unitPrice: STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE[boxType],
     });
@@ -83,8 +91,8 @@ export function buildDefaultContractItemRows(contractId) {
 
   rows.push({
     contractId,
-    itemType: 'HANDLING',
-    billingUnit: 'HANDLING_UNIT',
+    itemType: "HANDLING",
+    billingUnit: "HANDLING_UNIT",
     unitPrice: HANDLING_UNIT_FALLBACK_PRICE,
   });
 
