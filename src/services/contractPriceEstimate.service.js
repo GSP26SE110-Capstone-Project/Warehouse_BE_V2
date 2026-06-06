@@ -6,13 +6,18 @@ import {
   WAREHOUSE_PRICE_PER_M2_MONTH,
   ZONE_PRICE_PER_M2_MONTH,
 } from '../constants/rentalPricingDefaults.js';
-import { STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE } from '../constants/pricingDefaults.js';
+import {
+  STORAGE_BOX_DAY_PRICE_BY_BOX_TYPE,
+  STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE,
+} from '../constants/pricingDefaults.js';
 import {
   amountAreaM2ForBillingPeriod,
   amountBoxAllocationForBillingPeriod,
+  amountBoxAllocationForMonthlyBillingPeriod,
   contractBillingDays,
   contractBillingMonths,
   dailyBoxRentFromAllocation,
+  monthlyBoxRentFromAllocation,
   parseBoxAllocationFromRental,
   prorateToBillingMonth,
   resolveBoxAllocationForPricing,
@@ -32,11 +37,7 @@ function zoneRateForType(zoneType, rr) {
   const base =
     ZONE_PRICE_PER_M2_MONTH[zoneType] ??
     ZONE_PRICE_PER_M2_MONTH[rr.suggestedZoneType] ??
-    (rr.requiresPremiumStorage
-      ? ZONE_PRICE_PER_M2_MONTH.PREMIUM
-      : rr.requiresFastPicking
-        ? ZONE_PRICE_PER_M2_MONTH.FAST_MOVING
-        : ZONE_PRICE_PER_M2_MONTH.SHARED);
+    (rr.requiresPremiumStorage ? ZONE_PRICE_PER_M2_MONTH.PREMIUM : ZONE_PRICE_PER_M2_MONTH.SHARED);
 
   if (rr.requiresPremiumStorage && zoneType !== 'PREMIUM' && zoneType !== 'PRIVATE') {
     return Math.round(base * PREMIUM_STORAGE_SURCHARGE_RATIO);
@@ -47,11 +48,7 @@ function zoneRateForType(zoneType, rr) {
 function resolveZoneRate(rr) {
   const base =
     ZONE_PRICE_PER_M2_MONTH[rr.suggestedZoneType] ??
-    (rr.requiresPremiumStorage
-      ? ZONE_PRICE_PER_M2_MONTH.PREMIUM
-      : rr.requiresFastPicking
-        ? ZONE_PRICE_PER_M2_MONTH.FAST_MOVING
-        : ZONE_PRICE_PER_M2_MONTH.SHARED);
+    (rr.requiresPremiumStorage ? ZONE_PRICE_PER_M2_MONTH.PREMIUM : ZONE_PRICE_PER_M2_MONTH.SHARED);
 
   if (rr.requiresPremiumStorage && rr.suggestedZoneType !== 'PREMIUM') {
     return Math.round(base * PREMIUM_STORAGE_SURCHARGE_RATIO);
@@ -126,6 +123,31 @@ function estimateBoxStoragePeriod(rr, billingDays, breakdown) {
     basisLabel: 'Thuê theo thùng — Σ (số thùng × giá/ngày theo loại) × số ngày HĐ',
     boxAllocation: allocation,
     dailyBoxRent: dailyRent,
+  };
+}
+
+function estimateSharedStorageMonthlyPeriod(rr, billingMonths, breakdown) {
+  const allocation = resolveBoxAllocationForPricing(rr);
+  const monthlyRent = monthlyBoxRentFromAllocation(allocation);
+  const periodTotal = amountBoxAllocationForMonthlyBillingPeriod(allocation, billingMonths);
+
+  for (const row of allocation) {
+    const unit = STORAGE_BOX_MONTH_PRICE_BY_BOX_TYPE[row.boxType];
+    breakdown.push({
+      label: `Thùng ${row.boxType}`,
+      detail: `${row.count} × ${unit.toLocaleString('vi-VN')} VND/tháng × ${billingMonths} tháng`,
+    });
+  }
+  breakdown.push({
+    label: 'Tổng thuê theo thùng',
+    detail: `${monthlyRent.toLocaleString('vi-VN')} VND/tháng × ${billingMonths} tháng = ${periodTotal.toLocaleString('vi-VN')} VND`,
+  });
+
+  return {
+    periodTotal,
+    monthlyRent,
+    basisLabel: 'Thuê theo thùng — Σ (số thùng × giá/tháng theo loại) × số tháng HĐ',
+    boxAllocation: allocation,
   };
 }
 
@@ -280,24 +302,24 @@ export async function estimateContractPrice(
     }
     case 'SHARED_STORAGE':
     default: {
-      const boxEstimate = estimateBoxStoragePeriod(rr, billingDays, breakdown);
+      const boxEstimate = estimateSharedStorageMonthlyPeriod(rr, billingMonths, breakdown);
       periodTotal = boxEstimate.periodTotal;
       basisLabel = boxEstimate.basisLabel;
       boxAllocation = boxEstimate.boxAllocation;
-      dailyBoxRent = boxEstimate.dailyBoxRent;
+      dailyBoxRent = null;
       break;
     }
   }
 
   const suggestedTotalAmount = Math.round(periodTotal);
-  const isBoxBased =
-    contractType === 'SHARED_STORAGE' ||
-    (contractType === 'RESERVED_STORAGE' && dailyBoxRent != null && periodTotal > 0);
-  const monthlyAmount = isBoxBased
-    ? prorateToBillingMonth(suggestedTotalAmount, billingDays)
-    : Math.round(
-        suggestedTotalAmount / Math.max(1, billingMonths)
-      );
+  const isSharedMonthly = contractType === 'SHARED_STORAGE';
+  const isReservedDaily =
+    contractType === 'RESERVED_STORAGE' && dailyBoxRent != null && periodTotal > 0;
+  const monthlyAmount = isSharedMonthly
+    ? monthlyBoxRentFromAllocation(boxAllocation ?? resolveBoxAllocationForPricing(rr))
+    : isReservedDaily
+      ? prorateToBillingMonth(suggestedTotalAmount, billingDays)
+      : Math.round(suggestedTotalAmount / Math.max(1, billingMonths));
 
   return {
     rentalRequestId: id,

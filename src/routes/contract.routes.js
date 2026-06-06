@@ -33,12 +33,25 @@ router.post(
   asyncHandler(contractController.rejectTerminationRequest)
 );
 const contractReaders = ['WH_ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'TENANT_STAFF'];
+const commitmentLineClosers = ['TENANT_ADMIN', 'SYSTEM_ADMIN'];
 
 router.get(
   '/:contractId/invoices',
   authenticate,
   authorize(...contractReaders),
   asyncHandler(contractController.listInvoices)
+);
+router.get(
+  '/:contractId/inbound-commitment',
+  authenticate,
+  authorize(...contractReaders),
+  asyncHandler(contractController.getInboundCommitment)
+);
+router.post(
+  '/:contractId/inbound-commitment/close-line',
+  authenticate,
+  authorize(...commitmentLineClosers),
+  asyncHandler(contractController.closeInboundCommitmentLine)
 );
 router.post(
   '/:contractId/invoices/:invoiceId/payos/create-link',

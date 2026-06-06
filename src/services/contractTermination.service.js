@@ -8,8 +8,11 @@ import {
   YEARLY_EARLY_REFUND_PROCESSING_RATE,
 } from '../constants/tenantOnboarding.js';
 import {
+  buildTerminationNoticeInfo,
   contractMonthCount,
   deriveMonthlyRent,
+  formatDateVi,
+  TERMINATION_NOTICE_DAYS,
   usedContractMonths,
 } from '../utils/contractBilling.js';
 import { getContract } from './contract.service.js';
@@ -101,11 +104,25 @@ export async function previewTermination(contractId) {
   const totalPaid = await sumPaidInvoiceTotal(id);
   const settlement = computeTerminationSettlement(contract, { hasInbound, totalPaid });
 
+  const notice = buildTerminationNoticeInfo(contract);
+
   return {
     contractId: id,
     contractStatus: contract.status,
     ...settlement,
+    ...notice,
   };
+}
+
+function assertTerminationNoticeMet(contract) {
+  const notice = buildTerminationNoticeInfo(contract);
+  if (!notice.appliesNoticeRule || notice.canRequestNow) return;
+
+  throw new AppError(
+    `Bạn phải gửi yêu cầu chấm dứt trước ít nhất ${TERMINATION_NOTICE_DAYS} ngày so với kỳ thanh toán tiếp theo (${formatDateVi(notice.nextBillingDate)}). Hạn chót: ${formatDateVi(notice.latestRequestDate)}.`,
+    400,
+    'TERMINATION_NOTICE_TOO_LATE'
+  );
 }
 
 export async function requestTermination(contractId, body = {}) {
@@ -119,6 +136,8 @@ export async function requestTermination(contractId, body = {}) {
       'VALIDATION_ERROR'
     );
   }
+
+  assertTerminationNoticeMet(contract);
 
   const pending = await ContractTerminationRequest.findAll(
     { contractId: id, status: 'PENDING' },

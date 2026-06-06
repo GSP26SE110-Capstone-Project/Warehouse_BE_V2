@@ -2,7 +2,6 @@ import { BOX_VOLUME_UNITS } from './warehouseStructure.js';
 
 /** Mặc định sức chứa bin theo loại zone — đồng bộ với FE binCapacityDefaults.ts */
 const ZONE_BIN_PRESETS = Object.freeze({
-  FAST_MOVING: { maxVolumeUnits: 6 },
   SHARED: { maxVolumeUnits: 16 },
   PREMIUM: { maxVolumeUnits: 4 },
   PRIVATE: { maxVolumeUnits: 16 },

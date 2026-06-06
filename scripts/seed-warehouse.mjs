@@ -42,7 +42,7 @@ const PRIMARY_WAREHOUSE = {
     {
       zoneCode: 'Z-B01',
       zoneName: 'Fast moving B01',
-      zoneType: 'FAST_MOVING',
+      zoneType: 'SHARED',
       areaM2: 600,
       isDedicated: false,
       racks: [
@@ -106,7 +106,7 @@ const EXTRA_WAREHOUSES = [
       {
         zoneCode: 'Z-B01',
         zoneName: 'Fast moving B01',
-        zoneType: 'FAST_MOVING',
+        zoneType: 'SHARED',
         areaM2: 500,
         isDedicated: false,
         racks: [{ rackCode: 'R-B01-01', rackType: 'STANDARD', maxLevels: 3 }],

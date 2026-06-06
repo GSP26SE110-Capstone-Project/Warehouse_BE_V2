@@ -537,6 +537,42 @@ const spec = {
           },
         },
       },
+      WarehouseClaimCandidate: {
+        type: 'object',
+        description:
+          'Kho trong khu vực với readiness SHARED_STORAGE cho WH admin duyệt rental request (step 1).',
+        properties: {
+          warehouseId: uuid,
+          warehouseName: { type: 'string' },
+          city: { type: 'string', nullable: true },
+          district: { type: 'string', nullable: true },
+          sharedZoneCount: { type: 'integer', example: 2 },
+          sharedZoneAreaM2: { type: 'number', example: 100 },
+          remainingZoneAreaM2: { type: 'number', nullable: true, example: 50 },
+          hasDedicatedWarehouseLease: { type: 'boolean' },
+          matchingSuggestedZoneType: { type: 'boolean' },
+          readiness: {
+            type: 'string',
+            enum: ['READY', 'CAN_PROVISION', 'BLOCKED'],
+            description:
+              'READY = có zone pool; CAN_PROVISION = chưa có zone nhưng còn diện tích; BLOCKED = thuê nguyên kho / hết diện tích',
+          },
+          eligible: { type: 'boolean' },
+        },
+      },
+      WarehouseClaimCandidatesResult: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          district: { type: 'string' },
+          contractType: { type: 'string', example: 'SHARED_STORAGE' },
+          count: { type: 'integer' },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/WarehouseClaimCandidate' },
+          },
+        },
+      },
 
       WarehouseZone: {
         type: 'object',
@@ -547,7 +583,7 @@ const spec = {
           zoneName: { type: 'string', nullable: true },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
+            enum: ['SHARED', 'PREMIUM', 'PRIVATE'],
           },
           areaM2: { type: 'number', nullable: true },
           isDedicated: { type: 'boolean' },
@@ -564,7 +600,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
+            enum: ['SHARED', 'PREMIUM', 'PRIVATE'],
             default: 'SHARED',
           },
           areaM2: { type: 'number' },
@@ -578,7 +614,7 @@ const spec = {
           zoneName: { type: 'string' },
           zoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
+            enum: ['SHARED', 'PREMIUM', 'PRIVATE'],
           },
           areaM2: { type: 'number' },
           isDedicated: { type: 'boolean' },
@@ -1967,7 +2003,7 @@ const spec = {
           notes: { type: 'string', nullable: true },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
+            enum: ['SHARED', 'PREMIUM', 'PRIVATE'],
             nullable: true,
           },
           suggestedRackType: {
@@ -2038,7 +2074,7 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
+            enum: ['SHARED', 'PREMIUM', 'PRIVATE'],
           },
           suggestedRackType: {
             type: 'string',
@@ -2870,7 +2906,7 @@ const spec = {
           notes: { type: 'string' },
           suggestedZoneType: {
             type: 'string',
-            enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
+            enum: ['SHARED', 'PREMIUM', 'PRIVATE'],
           },
           suggestedRackType: {
             type: 'string',
@@ -3238,6 +3274,38 @@ const spec = {
         },
       },
     },
+    '/api/warehouses/claim-candidates': {
+      get: {
+        tags: ['Warehouse', 'RentalRequest'],
+        summary: 'Regional warehouse claim candidates (SHARED_STORAGE readiness)',
+        description:
+          'WH admin onboarding step 1 — kho trong city/district với zone pool SHARED hoặc còn diện tích tạo zone. Không yêu cầu zone sẵn có để claim (zone chọn/tạo ở step 3).',
+        parameters: [
+          { in: 'query', name: 'city', required: true, schema: { type: 'string' } },
+          { in: 'query', name: 'district', required: true, schema: { type: 'string' } },
+          {
+            in: 'query',
+            name: 'contractType',
+            schema: { type: 'string', enum: ['SHARED_STORAGE'], default: 'SHARED_STORAGE' },
+          },
+          {
+            in: 'query',
+            name: 'suggestedZoneType',
+            schema: {
+              type: 'string',
+              enum: ['SHARED', 'PREMIUM'],
+            },
+          },
+        ],
+        responses: {
+          200: successEnvelope(
+            { $ref: '#/components/schemas/WarehouseClaimCandidatesResult' },
+            'Claim candidates'
+          ),
+          400: stdErrors[400],
+        },
+      },
+    },
     '/api/warehouses/{warehouseId}/inbound-requests': {
       get: {
         tags: ['Warehouse', 'InboundRequest'],
@@ -3394,7 +3462,7 @@ const spec = {
             name: 'zoneType',
             schema: {
               type: 'string',
-              enum: ['SHARED', 'FAST_MOVING', 'PREMIUM', 'PRIVATE'],
+              enum: ['SHARED', 'PREMIUM', 'PRIVATE'],
             },
           },
           { $ref: '#/components/parameters/page' },
@@ -6741,12 +6809,27 @@ const spec = {
         tags: ['InboundRequest'],
         summary: 'Auto putaway inbound items',
         description:
-          'Flow 3 — gán bin theo reservation HĐ + zone (`zoneId` bắt buộc). Khác Flow 5 (AI score bin). Sau auto vẫn có thể dùng AI cho LPN còn lại.',
+          'Flow 3 — gán bin theo reservation HĐ + zone (`zoneId` bắt buộc). Tuỳ chọn `rackId` / `rackLevelId` để giới hạn phạm vi. ' +
+          'Thứ tự ưu tiên: rack đang có hàng → bin PARTIAL (gộp LPN) → bin EMPTY (0 cái) theo tầng/mã bin; ' +
+          'join inventories để mở lại bin FULL desync (0 tồn). Khác Flow 5 (AI score bin).',
         parameters: [{ in: 'path', name: 'inboundRequestId', required: true, schema: uuid }],
         security: bearerSecurity,
         requestBody: {
           required: false,
-          content: { 'application/json': { schema: { type: 'object' } } },
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['zoneId'],
+                properties: {
+                  zoneId: { type: 'string', format: 'uuid' },
+                  rackId: { type: 'string', format: 'uuid', description: 'Giới hạn putaway trong một rack' },
+                  rackLevelId: { type: 'string', format: 'uuid', description: 'Giới hạn putaway trong một tầng' },
+                  movedBy: { type: 'string', format: 'uuid' },
+                },
+              },
+            },
+          },
         },
         responses: { 200: successEnvelope({ type: 'object' }), 400: stdErrors[400] },
       },

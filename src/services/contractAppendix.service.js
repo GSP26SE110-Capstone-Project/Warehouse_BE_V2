@@ -329,7 +329,7 @@ export async function submitAppendixRequest(contractId, body = {}, actor = null)
   return appendix;
 }
 
-/** WH duyệt — cấp giá, bin/zone, ký kho → chờ tenant ký. */
+/** WH duyệt — cấp bin/zone + giá → chờ tenant ký (không ký canvas tại bước duyệt). */
 export async function approveAppendixRequest(
   contractId,
   appendixId,
@@ -355,9 +355,10 @@ export async function approveAppendixRequest(
       'VALIDATION_ERROR'
     );
   }
-  if (!body.warehouseSignature || !String(body.warehouseSignature).trim()) {
-    throw new AppError('warehouseSignature bắt buộc khi duyệt', 400, 'VALIDATION_ERROR');
-  }
+  const warehouseSignature =
+    body.warehouseSignature != null && String(body.warehouseSignature).trim()
+      ? String(body.warehouseSignature).trim()
+      : 'SIGNED_WH_APPENDIX_APPROVAL';
 
   const ceilingLevel =
     existing.maxStorageLevel ?? (await resolveContractStorageCeiling(contract));
@@ -389,7 +390,7 @@ export async function approveAppendixRequest(
   const updated = await ContractAppendix.updateById(existing.appendixId, {
     status: 'PENDING_APPROVAL',
     estimatedDeltaAmount,
-    warehouseSignature: String(body.warehouseSignature).trim(),
+    warehouseSignature,
     reviewNote,
     approvedBy: actor?.userId ?? null,
     reviewedBy: actor?.userId ?? null,
@@ -466,8 +467,8 @@ export async function signAppendixAsTenant(contractId, appendixId, body = {}, ac
       'VALIDATION_ERROR'
     );
   }
-  if (!existing.warehouseSignature) {
-    throw new AppError('Kho chưa ký phụ lục', 400, 'VALIDATION_ERROR');
+  if (!String(existing.warehouseSignature ?? '').trim()) {
+    throw new AppError('Kho chưa duyệt phụ lục', 400, 'VALIDATION_ERROR');
   }
   if (!body.tenantSignature || !String(body.tenantSignature).trim()) {
     throw new AppError('tenantSignature is required', 400, 'VALIDATION_ERROR');
