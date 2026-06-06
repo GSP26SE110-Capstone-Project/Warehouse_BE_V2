@@ -376,6 +376,143 @@ export async function getWhStaffAssignedPickAlerts(user) {
   };
 }
 
+/** Tenant admin — HĐ chờ ký hoặc chờ thanh toán invoice đầu. */
+export async function getTenantContractActionAlerts(user) {
+  if (user?.role !== 'TENANT_ADMIN' || !user.tenantId) {
+    return { needsSignCount: 0, needsPaymentCount: 0, recent: [] };
+  }
+
+  const countResult = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE c.status = 'PENDING_APPROVAL'
+           AND NULLIF(TRIM(c.warehouse_signature), '') IS NOT NULL
+           AND NULLIF(TRIM(c.tenant_signature), '') IS NULL
+           AND EXISTS (
+             SELECT 1
+             FROM storage_reservations sr
+             WHERE sr.contract_id = c.contract_id
+               AND sr.status = 'ACTIVE'
+           )
+       )::int AS needs_sign_count,
+       COUNT(*) FILTER (WHERE c.status = 'PENDING_PAYMENT')::int AS needs_payment_count
+     FROM contracts c
+     WHERE c.tenant_id = $1
+       AND c.status IN ('PENDING_APPROVAL', 'PENDING_PAYMENT')`,
+    [user.tenantId]
+  );
+
+  const recentResult = await pool.query(
+    `SELECT
+       c.contract_id,
+       c.contract_code,
+       c.contract_name,
+       c.status,
+       c.estimated_total_amount,
+       c.updated_at,
+       w.warehouse_name
+     FROM contracts c
+     LEFT JOIN warehouses w ON w.warehouse_id = c.warehouse_id
+     WHERE c.tenant_id = $1
+       AND (
+         (
+           c.status = 'PENDING_APPROVAL'
+           AND NULLIF(TRIM(c.warehouse_signature), '') IS NOT NULL
+           AND NULLIF(TRIM(c.tenant_signature), '') IS NULL
+           AND EXISTS (
+             SELECT 1
+             FROM storage_reservations sr
+             WHERE sr.contract_id = c.contract_id
+               AND sr.status = 'ACTIVE'
+           )
+         )
+         OR c.status = 'PENDING_PAYMENT'
+       )
+     ORDER BY c.updated_at DESC
+     LIMIT 10`,
+    [user.tenantId]
+  );
+
+  const counts = countResult.rows[0] ?? {};
+
+  return {
+    needsSignCount: Number(counts.needs_sign_count) || 0,
+    needsPaymentCount: Number(counts.needs_payment_count) || 0,
+    recent: recentResult.rows.map((row) => ({
+      contractId: row.contract_id,
+      contractCode: row.contract_code,
+      contractName: row.contract_name,
+      status: row.status,
+      estimatedTotalAmount: Number(row.estimated_total_amount) || 0,
+      warehouseName: row.warehouse_name,
+      updatedAt: row.updated_at,
+    })),
+  };
+}
+
+/** Tenant admin — yêu cầu thuê đã duyệt / bị từ chối gần đây. */
+export async function getTenantRentalStatusAlerts(user) {
+  if (user?.role !== 'TENANT_ADMIN' || !user.tenantId) {
+    return { approvedCount: 0, rejectedCount: 0, recent: [] };
+  }
+
+  const countResult = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE rr.status = 'APPROVED')::int AS approved_count,
+       COUNT(*) FILTER (
+         WHERE rr.status = 'REJECTED'
+           AND COALESCE(rr.reviewed_at, rr.updated_at) >= NOW() - INTERVAL '30 days'
+       )::int AS rejected_count
+     FROM rental_requests rr
+     WHERE rr.tenant_id = $1
+       AND rr.status IN ('APPROVED', 'REJECTED')`,
+    [user.tenantId]
+  );
+
+  const recentResult = await pool.query(
+    `SELECT
+       rr.rental_request_id,
+       rr.request_code,
+       rr.status,
+       rr.city,
+       rr.district,
+       rr.reviewed_at,
+       rr.rejection_reason,
+       rr.updated_at,
+       w.warehouse_name
+     FROM rental_requests rr
+     LEFT JOIN warehouses w ON w.warehouse_id = rr.warehouse_id
+     WHERE rr.tenant_id = $1
+       AND (
+         rr.status = 'APPROVED'
+         OR (
+           rr.status = 'REJECTED'
+           AND COALESCE(rr.reviewed_at, rr.updated_at) >= NOW() - INTERVAL '30 days'
+         )
+       )
+     ORDER BY COALESCE(rr.reviewed_at, rr.updated_at) DESC
+     LIMIT 10`,
+    [user.tenantId]
+  );
+
+  const counts = countResult.rows[0] ?? {};
+
+  return {
+    approvedCount: Number(counts.approved_count) || 0,
+    rejectedCount: Number(counts.rejected_count) || 0,
+    recent: recentResult.rows.map((row) => ({
+      rentalRequestId: row.rental_request_id,
+      requestCode: row.request_code,
+      status: row.status,
+      city: row.city,
+      district: row.district,
+      warehouseName: row.warehouse_name,
+      rejectionReason: row.rejection_reason,
+      reviewedAt: row.reviewed_at ?? row.updated_at,
+    })),
+  };
+}
+
 /** Tenant admin — inbound kho đi lấy đã gán tài xế hoặc đã tới kho. */
 export async function getTenantInboundTransportAlerts(user) {
   if (user?.role !== 'TENANT_ADMIN' || !user.tenantId) {

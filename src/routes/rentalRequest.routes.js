@@ -16,7 +16,7 @@ router.get('/', authenticate, authorize(...rentalReaders), asyncHandler(rentalRe
 router.get(
   '/:rentalRequestId/price-estimate',
   authenticate,
-  authorize(...rentalManagers),
+  authorize(...rentalReaders),
   asyncHandler(rentalRequestController.getPriceEstimate)
 );
 router.get(

@@ -30,6 +30,10 @@ import {
   replaceProductLinesForRentalRequest,
   validateAndComputeProductLines,
 } from './rentalRequestProductLine.service.js';
+import {
+  notifyTenantAdminRentalApproved,
+  notifyTenantAdminRentalRejected,
+} from './rentalNotify.service.js';
 
 const CREATE_FIELDS = [
   'requestCode',
@@ -734,7 +738,9 @@ async function claimRentalRequest(rentalRequestId, warehouseId, body) {
     );
   }
 
-  return mapRentalRow(row);
+  const approved = mapRentalRow(row);
+  void notifyTenantAdminRentalApproved(approved);
+  return approved;
 }
 
 export async function updateRentalRequest(rentalRequestId, body, actor = null) {
@@ -831,7 +837,11 @@ export async function updateRentalRequest(rentalRequestId, body, actor = null) {
 
     await client.query('COMMIT');
     const item = await RentalRequest.findById(id);
-    return attachProductLinesToRentalRequest(item);
+    const enriched = await attachProductLinesToRentalRequest(item);
+    if (body.status === 'REJECTED' && existing.status !== 'REJECTED') {
+      void notifyTenantAdminRentalRejected(enriched);
+    }
+    return enriched;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

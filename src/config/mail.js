@@ -384,6 +384,82 @@ export async function sendContractSignedByTenantEmail({
 }
 
 /**
+ * Tenant admin — HĐ đã cấp chỗ, chờ ký (PENDING_APPROVAL).
+ */
+export async function sendContractPendingApprovalEmail({
+  to,
+  tenantAdminName,
+  companyName,
+  contractCode,
+  contractName,
+  warehouseName,
+  warehouseCode,
+  startDate,
+  endDate,
+  datesShiftNote,
+  contractsUrl,
+}) {
+  assertMailConfigured();
+
+  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
+  const safeCompany = escapeHtml(companyName || '—');
+  const safeCode = escapeHtml(contractCode || '—');
+  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
+  const safeWarehouse = escapeHtml(
+    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : '—'
+  );
+  const shiftBlock = datesShiftNote
+    ? `<p style="margin: 12px 0 0; padding: 12px; background: #fffbeb; border-radius: 6px; color: #92400e; font-size: 13px">${escapeHtml(datesShiftNote)}</p>`
+    : '';
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Hợp đồng sẵn sàng để ký</h2>
+      <p>Xin chào <strong>${safeName}</strong>,</p>
+      <p>
+        Kho đã cấp vị trí lưu trữ cho <strong>${safeTitle}</strong> (${safeCode}) của
+        <strong>${safeCompany}</strong>. Vui lòng đăng nhập để xem chi tiết và ký hợp đồng.
+      </p>
+      <div style="background: #ecfdf5; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Thông tin hợp đồng</strong></p>
+        <p style="margin: 4px 0">Mã HĐ: <code>${safeCode}</code></p>
+        <p style="margin: 4px 0">Kho: ${safeWarehouse}</p>
+        <p style="margin: 4px 0">Thời hạn: ${escapeHtml(startDate)} → ${escapeHtml(endDate)}</p>
+        ${shiftBlock}
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(contractsUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem &amp; ký hợp đồng
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
+    '',
+    `Hợp đồng ${contractCode} đã sẵn sàng để ký.`,
+    `Kho: ${warehouseName || '—'}. Thời hạn: ${startDate} → ${endDate}.`,
+    datesShiftNote ? `\n${datesShiftNote}\n` : '',
+    contractsUrl,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Hợp đồng ${contractCode} chờ bạn ký — NEXSPACE Smart Warehouse`,
+    text,
+    html,
+  });
+}
+
+/**
  * WH Admin — tenant đã thanh toán invoice đầu (PayOS), HĐ ACTIVE.
  */
 export async function sendContractInitialPaymentReceivedEmail({
@@ -845,6 +921,142 @@ export async function sendOutboundTransporterAssignedEmail({
     from: FROM_ADDRESS,
     to,
     subject: `Gán giao hàng — ${outboundCode}`,
+    text,
+    html,
+  });
+}
+
+/** Tenant admin — WH Admin vừa duyệt yêu cầu thuê kho. */
+export async function sendRentalRequestApprovedEmail({
+  to,
+  tenantAdminName,
+  companyName,
+  requestCode,
+  warehouseName,
+  warehouseCode,
+  city,
+  district,
+  contractType,
+  reviewedAt,
+  rentalRequestsUrl,
+}) {
+  assertMailConfigured();
+
+  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
+  const safeCompany = escapeHtml(companyName || '—');
+  const safeCode = escapeHtml(requestCode || '—');
+  const safeWarehouse = escapeHtml(
+    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : '—'
+  );
+  const safeRegion = escapeHtml([district, city].filter(Boolean).join(', ') || '—');
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Yêu cầu thuê kho đã được duyệt</h2>
+      <p>Xin chào <strong>${safeName}</strong>,</p>
+      <p>
+        Yêu cầu thuê kho <strong>${safeCode}</strong> của <strong>${safeCompany}</strong> đã được
+        Warehouse Admin duyệt. Bạn có thể tiếp tục các bước ký hợp đồng và thanh toán trên hệ thống.
+      </p>
+      <div style="background: #ecfdf5; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Thông tin duyệt</strong></p>
+        <p style="margin: 4px 0">Mã yêu cầu: <code>${safeCode}</code></p>
+        <p style="margin: 4px 0">Kho: ${safeWarehouse}</p>
+        <p style="margin: 4px 0">Khu vực: ${safeRegion}</p>
+        ${contractType ? `<p style="margin: 4px 0">Loại thuê: ${escapeHtml(contractType)}</p>` : ''}
+        <p style="margin: 4px 0">Thời điểm duyệt: ${escapeHtml(reviewedAt)}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(rentalRequestsUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem yêu cầu thuê
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
+    '',
+    `Yêu cầu thuê ${requestCode} của ${companyName} đã được duyệt.`,
+    `Kho: ${warehouseName || '—'}. Khu vực: ${district || ''}, ${city || ''}.`,
+    `Thời điểm duyệt: ${reviewedAt}.`,
+    '',
+    rentalRequestsUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Yêu cầu thuê ${requestCode} đã được duyệt — NEXSPACE Smart Warehouse`,
+    text,
+    html,
+  });
+}
+
+/** Tenant admin — yêu cầu thuê kho bị từ chối. */
+export async function sendRentalRequestRejectedEmail({
+  to,
+  tenantAdminName,
+  companyName,
+  requestCode,
+  city,
+  district,
+  rejectionReason,
+  reviewedAt,
+  rentalRequestsUrl,
+}) {
+  assertMailConfigured();
+
+  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
+  const safeCompany = escapeHtml(companyName || '—');
+  const safeCode = escapeHtml(requestCode || '—');
+  const safeRegion = escapeHtml([district, city].filter(Boolean).join(', ') || '—');
+  const safeReason = escapeHtml(rejectionReason || 'Không có lý do cụ thể');
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
+      <h2 style="color: #111827">Yêu cầu thuê kho bị từ chối</h2>
+      <p>Xin chào <strong>${safeName}</strong>,</p>
+      <p>
+        Yêu cầu thuê kho <strong>${safeCode}</strong> của <strong>${safeCompany}</strong> đã bị từ chối.
+      </p>
+      <div style="background: #fef2f2; border-radius: 8px; padding: 16px; margin: 20px 0">
+        <p style="margin: 0 0 8px"><strong>Chi tiết</strong></p>
+        <p style="margin: 4px 0">Mã yêu cầu: <code>${safeCode}</code></p>
+        <p style="margin: 4px 0">Khu vực: ${safeRegion}</p>
+        <p style="margin: 4px 0">Thời điểm: ${escapeHtml(reviewedAt)}</p>
+        <p style="margin: 4px 0">Lý do: ${safeReason}</p>
+      </div>
+      <p style="margin: 24px 0">
+        <a href="${escapeHtml(rentalRequestsUrl)}"
+           style="display: inline-block; background: #06edf9; color: #0f2223; font-weight: 700;
+                  text-decoration: none; padding: 12px 20px; border-radius: 8px">
+          Xem yêu cầu thuê
+        </a>
+      </p>
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb" />
+      <p style="font-size: 12px; color: #6b7280">NEXSPACE Smart Warehouse — Email tự động, vui lòng không trả lời.</p>
+    </div>
+  `;
+
+  const text = [
+    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
+    '',
+    `Yêu cầu thuê ${requestCode} của ${companyName} đã bị từ chối.`,
+    `Khu vực: ${district || ''}, ${city || ''}.`,
+    `Lý do: ${rejectionReason || 'Không có lý do cụ thể'}.`,
+    '',
+    rentalRequestsUrl,
+  ].join('\n');
+
+  return transporter.sendMail({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Yêu cầu thuê ${requestCode} bị từ chối — NEXSPACE Smart Warehouse`,
     text,
     html,
   });

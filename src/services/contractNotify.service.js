@@ -1,11 +1,15 @@
 import pool from '../config/db.js';
 import {
   sendContractInitialPaymentReceivedEmail,
+  sendContractPendingApprovalEmail,
   sendContractSignedByTenantEmail,
 } from '../config/mail.js';
-import { buildAdminContractsUrl } from '../utils/appUrl.js';
+import { buildAdminContractsUrl, buildTenantContractsUrl } from '../utils/appUrl.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { getWarehouseById } from './warehouse.service.js';
+import RentalRequest from '../models/RentalRequest.js';
+import { contractBillingMonths } from '../utils/rentalPeriodPricing.js';
+import { toIsoDateOnly } from '../utils/rentalEffectiveDates.js';
 
 async function findActiveWarehouseAdmin(warehouseId) {
   const result = await pool.query(
@@ -37,6 +41,88 @@ function formatDateTimeVi(value) {
 function formatVnd(amount) {
   const n = Math.round(Number(amount) || 0);
   return `${n.toLocaleString('vi-VN')} đ`;
+}
+
+async function findActiveTenantAdmin(tenantId) {
+  const result = await pool.query(
+    `SELECT full_name, email
+     FROM users
+     WHERE tenant_id = $1
+       AND role = 'TENANT_ADMIN'::role_enum
+       AND status = 'ACTIVE'::user_status_enum
+     LIMIT 1`,
+    [tenantId]
+  );
+  return result.rows[0] ?? null;
+}
+
+function buildContractDatesShiftNote(contract, rentalRequest) {
+  if (!rentalRequest?.expectedStartDate || !rentalRequest?.expectedEndDate) {
+    return null;
+  }
+  const reqStart = toIsoDateOnly(rentalRequest.expectedStartDate);
+  const reqEnd = toIsoDateOnly(rentalRequest.expectedEndDate);
+  const contractStart = toIsoDateOnly(contract.startDate);
+  const contractEnd = toIsoDateOnly(contract.endDate);
+  if (!reqStart || !reqEnd || !contractStart || !contractEnd) return null;
+  if (reqStart === contractStart && reqEnd === contractEnd) return null;
+
+  const billingMonths = contractBillingMonths(
+    rentalRequest.expectedStartDate,
+    rentalRequest.expectedEndDate
+  );
+  return (
+    `Thời hạn khách yêu cầu: ${formatDateVi(rentalRequest.expectedStartDate)} → ${formatDateVi(rentalRequest.expectedEndDate)}. ` +
+    `HĐ áp dụng ${formatDateVi(contract.startDate)} → ${formatDateVi(contract.endDate)} ` +
+    `(giữ ${billingMonths} tháng thuê).`
+  );
+}
+
+/**
+ * Tenant admin — HĐ chuyển PENDING_APPROVAL, chờ ký.
+ */
+export async function notifyTenantAdminContractPendingApproval(contract) {
+  if (!contract?.tenantId || contract.status !== 'PENDING_APPROVAL') {
+    return { sent: false, reason: 'INVALID_CONTRACT' };
+  }
+
+  const admin = await findActiveTenantAdmin(contract.tenantId);
+  if (!admin?.email) {
+    return { sent: false, reason: 'NO_TENANT_ADMIN' };
+  }
+
+  const [tenant, warehouse, rentalRequest] = await Promise.all([
+    getTenantCompany(contract.tenantId),
+    getWarehouseById(contract.warehouseId),
+    contract.rentalRequestId
+      ? RentalRequest.findById(contract.rentalRequestId)
+      : Promise.resolve(null),
+  ]);
+
+  const datesShiftNote = buildContractDatesShiftNote(contract, rentalRequest);
+
+  try {
+    await sendContractPendingApprovalEmail({
+      to: admin.email,
+      tenantAdminName: admin.full_name,
+      companyName: tenant.companyName,
+      contractCode: contract.contractCode,
+      contractName: contract.contractName,
+      warehouseName: warehouse?.warehouseName,
+      warehouseCode: warehouse?.warehouseCode,
+      startDate: formatDateVi(contract.startDate),
+      endDate: formatDateVi(contract.endDate),
+      datesShiftNote,
+      contractsUrl: buildTenantContractsUrl(),
+    });
+    return { sent: true, to: admin.email };
+  } catch (err) {
+    return {
+      sent: false,
+      to: admin.email,
+      error: err.message || 'Failed to send notification email',
+    };
+  }
 }
 
 /**
