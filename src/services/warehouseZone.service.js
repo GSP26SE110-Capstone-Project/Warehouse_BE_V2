@@ -6,7 +6,7 @@ import {
   REFERENCE_ZONE_AREA_M2,
   computeZoneStorageCapacity,
 } from '../constants/warehouseCapacity.js';
-import { DEFAULT_BIN_MAX_LPN_COUNT } from '../constants/pricingDefaults.js';
+import { maxLpnsPerBinSlotForZone } from '../constants/binCapacityDefaults.js';
 import { assertWarehouseAccess } from '../utils/warehouseAccess.js';
 import { getWarehouseById, getWarehouseZonePlanning } from './warehouse.service.js';
 
@@ -95,7 +95,7 @@ async function enrichZonesWithLayoutStats(zones) {
       rackCount,
       maxRacks: cap.maxRacks,
       totalBinSlots: cap.totalBinSlots,
-      estimatedLpnCapacity: cap.totalBinSlots * DEFAULT_BIN_MAX_LPN_COUNT,
+      estimatedLpnCapacity: cap.totalBinSlots * maxLpnsPerBinSlotForZone(zone.zoneType),
     };
   });
 }
