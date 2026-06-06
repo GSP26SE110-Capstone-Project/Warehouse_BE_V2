@@ -50,3 +50,13 @@ export async function getTenantInboundTransportAlerts(req, res) {
   const data = await adminNotificationService.getTenantInboundTransportAlerts(req.user);
   success(res, data);
 }
+
+export async function getTenantRentalStatusAlerts(req, res) {
+  const data = await adminNotificationService.getTenantRentalStatusAlerts(req.user);
+  success(res, data);
+}
+
+export async function getTenantContractActionAlerts(req, res) {
+  const data = await adminNotificationService.getTenantContractActionAlerts(req.user);
+  success(res, data);
+}

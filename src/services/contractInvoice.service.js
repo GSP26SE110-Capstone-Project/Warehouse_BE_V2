@@ -91,6 +91,44 @@ export async function createInitialInvoice(contract) {
   return invoice;
 }
 
+async function resolveInitialPaymentActivatedAt(invoiceId) {
+  const paidAtResult = await pool.query(
+    `SELECT paid_at
+     FROM payments
+     WHERE invoice_id = $1 AND payment_status = 'SUCCESS'
+     ORDER BY paid_at DESC NULLS LAST
+     LIMIT 1`,
+    [invoiceId]
+  );
+  return paidAtResult.rows[0]?.paid_at ?? new Date();
+}
+
+/** Kích hoạt HĐ/phụ lục khi invoice đã PAID (kể cả retry sau lỗi DB giữa chừng). */
+async function ensureContractActivatedAfterPayment(contract, invoice) {
+  let updatedContract = contract;
+  let appendix = null;
+
+  if (invoice.invoiceCategory === 'INITIAL' && contract.status === 'PENDING_PAYMENT') {
+    const activatedAt = await resolveInitialPaymentActivatedAt(invoice.invoiceId);
+    updatedContract = await Contract.updateById(contract.contractId, {
+      status: 'ACTIVE',
+      activatedAt,
+    });
+    void notifyWarehouseAdminContractPaymentReceived({
+      contract: updatedContract,
+      invoice,
+    }).catch((err) => {
+      console.warn('[contract] WH admin payment notify failed:', err?.message ?? err);
+    });
+  }
+
+  if (invoice.invoiceCategory === 'APPENDIX_INITIAL' && invoice.appendixId) {
+    appendix = await activateAppendixAfterPayment(invoice.appendixId);
+  }
+
+  return { contract: updatedContract, appendix };
+}
+
 export async function markInvoicePaid(contractId, invoiceId) {
   const cId = parseUuid(contractId, 'contractId');
   const iId = parseUuid(invoiceId, 'invoiceId');
@@ -101,44 +139,14 @@ export async function markInvoicePaid(contractId, invoiceId) {
     throw new AppError('Invoice not found for this contract', 404, 'NOT_FOUND');
   }
   if (invoice.paymentStatus === 'PAID') {
-    return { invoice, contract };
+    const { contract: updatedContract, appendix } =
+      await ensureContractActivatedAfterPayment(contract, invoice);
+    return { invoice, contract: updatedContract, appendix };
   }
-
-  const activatingContract =
-    invoice.invoiceCategory === 'INITIAL' && contract.status === 'PENDING_PAYMENT';
-  const activatingAppendix =
-    invoice.invoiceCategory === 'APPENDIX_INITIAL' && invoice.appendixId;
 
   const updatedInvoice = await Invoice.updateById(iId, { paymentStatus: 'PAID' });
-
-  let updatedContract = contract;
-  let appendix = null;
-
-  if (activatingContract) {
-    const paidAtResult = await pool.query(
-      `SELECT paid_at
-       FROM payments
-       WHERE invoice_id = $1 AND payment_status = 'SUCCESS'
-       ORDER BY paid_at DESC NULLS LAST
-       LIMIT 1`,
-      [iId]
-    );
-    const activatedAt = paidAtResult.rows[0]?.paid_at ?? new Date();
-    updatedContract = await Contract.updateById(cId, {
-      status: 'ACTIVE',
-      activatedAt,
-    });
-    void notifyWarehouseAdminContractPaymentReceived({
-      contract: updatedContract,
-      invoice: updatedInvoice,
-    }).catch((err) => {
-      console.warn('[contract] WH admin payment notify failed:', err?.message ?? err);
-    });
-  }
-
-  if (activatingAppendix) {
-    appendix = await activateAppendixAfterPayment(invoice.appendixId);
-  }
+  const { contract: updatedContract, appendix } =
+    await ensureContractActivatedAfterPayment(contract, updatedInvoice);
 
   return { invoice: updatedInvoice, contract: updatedContract, appendix };
 }

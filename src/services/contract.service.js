@@ -13,11 +13,16 @@ import {
 import { getWarehouseById } from './warehouse.service.js';
 import { getTenantCompany } from './tenantCompany.service.js';
 import { seedDefaultContractItems } from './contractDefaultItems.service.js';
-import { notifyWarehouseAdminContractSigned } from './contractNotify.service.js';
+import {
+  notifyTenantAdminContractPendingApproval,
+  notifyWarehouseAdminContractSigned,
+} from './contractNotify.service.js';
 import {
   assertInitialInvoicePaid,
   createInitialInvoice,
 } from './contractInvoice.service.js';
+import { estimateContractPrice } from './contractPriceEstimate.service.js';
+import { startOfDayUtc, resolveEffectiveContractDates } from '../utils/rentalEffectiveDates.js';
 
 const CREATE_FIELDS = [
   'contractCode',
@@ -235,13 +240,88 @@ async function attachRentalRequest(data, rentalRequestId) {
   data.rentalRequestId = rrId;
 }
 
-export async function getContract(contractId) {
+async function applyRentalLinkedEffectiveContractDates(data, rentalRequestId) {
+  if (rentalRequestId == null) return;
+
+  const rr = await RentalRequest.findById(parseUuid(rentalRequestId, 'rentalRequestId'));
+  if (!rr?.expectedStartDate || !rr?.expectedEndDate) {
+    if (data.startDate != null) {
+      assertRentalLinkedContractStartNotPast(data);
+    }
+    return;
+  }
+
+  const resolved = resolveEffectiveContractDates(
+    rr.expectedStartDate,
+    rr.expectedEndDate
+  );
+
+  if (resolved.shifted) {
+    data.startDate = parseDateOnly(resolved.startDate, 'startDate');
+    data.endDate = parseDateOnly(resolved.endDate, 'endDate');
+    return;
+  }
+
+  if (data.startDate != null) {
+    assertRentalLinkedContractStartNotPast(data);
+  }
+}
+
+function assertRentalLinkedContractStartNotPast(data) {
+  if (data.startDate == null) return;
+  const startDay = startOfDayUtc(data.startDate);
+  const todayDay = startOfDayUtc(new Date());
+  if (startDay < todayDay) {
+    throw new AppError(
+      'Ngày bắt đầu HĐ không được trước hôm nay. Dịch start lên ngày duyệt và giữ nguyên số tháng thuê khách đã chọn.',
+      400,
+      'VALIDATION_ERROR'
+    );
+  }
+}
+
+function hasEstimatedTotalAmount(contract) {
+  const amount = Number(contract?.estimatedTotalAmount);
+  return Number.isFinite(amount) && amount > 0;
+}
+
+async function resolveEstimatedTotalAmount(contract, user = null) {
+  if (!contract?.rentalRequestId) return null;
+  const estimate = await estimateContractPrice(
+    contract.rentalRequestId,
+    contract.warehouseId,
+    user,
+    {
+      contractType: contract.contractType,
+      startDate: contract.startDate,
+      endDate: contract.endDate,
+    }
+  );
+  const total = Number(estimate?.suggestedTotalAmount);
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
+/** Bổ sung giá ước tính từ rental request (SHARED_STORAGE = theo thùng) khi HĐ chưa lưu số tiền. */
+async function enrichContractEstimatedTotal(contract, user = null) {
+  if (!contract || hasEstimatedTotalAmount(contract)) return contract;
+  try {
+    const total = await resolveEstimatedTotalAmount(contract, user);
+    if (total != null) {
+      return { ...contract, estimatedTotalAmount: total };
+    }
+  } catch (err) {
+    console.warn('[contract] enrich estimated total failed:', err?.message ?? err);
+  }
+  return contract;
+}
+
+export async function getContract(contractId, user = null) {
   const id = parseUuid(contractId, 'contractId');
   const contract = await Contract.findById(id);
   if (!contract) {
     throw new AppError('Contract not found', 404, 'NOT_FOUND');
   }
-  return contract;
+  return enrichContractEstimatedTotal(contract, user);
 }
 
 export async function listContracts({
@@ -274,8 +354,12 @@ export async function listContracts({
     Contract.count(filters),
   ]);
 
+  const enrichedItems = await Promise.all(
+    items.map((item) => enrichContractEstimatedTotal(item))
+  );
+
   return {
-    items,
+    items: enrichedItems,
     meta: {
       page,
       limit,
@@ -294,6 +378,7 @@ export async function createContract(tenantId, warehouseId, body) {
 
   const data = await normalizeCreatePayload(body, tId, wId);
   await attachRentalRequest(data, body.rentalRequestId);
+  await applyRentalLinkedEffectiveContractDates(data, body.rentalRequestId);
 
   const contract = await Contract.create(data);
   await seedDefaultContractItems(contract.contractId);
@@ -342,9 +427,45 @@ async function assertActiveStorageForTenantSign(contractId) {
 
 export async function updateContract(contractId, body) {
   const id = parseUuid(contractId, 'contractId');
-  const existing = await getContract(id);
+  const existing = await Contract.findById(id);
+  if (!existing) {
+    throw new AppError('Contract not found', 404, 'NOT_FOUND');
+  }
 
   const data = normalizeUpdatePayload(body);
+
+  if (existing.rentalRequestId) {
+    if (data.startDate !== undefined || data.endDate !== undefined) {
+      await applyRentalLinkedEffectiveContractDates(data, existing.rentalRequestId);
+    } else if (
+      data.status === 'PENDING_APPROVAL' &&
+      existing.status !== 'PENDING_APPROVAL'
+    ) {
+      data.startDate = existing.startDate;
+      data.endDate = existing.endDate;
+      await applyRentalLinkedEffectiveContractDates(data, existing.rentalRequestId);
+    }
+  }
+
+  const nextStatus = data.status ?? existing.status;
+  const willHaveAmount =
+    data.estimatedTotalAmount !== undefined
+      ? hasEstimatedTotalAmount({ estimatedTotalAmount: data.estimatedTotalAmount })
+      : hasEstimatedTotalAmount(existing);
+  if (
+    nextStatus === 'PENDING_APPROVAL' &&
+    !willHaveAmount &&
+    existing.rentalRequestId
+  ) {
+    try {
+      const total = await resolveEstimatedTotalAmount(existing);
+      if (total != null) {
+        data.estimatedTotalAmount = total;
+      }
+    } catch (err) {
+      console.warn('[contract] auto price on PENDING_APPROVAL failed:', err?.message ?? err);
+    }
+  }
   if (data.tenantSignature !== undefined && data.tenantSignature) {
     await assertActiveStorageForTenantSign(id);
   }
@@ -360,6 +481,15 @@ export async function updateContract(contractId, body) {
 
   applySignatureWorkflow(existing, data);
   const updated = await Contract.updateById(id, data);
+
+  if (
+    data.status === 'PENDING_APPROVAL' &&
+    existing.status !== 'PENDING_APPROVAL'
+  ) {
+    void notifyTenantAdminContractPendingApproval(updated).catch((err) => {
+      console.warn('[contract] tenant pending approval notify failed:', err?.message ?? err);
+    });
+  }
 
   if (tenantJustSigned && updated.status === 'PENDING_PAYMENT') {
     await createInitialInvoice(updated);

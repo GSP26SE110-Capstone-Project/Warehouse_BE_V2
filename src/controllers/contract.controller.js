@@ -26,7 +26,7 @@ export async function list(req, res) {
 }
 
 export async function getById(req, res) {
-  const contract = await contractService.getContract(req.params.contractId);
+  const contract = await contractService.getContract(req.params.contractId, req.user);
   success(res, contract);
 }
 

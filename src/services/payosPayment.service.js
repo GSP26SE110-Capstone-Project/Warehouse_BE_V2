@@ -185,6 +185,7 @@ export async function createInvoicePayOSPaymentLink(
     throw new AppError('Invoice not found for this contract', 404, 'NOT_FOUND');
   }
   if (invoice.paymentStatus === 'PAID') {
+    await markInvoicePaid(cId, iId);
     throw new AppError('Invoice đã thanh toán', 400, 'INVOICE_ALREADY_PAID');
   }
 
@@ -333,7 +334,13 @@ export async function syncInvoicePaymentFromPayOS(contractId, invoiceId) {
   }
   if (invoice.paymentStatus === 'PAID') {
     const contract = await getContract(cId);
-    return { synced: true, alreadyPaid: true, invoice, contract };
+    const recovered = await markInvoicePaid(cId, iId);
+    return {
+      synced: true,
+      alreadyPaid: true,
+      recoveredContract: recovered.contract.status !== contract.status,
+      ...recovered,
+    };
   }
 
   const payments = await Payment.findAll({ invoiceId: iId }, { orderBy: 'created_at DESC', limit: 5 });

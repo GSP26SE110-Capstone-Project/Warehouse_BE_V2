@@ -40,3 +40,11 @@ export function buildWhAdminOutboundUrl(outboundRequestId) {
 export function buildTransporterOutboundUrl(outboundRequestId) {
   return `${getFrontendBaseUrl()}/staff/my-deliveries/outbound/${outboundRequestId}`;
 }
+
+export function buildTenantRentalRequestsUrl() {
+  return `${getFrontendBaseUrl()}/staff/rental-requests`;
+}
+
+export function buildTenantContractsUrl() {
+  return `${getFrontendBaseUrl()}/staff/contracts`;
+}
