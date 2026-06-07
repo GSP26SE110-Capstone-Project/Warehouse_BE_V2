@@ -203,6 +203,14 @@ export async function createInvoicePayOSPaymentLink(
   const finalCancelUrl =
     cancelUrl ||
     `${origin}/staff/contracts/payment/cancel?contractId=${cId}&invoiceId=${iId}`;
+  const clientProvidedUrls = Boolean(returnUrl || cancelUrl);
+
+  if (clientProvidedUrls) {
+    console.log('[PAYOS] Checkout URLs from client:', {
+      returnUrl: finalReturnUrl,
+      cancelUrl: finalCancelUrl,
+    });
+  }
 
   const pending = await Payment.findOne({
     invoiceId: iId,
@@ -216,6 +224,10 @@ export async function createInvoicePayOSPaymentLink(
   if (!orderCode) {
     ({ orderCode, paymentRow } = await createNewPendingPaymentRow(iId, payosAmount));
   } else if (Math.round(Number(paymentRow.amount) || 0) !== payosAmount) {
+    await retirePendingPayOSPayment(paymentRow, orderCode);
+    ({ orderCode, paymentRow } = await createNewPendingPaymentRow(iId, payosAmount));
+  } else if (clientProvidedUrls && paymentRow && orderCode) {
+    // Link PayOS cũ gắn return URL lúc tạo — hủy và tạo order mới khi FE gửi URL mới
     await retirePendingPayOSPayment(paymentRow, orderCode);
     ({ orderCode, paymentRow } = await createNewPendingPaymentRow(iId, payosAmount));
   }
@@ -239,20 +251,22 @@ export async function createInvoicePayOSPaymentLink(
   );
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const existing = await fetchPayOSCheckoutByOrderCode(orderCode);
-      paymentRow = await persistPayOSLinkOnPayment(paymentRow, existing);
-      return returnPayload(existing.checkoutUrl, existing.paymentLinkId, true);
-    } catch (err) {
-      if (err instanceof AppError && err.code === 'PAYOS_LINK_NOT_PAYABLE' && attempt === 0) {
-        await retirePendingPayOSPayment(paymentRow, orderCode);
-        ({ orderCode, paymentRow } = await createNewPendingPaymentRow(iId, payosAmount));
-        continue;
+    if (!clientProvidedUrls) {
+      try {
+        const existing = await fetchPayOSCheckoutByOrderCode(orderCode);
+        paymentRow = await persistPayOSLinkOnPayment(paymentRow, existing);
+        return returnPayload(existing.checkoutUrl, existing.paymentLinkId, true);
+      } catch (err) {
+        if (err instanceof AppError && err.code === 'PAYOS_LINK_NOT_PAYABLE' && attempt === 0) {
+          await retirePendingPayOSPayment(paymentRow, orderCode);
+          ({ orderCode, paymentRow } = await createNewPendingPaymentRow(iId, payosAmount));
+          continue;
+        }
+        if (err instanceof AppError && err.code === 'PAYOS_LINK_NOT_PAYABLE') {
+          throw err;
+        }
+        // Chưa có link hợp lệ trên PayOS — tạo bên dưới
       }
-      if (err instanceof AppError && err.code === 'PAYOS_LINK_NOT_PAYABLE') {
-        throw err;
-      }
-      // Chưa có link hợp lệ trên PayOS — tạo bên dưới
     }
 
     try {

@@ -71,6 +71,8 @@ export function resolvePayOSCheckoutAmount(invoiceTotalAmount) {
   return { payosAmount: invoiceAmount, invoiceAmount, devMode: false };
 }
 
+console.log('[PAYOS] Frontend origin (env fallback):', getPayOSFrontendOrigin());
+
 const devAmountRaw = String(process.env.PAYOS_DEV_AMOUNT ?? '').trim();
 if (isPayOSDevAmountEnabled() && devAmountRaw !== '') {
   const devAmount = Math.round(Number(devAmountRaw));
