@@ -15,6 +15,16 @@ function trimEnv(name) {
   return String(process.env[name] ?? '').trim();
 }
 
+function isTruthyEnv(name) {
+  const value = String(process.env[name] ?? '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+function isPayOSDevAmountEnabled() {
+  const isProd = process.env.NODE_ENV === 'production';
+  return !isProd || isTruthyEnv('PAYOS_ALLOW_DEV_AMOUNT');
+}
+
 export function getPayOSClient() {
   if (!isPayOSConfigured()) {
     throw new AppError(
@@ -44,14 +54,14 @@ export function getPayOSFrontendOrigin() {
 
 /**
  * Dev/test: số tiền gửi lên PayOS (invoice DB vẫn giữ totalAmount thật).
- * Chỉ áp dụng khi NODE_ENV !== 'production' và PAYOS_DEV_AMOUNT >= 1000.
+ * Bật khi NODE_ENV !== 'production' HOẶC PAYOS_ALLOW_DEV_AMOUNT=true.
+ * PAYOS_DEV_AMOUNT phải >= 1000.
  */
 export function resolvePayOSCheckoutAmount(invoiceTotalAmount) {
   const invoiceAmount = Math.round(Number(invoiceTotalAmount) || 0);
-  const isProd = process.env.NODE_ENV === 'production';
   const raw = String(process.env.PAYOS_DEV_AMOUNT ?? '').trim();
 
-  if (!isProd && raw !== '') {
+  if (isPayOSDevAmountEnabled() && raw !== '') {
     const devAmount = Math.round(Number(raw));
     if (Number.isFinite(devAmount) && devAmount >= 1000) {
       return { payosAmount: devAmount, invoiceAmount, devMode: true };
@@ -59,4 +69,15 @@ export function resolvePayOSCheckoutAmount(invoiceTotalAmount) {
   }
 
   return { payosAmount: invoiceAmount, invoiceAmount, devMode: false };
+}
+
+const devAmountRaw = String(process.env.PAYOS_DEV_AMOUNT ?? '').trim();
+if (isPayOSDevAmountEnabled() && devAmountRaw !== '') {
+  const devAmount = Math.round(Number(devAmountRaw));
+  if (Number.isFinite(devAmount) && devAmount >= 1000) {
+    console.log(
+      `[PAYOS] Dev checkout amount enabled: ${devAmount} VND (invoice DB keeps real total)` +
+        (process.env.NODE_ENV === 'production' ? ' [PAYOS_ALLOW_DEV_AMOUNT]' : ''),
+    );
+  }
 }

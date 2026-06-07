@@ -111,6 +111,9 @@ PAYOS_WEBHOOK_PUBLIC_URL=https://a1b2c3d4.ngrok-free.app
 
 # Test PayOS với số tiền nhỏ (tối thiểu 1000). Invoice DB vẫn giữ 4.2M — chỉ cổng PayOS hiển thị 2000đ
 PAYOS_DEV_AMOUNT=2000
+
+# Render/staging (NODE_ENV=production): thêm flag này để dev amount vẫn áp dụng
+# PAYOS_ALLOW_DEV_AMOUNT=true
 ```
 
 **Restart BE** sau khi sửa `.env` (Ctrl+C terminal `npm run dev` → `npm run dev` lại).
