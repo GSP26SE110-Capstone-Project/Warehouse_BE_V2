@@ -23,11 +23,31 @@ const smtpHost =
   process.env.SMTP_HOST ||
   (String(process.env.EMAIL_SERVICE || '').toLowerCase() === 'gmail' ? 'smtp.gmail.com' : undefined);
 
-const transporter = nodemailer.createTransport({
-  host: smtpHost || 'smtp.gmail.com',
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: process.env.SMTP_SECURE === 'true',
-  ...(smtpUser && smtpPass ? { auth: { user: smtpUser, pass: smtpPass } } : {}),
+const smtpPort = Number(process.env.SMTP_PORT) || 587;
+const smtpSecure = process.env.SMTP_SECURE === 'true';
+const smtpHostResolved = smtpHost || 'smtp.gmail.com';
+
+const transporterConfig = {
+  host: smtpHostResolved,
+  port: smtpPort,
+  secure: smtpSecure,
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
+};
+
+if (smtpUser && smtpPass) {
+  transporterConfig.auth = { user: smtpUser, pass: smtpPass };
+}
+
+const transporter = nodemailer.createTransport(transporterConfig);
+
+console.log('[MAIL] Config:', {
+  host: smtpHostResolved,
+  port: smtpPort,
+  secure: smtpSecure,
+  user: smtpUser || '(not set)',
+  hasPassword: Boolean(smtpPass),
 });
 
 const FROM_ADDRESS =
@@ -39,9 +59,13 @@ function assertMailConfigured() {
       'SMTP credentials missing. Set EMAIL_USER + EMAIL_APP_PASSWORD in .env',
     );
   }
+  if (!transporterConfig.auth) {
+    throw new Error('SMTP auth not configured. Set EMAIL_USER + EMAIL_APP_PASSWORD in .env');
+  }
 }
 
 async function sendMailLogged(label, mailOptions) {
+  assertMailConfigured();
   const to = mailOptions.to;
   try {
     const info = await transporter.sendMail(mailOptions);
@@ -85,7 +109,7 @@ export async function sendChangePasswordOtp({ to, fullName, otp, ttlMinutes }) {
     </div>
   `;
 
-  return transporter.sendMail({
+  return sendMailLogged('Change password OTP', {
     from: FROM_ADDRESS,
     to,
     subject: 'Mã OTP đặt lại mật khẩu — NEXSPACE Smart Warehouse',
@@ -232,7 +256,7 @@ async function sendWarehouseMemberWelcomeEmail({
     `Đăng nhập: ${loginUrl}`,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged(`Welcome email (${subject})`, {
     from: FROM_ADDRESS,
     to,
     subject,
@@ -399,7 +423,7 @@ export async function sendContractSignedByTenantEmail({
     `Xem hợp đồng: ${contractsUrl}`,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Contract signed by tenant', {
     from: FROM_ADDRESS,
     to,
     subject: `Tenant đã ký HĐ ${contractCode || ''} — NEXSPACE Smart Warehouse`,
@@ -475,7 +499,7 @@ export async function sendContractPendingApprovalEmail({
     .filter(Boolean)
     .join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Contract pending approval', {
     from: FROM_ADDRESS,
     to,
     subject: `Hợp đồng ${contractCode} chờ bạn ký — NEXSPACE Smart Warehouse`,
@@ -554,7 +578,7 @@ export async function sendContractInitialPaymentReceivedEmail({
     `Xem hợp đồng: ${contractsUrl}`,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Contract initial payment received', {
     from: FROM_ADDRESS,
     to,
     subject: `Đã thanh toán HĐ ${contractCode || ''} — HĐ ACTIVE — NEXSPACE`,
@@ -628,7 +652,7 @@ export async function sendInboundTransportAssignedEmail({
     inboundUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Inbound transport assigned', {
     from: FROM_ADDRESS,
     to,
     subject: `Đã gán tài xế cho ${inboundCode} — NEXSPACE Smart Warehouse`,
@@ -685,7 +709,7 @@ export async function sendInboundArrivalWhAdminEmail({
     inboundUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Inbound arrival (WH admin)', {
     from: FROM_ADDRESS,
     to,
     subject: `Xe đã đến kho — ${inboundCode}`,
@@ -740,7 +764,7 @@ export async function sendInboundArrivalTenantEmail({
     inboundUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Inbound arrival (tenant)', {
     from: FROM_ADDRESS,
     to,
     subject: `Hàng đã tới kho — ${inboundCode}`,
@@ -797,7 +821,7 @@ export async function sendInboundPickupWhAdminEmail({
     inboundUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Inbound pickup (WH admin)', {
     from: FROM_ADDRESS,
     to,
     subject: `Đã lấy hàng — ${inboundCode}`,
@@ -852,7 +876,7 @@ export async function sendInboundPickupTenantEmail({
     inboundUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Inbound pickup (tenant)', {
     from: FROM_ADDRESS,
     to,
     subject: `Tài xế đã lấy hàng — ${inboundCode}`,
@@ -905,7 +929,7 @@ export async function sendOutboundPickerAssignedEmail({
     outboundUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Outbound picker assigned', {
     from: FROM_ADDRESS,
     to,
     subject: `Gán pick — ${outboundCode}`,
@@ -942,7 +966,7 @@ export async function sendOutboundTransporterAssignedEmail({
 
   const text = [`Chuyến giao ${outboundCode}`, `Địa chỉ: ${shipToAddress}`, tripUrl].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Outbound transporter assigned', {
     from: FROM_ADDRESS,
     to,
     subject: `Gán giao hàng — ${outboundCode}`,
@@ -1013,7 +1037,7 @@ export async function sendRentalRequestApprovedEmail({
     rentalRequestsUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Rental request approved', {
     from: FROM_ADDRESS,
     to,
     subject: `Yêu cầu thuê ${requestCode} đã được duyệt — NEXSPACE Smart Warehouse`,
@@ -1078,7 +1102,7 @@ export async function sendRentalRequestRejectedEmail({
     rentalRequestsUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Rental request rejected', {
     from: FROM_ADDRESS,
     to,
     subject: `Yêu cầu thuê ${requestCode} bị từ chối — NEXSPACE Smart Warehouse`,
@@ -1144,7 +1168,7 @@ export async function sendRecurringRentReminderEmail({
     overviewUrl,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Recurring rent reminder', {
     from: FROM_ADDRESS,
     to,
     subject: `Nhắc tiền thuê định kỳ — HĐ ${contractCode} — NEXSPACE Smart Warehouse`,

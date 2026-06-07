@@ -1,5 +1,5 @@
 import * as userService from '../services/user.service.js';
-import { created, paginated, success } from '../utils/apiResponse.js';
+import { paginated, success } from '../utils/apiResponse.js';
 import { parsePagination } from '../utils/validate.js';
 
 export async function me(req, res) {
@@ -32,14 +32,19 @@ export async function getById(req, res) {
 }
 
 export async function create(req, res) {
-  const result = await userService.createUser(req.user, req.body);
-  const message =
-    result.welcomeEmail?.sent === true
-      ? `Created successfully. Welcome email sent to ${result.welcomeEmail.to}.`
-      : result.welcomeEmail?.sent === false
-        ? `Created successfully but welcome email failed: ${result.welcomeEmail.error}`
-        : 'Created successfully';
-  created(res, result, message);
+  const { user, welcomeEmailPromise } = await userService.createUser(req.user, req.body);
+
+  res.status(201).json({ message: 'Create user successfully', data: user });
+
+  if (welcomeEmailPromise) {
+    welcomeEmailPromise
+      .then(() => {
+        console.log(`[USER] Welcome email sent to ${user.email}`);
+      })
+      .catch((err) => {
+        console.error(`[USER] Welcome email failed for ${user.email}:`, err);
+      });
+  }
 }
 
 export async function update(req, res) {

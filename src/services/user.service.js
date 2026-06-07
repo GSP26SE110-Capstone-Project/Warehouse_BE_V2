@@ -300,25 +300,16 @@ async function sendWhAdminWelcomeEmail(createdUser, plainPassword, warehouseId) 
     warehouseCode = warehouse?.warehouseCode ?? null;
   }
 
-  try {
-    await sendWarehouseAdminWelcomeEmail({
-      to: createdUser.email,
-      fullName: createdUser.fullName,
-      email: createdUser.email,
-      temporaryPassword: plainPassword,
-      warehouseName,
-      warehouseCode,
-      loginUrl,
-      resetPasswordUrl,
-    });
-    return { sent: true, to: createdUser.email };
-  } catch (err) {
-    return {
-      sent: false,
-      to: createdUser.email,
-      error: err.message || 'Failed to send welcome email',
-    };
-  }
+  return sendWarehouseAdminWelcomeEmail({
+    to: createdUser.email,
+    fullName: createdUser.fullName,
+    email: createdUser.email,
+    temporaryPassword: plainPassword,
+    warehouseName,
+    warehouseCode,
+    loginUrl,
+    resetPasswordUrl,
+  });
 }
 
 async function sendWhMemberWelcomeEmail(createdUser, plainPassword, warehouseId, role) {
@@ -339,25 +330,16 @@ async function sendWhMemberWelcomeEmail(createdUser, plainPassword, warehouseId,
       ? sendWarehouseTransporterWelcomeEmail
       : sendWarehouseStaffWelcomeEmail;
 
-  try {
-    await sendFn({
-      to: createdUser.email,
-      fullName: createdUser.fullName,
-      email: createdUser.email,
-      temporaryPassword: plainPassword,
-      warehouseName,
-      warehouseCode,
-      loginUrl,
-      resetPasswordUrl,
-    });
-    return { sent: true, to: createdUser.email };
-  } catch (err) {
-    return {
-      sent: false,
-      to: createdUser.email,
-      error: err.message || 'Failed to send welcome email',
-    };
-  }
+  return sendFn({
+    to: createdUser.email,
+    fullName: createdUser.fullName,
+    email: createdUser.email,
+    temporaryPassword: plainPassword,
+    warehouseName,
+    warehouseCode,
+    loginUrl,
+    resetPasswordUrl,
+  });
 }
 
 async function sendTenantAdminWelcome(createdUser, plainPassword, tenantId) {
@@ -373,65 +355,60 @@ async function sendTenantAdminWelcome(createdUser, plainPassword, tenantId) {
     tenantCode = tenant?.companyCode ?? tenant?.taxCode ?? null;
   }
 
-  try {
-    await sendTenantAdminWelcomeEmail({
-      to: createdUser.email,
-      fullName: createdUser.fullName,
-      email: createdUser.email,
-      temporaryPassword: plainPassword,
-      tenantName,
-      tenantCode,
-      loginUrl,
-      resetPasswordUrl,
-    });
-    return { sent: true, to: createdUser.email };
-  } catch (err) {
-    return {
-      sent: false,
-      to: createdUser.email,
-      error: err.message || 'Failed to send welcome email',
-    };
+  return sendTenantAdminWelcomeEmail({
+    to: createdUser.email,
+    fullName: createdUser.fullName,
+    email: createdUser.email,
+    temporaryPassword: plainPassword,
+    tenantName,
+    tenantCode,
+    loginUrl,
+    resetPasswordUrl,
+  });
+}
+
+function buildWelcomeEmailPromise(creator, created, plainPassword, data) {
+  if (!plainPassword) return null;
+
+  if (creator.role === 'SYSTEM_ADMIN') {
+    if (data.role === 'WH_ADMIN') {
+      return sendWhAdminWelcomeEmail(created, plainPassword, data.warehouseId);
+    }
+    if (data.role === 'TENANT_ADMIN') {
+      return sendTenantAdminWelcome(created, plainPassword, data.tenantId);
+    }
   }
+
+  if (creator.role === 'WH_ADMIN') {
+    if (data.role === 'WH_STAFF' || data.role === 'WH_TRANSPORTER') {
+      return sendWhMemberWelcomeEmail(
+        created,
+        plainPassword,
+        data.warehouseId,
+        data.role,
+      );
+    }
+  }
+
+  return null;
 }
 
 export async function createUser(creator, body) {
   const plainPassword = body.password;
   const data = await normalizeCreatePayload(body, creator);
-  const created = await User.create(data);
+
+  let created;
+  try {
+    created = await User.create(data);
+  } catch (err) {
+    console.error('[USER] Create user failed:', err);
+    throw err;
+  }
+
   const user = toPublicUser(created);
+  const welcomeEmailPromise = buildWelcomeEmailPromise(creator, created, plainPassword, data);
 
-  if (creator.role === 'SYSTEM_ADMIN' && plainPassword) {
-    if (data.role === 'WH_ADMIN') {
-      const welcomeEmail = await sendWhAdminWelcomeEmail(
-        created,
-        plainPassword,
-        data.warehouseId
-      );
-      return { user, welcomeEmail };
-    }
-    if (data.role === 'TENANT_ADMIN') {
-      const welcomeEmail = await sendTenantAdminWelcome(
-        created,
-        plainPassword,
-        data.tenantId
-      );
-      return { user, welcomeEmail };
-    }
-  }
-
-  if (creator.role === 'WH_ADMIN' && plainPassword) {
-    if (data.role === 'WH_STAFF' || data.role === 'WH_TRANSPORTER') {
-      const welcomeEmail = await sendWhMemberWelcomeEmail(
-        created,
-        plainPassword,
-        data.warehouseId,
-        data.role
-      );
-      return { user, welcomeEmail };
-    }
-  }
-
-  return { user };
+  return { user, welcomeEmailPromise };
 }
 
 export async function getUserById(creator, userId) {
