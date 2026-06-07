@@ -1,31 +1,40 @@
-import nodemailer from 'nodemailer';
+import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 /** Gmail App Password thường dán kèm khoảng trắng — SMTP cần chuỗi liền 16 ký tự. */
 function normalizeSmtpPassword(raw) {
-  if (raw == null || raw === '') return undefined;
-  return String(raw).replace(/\s+/g, '').trim();
+  if (raw == null || raw === "") return undefined;
+  return String(raw).replace(/\s+/g, "").trim();
 }
 
 function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
+
+const mailProvider = process.env.MAIL_PROVIDER || "smtp";
+const resendApiKey = process.env.RESEND_API_KEY?.trim() || undefined;
+const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 const smtpUser = process.env.SMTP_USER || process.env.EMAIL_USER;
 const smtpPass = normalizeSmtpPassword(
-  process.env.SMTP_PASS || process.env.EMAIL_APP_PASSWORD || process.env.EMAIL_PASSWORD,
+  process.env.SMTP_PASS ||
+    process.env.EMAIL_APP_PASSWORD ||
+    process.env.EMAIL_PASSWORD,
 );
 
 const smtpHost =
   process.env.SMTP_HOST ||
-  (String(process.env.EMAIL_SERVICE || '').toLowerCase() === 'gmail' ? 'smtp.gmail.com' : undefined);
+  (String(process.env.EMAIL_SERVICE || "").toLowerCase() === "gmail"
+    ? "smtp.gmail.com"
+    : undefined);
 
 const smtpPort = Number(process.env.SMTP_PORT) || 587;
-const smtpSecure = process.env.SMTP_SECURE === 'true';
-const smtpHostResolved = smtpHost || 'smtp.gmail.com';
+const smtpSecure = process.env.SMTP_SECURE === "true";
+const smtpHostResolved = smtpHost || "smtp.gmail.com";
 
 const transporterConfig = {
   host: smtpHostResolved,
@@ -42,36 +51,83 @@ if (smtpUser && smtpPass) {
 
 const transporter = nodemailer.createTransport(transporterConfig);
 
-console.log('[MAIL] Config:', {
-  host: smtpHostResolved,
-  port: smtpPort,
-  secure: smtpSecure,
-  user: smtpUser || '(not set)',
-  hasPassword: Boolean(smtpPass),
-});
+console.log("[MAIL] Provider:", mailProvider);
+
+if (mailProvider === "resend") {
+  console.log("[MAIL] Resend config:", {
+    hasApiKey: Boolean(resendApiKey),
+    from: process.env.MAIL_FROM || "(not set)",
+  });
+} else {
+  console.log("[MAIL] SMTP config:", {
+    host: smtpHostResolved,
+    port: smtpPort,
+    secure: smtpSecure,
+    user: smtpUser || "(not set)",
+    hasPassword: Boolean(smtpPass),
+  });
+}
 
 const FROM_ADDRESS =
-  process.env.MAIL_FROM || smtpUser || 'no-reply@warehouse.local';
+  process.env.MAIL_FROM || smtpUser || "no-reply@warehouse.local";
 
 function assertMailConfigured() {
+  if (mailProvider === "resend") {
+    if (!resendApiKey) {
+      throw new Error("RESEND_API_KEY missing. Set RESEND_API_KEY in .env");
+    }
+    if (!resend) {
+      throw new Error("Resend client not initialized. Set RESEND_API_KEY in .env");
+    }
+    return;
+  }
+
   if (!smtpUser || !smtpPass) {
     throw new Error(
-      'SMTP credentials missing. Set EMAIL_USER + EMAIL_APP_PASSWORD in .env',
+      "SMTP credentials missing. Set EMAIL_USER + EMAIL_APP_PASSWORD in .env",
     );
   }
   if (!transporterConfig.auth) {
-    throw new Error('SMTP auth not configured. Set EMAIL_USER + EMAIL_APP_PASSWORD in .env');
+    throw new Error(
+      "SMTP auth not configured. Set EMAIL_USER + EMAIL_APP_PASSWORD in .env",
+    );
   }
 }
 
 async function sendMailLogged(label, mailOptions) {
-  assertMailConfigured();
   const to = mailOptions.to;
+
   try {
+    if (mailProvider === "resend") {
+      if (!resendApiKey) {
+        throw new Error("RESEND_API_KEY missing");
+      }
+
+      const result = await resend.emails.send({
+        from: mailOptions.from || process.env.MAIL_FROM || FROM_ADDRESS,
+        to,
+        subject: mailOptions.subject,
+        text: mailOptions.text,
+        html: mailOptions.html,
+      });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      console.log(
+        `[MAIL] ${label} sent to ${to}`,
+        result?.data?.id ? `(messageId: ${result.data.id})` : "",
+      );
+      return result;
+    }
+
+    assertMailConfigured();
+
     const info = await transporter.sendMail(mailOptions);
     console.log(
       `[MAIL] ${label} sent to ${to}`,
-      info.messageId ? `(messageId: ${info.messageId})` : '',
+      info.messageId ? `(messageId: ${info.messageId})` : "",
     );
     return info;
   } catch (error) {
@@ -80,12 +136,12 @@ async function sendMailLogged(label, mailOptions) {
   }
 }
 
-if (smtpUser && smtpPass) {
+if (mailProvider !== "resend" && smtpUser && smtpPass) {
   transporter.verify((error) => {
     if (error) {
-      console.error('[MAIL] SMTP verify failed:', error);
+      console.error("[MAIL] SMTP verify failed:", error);
     } else {
-      console.log('[MAIL] SMTP server is ready');
+      console.log("[MAIL] SMTP server is ready");
     }
   });
 }
@@ -93,7 +149,7 @@ if (smtpUser && smtpPass) {
 export async function sendChangePasswordOtp({ to, fullName, otp, ttlMinutes }) {
   assertMailConfigured();
 
-  const safeName = escapeHtml(fullName || 'bạn');
+  const safeName = escapeHtml(fullName || "bạn");
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1f2937">
       <h2 style="color: #111827">Đặt lại mật khẩu</h2>
@@ -109,10 +165,10 @@ export async function sendChangePasswordOtp({ to, fullName, otp, ttlMinutes }) {
     </div>
   `;
 
-  return sendMailLogged('Change password OTP', {
+  return sendMailLogged("Change password OTP", {
     from: FROM_ADDRESS,
     to,
-    subject: 'Mã OTP đặt lại mật khẩu — NEXSPACE Smart Warehouse',
+    subject: "Mã OTP đặt lại mật khẩu — NEXSPACE Smart Warehouse",
     text: `Mã OTP đặt lại mật khẩu của bạn là: ${otp} (hết hạn sau ${ttlMinutes} phút). Nếu không phải bạn yêu cầu, hãy bỏ qua email này.`,
     html,
   });
@@ -133,10 +189,12 @@ export async function sendWarehouseAdminWelcomeEmail({
 }) {
   assertMailConfigured();
 
-  const safeName = escapeHtml(fullName || 'Warehouse Admin');
+  const safeName = escapeHtml(fullName || "Warehouse Admin");
   const safeEmail = escapeHtml(email);
   const safeWarehouse = escapeHtml(
-    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : 'kho được gán',
+    warehouseName
+      ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ""}`
+      : "kho được gán",
   );
 
   const html = `
@@ -168,22 +226,22 @@ export async function sendWarehouseAdminWelcomeEmail({
   `;
 
   const text = [
-    `Xin chào ${fullName || 'Warehouse Admin'},`,
-    '',
-    `Bạn đã được cấp quyền Warehouse Admin cho ${warehouseName || 'kho'}.`,
-    '',
-    'Thông tin đăng nhập:',
+    `Xin chào ${fullName || "Warehouse Admin"},`,
+    "",
+    `Bạn đã được cấp quyền Warehouse Admin cho ${warehouseName || "kho"}.`,
+    "",
+    "Thông tin đăng nhập:",
     `Email: ${email}`,
     `Mật khẩu tạm: ${temporaryPassword}`,
-    '',
+    "",
     `Đặt lại mật khẩu: ${resetPasswordUrl}`,
     `Đăng nhập: ${loginUrl}`,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Welcome email (WH_ADMIN)', {
+  return sendMailLogged("Welcome email (WH_ADMIN)", {
     from: FROM_ADDRESS,
     to,
-    subject: 'Tài khoản Warehouse Admin — NEXSPACE Smart Warehouse',
+    subject: "Tài khoản Warehouse Admin — NEXSPACE Smart Warehouse",
     text,
     html,
   });
@@ -212,7 +270,9 @@ async function sendWarehouseMemberWelcomeEmail({
   const safeName = escapeHtml(fullName || defaultName);
   const safeEmail = escapeHtml(email);
   const safeWarehouse = escapeHtml(
-    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : 'kho được gán',
+    warehouseName
+      ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ""}`
+      : "kho được gán",
   );
 
   const html = `
@@ -245,16 +305,16 @@ async function sendWarehouseMemberWelcomeEmail({
 
   const text = [
     `Xin chào ${fullName || defaultName},`,
-    '',
-    `Bạn đã được cấp quyền ${roleTitle} cho ${warehouseName || 'kho'}.`,
-    '',
-    'Thông tin đăng nhập:',
+    "",
+    `Bạn đã được cấp quyền ${roleTitle} cho ${warehouseName || "kho"}.`,
+    "",
+    "Thông tin đăng nhập:",
     `Email: ${email}`,
     `Mật khẩu tạm: ${temporaryPassword}`,
-    '',
+    "",
     `Đặt lại mật khẩu: ${resetPasswordUrl}`,
     `Đăng nhập: ${loginUrl}`,
-  ].join('\n');
+  ].join("\n");
 
   return sendMailLogged(`Welcome email (${subject})`, {
     from: FROM_ADDRESS,
@@ -269,11 +329,11 @@ async function sendWarehouseMemberWelcomeEmail({
 export async function sendWarehouseStaffWelcomeEmail(params) {
   return sendWarehouseMemberWelcomeEmail({
     ...params,
-    roleTitle: 'Warehouse Staff',
-    roleDescription: 'nhận hàng, putaway, picking/xuất kho và tra cứu tồn kho',
-    subject: 'Tài khoản Warehouse Staff — NEXSPACE Smart Warehouse',
-    defaultName: 'Warehouse Staff',
-    supportContactLabel: 'Warehouse Admin',
+    roleTitle: "Warehouse Staff",
+    roleDescription: "nhận hàng, putaway, picking/xuất kho và tra cứu tồn kho",
+    subject: "Tài khoản Warehouse Staff — NEXSPACE Smart Warehouse",
+    defaultName: "Warehouse Staff",
+    supportContactLabel: "Warehouse Admin",
   });
 }
 
@@ -281,11 +341,11 @@ export async function sendWarehouseStaffWelcomeEmail(params) {
 export async function sendWarehouseTransporterWelcomeEmail(params) {
   return sendWarehouseMemberWelcomeEmail({
     ...params,
-    roleTitle: 'Warehouse Transporter',
-    roleDescription: 'xem chuyến giao hàng được gán và báo xe đến kho',
-    subject: 'Tài khoản Tài xế kho — NEXSPACE Smart Warehouse',
-    defaultName: 'Tài xế kho',
-    supportContactLabel: 'Warehouse Admin',
+    roleTitle: "Warehouse Transporter",
+    roleDescription: "xem chuyến giao hàng được gán và báo xe đến kho",
+    subject: "Tài khoản Tài xế kho — NEXSPACE Smart Warehouse",
+    defaultName: "Tài xế kho",
+    supportContactLabel: "Warehouse Admin",
   });
 }
 
@@ -304,10 +364,12 @@ export async function sendTenantAdminWelcomeEmail({
 }) {
   assertMailConfigured();
 
-  const safeName = escapeHtml(fullName || 'Tenant Admin');
+  const safeName = escapeHtml(fullName || "Tenant Admin");
   const safeEmail = escapeHtml(email);
   const safeTenant = escapeHtml(
-    tenantName ? `${tenantName}${tenantCode ? ` (${tenantCode})` : ''}` : 'doanh nghiệp của bạn',
+    tenantName
+      ? `${tenantName}${tenantCode ? ` (${tenantCode})` : ""}`
+      : "doanh nghiệp của bạn",
   );
 
   const html = `
@@ -339,22 +401,22 @@ export async function sendTenantAdminWelcomeEmail({
   `;
 
   const text = [
-    `Xin chào ${fullName || 'Tenant Admin'},`,
-    '',
-    `Bạn đã được cấp quyền Tenant Admin cho ${tenantName || 'doanh nghiệp'}.`,
-    '',
-    'Thông tin đăng nhập:',
+    `Xin chào ${fullName || "Tenant Admin"},`,
+    "",
+    `Bạn đã được cấp quyền Tenant Admin cho ${tenantName || "doanh nghiệp"}.`,
+    "",
+    "Thông tin đăng nhập:",
     `Email: ${email}`,
     `Mật khẩu tạm: ${temporaryPassword}`,
-    '',
+    "",
     `Đặt lại mật khẩu: ${resetPasswordUrl}`,
     `Đăng nhập: ${loginUrl}`,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Welcome email (TENANT_ADMIN)', {
+  return sendMailLogged("Welcome email (TENANT_ADMIN)", {
     from: FROM_ADDRESS,
     to,
-    subject: 'Tài khoản Tenant Admin — NEXSPACE Smart Warehouse',
+    subject: "Tài khoản Tenant Admin — NEXSPACE Smart Warehouse",
     text,
     html,
   });
@@ -377,12 +439,14 @@ export async function sendContractSignedByTenantEmail({
 }) {
   assertMailConfigured();
 
-  const safeWhName = escapeHtml(whAdminName || 'Warehouse Admin');
-  const safeTenant = escapeHtml(tenantName || 'Tenant');
-  const safeCode = escapeHtml(contractCode || '—');
-  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
+  const safeWhName = escapeHtml(whAdminName || "Warehouse Admin");
+  const safeTenant = escapeHtml(tenantName || "Tenant");
+  const safeCode = escapeHtml(contractCode || "—");
+  const safeTitle = escapeHtml(contractName || "Hợp đồng thuê kho");
   const safeWarehouse = escapeHtml(
-    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : 'kho'
+    warehouseName
+      ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ""}`
+      : "kho",
   );
 
   const html = `
@@ -413,20 +477,20 @@ export async function sendContractSignedByTenantEmail({
   `;
 
   const text = [
-    `Xin chào ${whAdminName || 'Warehouse Admin'},`,
-    '',
-    `${tenantName || 'Tenant'} vừa ký hợp đồng ${contractCode || ''}. Chờ thanh toán invoice đầu (PENDING_PAYMENT).`,
-    '',
-    `Kho: ${warehouseName || ''}`,
+    `Xin chào ${whAdminName || "Warehouse Admin"},`,
+    "",
+    `${tenantName || "Tenant"} vừa ký hợp đồng ${contractCode || ""}. Chờ thanh toán invoice đầu (PENDING_PAYMENT).`,
+    "",
+    `Kho: ${warehouseName || ""}`,
     `Thời hạn: ${startDate} → ${endDate}`,
-    '',
+    "",
     `Xem hợp đồng: ${contractsUrl}`,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Contract signed by tenant', {
+  return sendMailLogged("Contract signed by tenant", {
     from: FROM_ADDRESS,
     to,
-    subject: `Tenant đã ký HĐ ${contractCode || ''} — NEXSPACE Smart Warehouse`,
+    subject: `Tenant đã ký HĐ ${contractCode || ""} — NEXSPACE Smart Warehouse`,
     text,
     html,
   });
@@ -450,16 +514,18 @@ export async function sendContractPendingApprovalEmail({
 }) {
   assertMailConfigured();
 
-  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
-  const safeCompany = escapeHtml(companyName || '—');
-  const safeCode = escapeHtml(contractCode || '—');
-  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
+  const safeName = escapeHtml(tenantAdminName || "Tenant Admin");
+  const safeCompany = escapeHtml(companyName || "—");
+  const safeCode = escapeHtml(contractCode || "—");
+  const safeTitle = escapeHtml(contractName || "Hợp đồng thuê kho");
   const safeWarehouse = escapeHtml(
-    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : '—'
+    warehouseName
+      ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ""}`
+      : "—",
   );
   const shiftBlock = datesShiftNote
     ? `<p style="margin: 12px 0 0; padding: 12px; background: #fffbeb; border-radius: 6px; color: #92400e; font-size: 13px">${escapeHtml(datesShiftNote)}</p>`
-    : '';
+    : "";
 
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
@@ -489,17 +555,17 @@ export async function sendContractPendingApprovalEmail({
   `;
 
   const text = [
-    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
-    '',
+    `Xin chào ${tenantAdminName || "Tenant Admin"},`,
+    "",
     `Hợp đồng ${contractCode} đã sẵn sàng để ký.`,
-    `Kho: ${warehouseName || '—'}. Thời hạn: ${startDate} → ${endDate}.`,
-    datesShiftNote ? `\n${datesShiftNote}\n` : '',
+    `Kho: ${warehouseName || "—"}. Thời hạn: ${startDate} → ${endDate}.`,
+    datesShiftNote ? `\n${datesShiftNote}\n` : "",
     contractsUrl,
   ]
     .filter(Boolean)
-    .join('\n');
+    .join("\n");
 
-  return sendMailLogged('Contract pending approval', {
+  return sendMailLogged("Contract pending approval", {
     from: FROM_ADDRESS,
     to,
     subject: `Hợp đồng ${contractCode} chờ bạn ký — NEXSPACE Smart Warehouse`,
@@ -526,15 +592,17 @@ export async function sendContractInitialPaymentReceivedEmail({
 }) {
   assertMailConfigured();
 
-  const safeWhName = escapeHtml(whAdminName || 'Warehouse Admin');
-  const safeTenant = escapeHtml(tenantName || 'Tenant');
-  const safeCode = escapeHtml(contractCode || '—');
-  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
-  const safeInvoice = escapeHtml(invoiceCode || '—');
-  const safeAmount = escapeHtml(amountPaid || '—');
-  const safePaidAt = escapeHtml(paidAt || '—');
+  const safeWhName = escapeHtml(whAdminName || "Warehouse Admin");
+  const safeTenant = escapeHtml(tenantName || "Tenant");
+  const safeCode = escapeHtml(contractCode || "—");
+  const safeTitle = escapeHtml(contractName || "Hợp đồng thuê kho");
+  const safeInvoice = escapeHtml(invoiceCode || "—");
+  const safeAmount = escapeHtml(amountPaid || "—");
+  const safePaidAt = escapeHtml(paidAt || "—");
   const safeWarehouse = escapeHtml(
-    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : 'kho'
+    warehouseName
+      ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ""}`
+      : "kho",
   );
 
   const html = `
@@ -567,21 +635,21 @@ export async function sendContractInitialPaymentReceivedEmail({
   `;
 
   const text = [
-    `Xin chào ${whAdminName || 'Warehouse Admin'},`,
-    '',
-    `${tenantName || 'Tenant'} đã thanh toán invoice đầu cho HĐ ${contractCode || ''}. HĐ đã ACTIVE.`,
-    '',
-    `Invoice: ${invoiceCode || ''}`,
-    `Số tiền: ${amountPaid || ''}`,
-    `Thời điểm: ${paidAt || ''}`,
-    '',
+    `Xin chào ${whAdminName || "Warehouse Admin"},`,
+    "",
+    `${tenantName || "Tenant"} đã thanh toán invoice đầu cho HĐ ${contractCode || ""}. HĐ đã ACTIVE.`,
+    "",
+    `Invoice: ${invoiceCode || ""}`,
+    `Số tiền: ${amountPaid || ""}`,
+    `Thời điểm: ${paidAt || ""}`,
+    "",
     `Xem hợp đồng: ${contractsUrl}`,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Contract initial payment received', {
+  return sendMailLogged("Contract initial payment received", {
     from: FROM_ADDRESS,
     to,
-    subject: `Đã thanh toán HĐ ${contractCode || ''} — HĐ ACTIVE — NEXSPACE`,
+    subject: `Đã thanh toán HĐ ${contractCode || ""} — HĐ ACTIVE — NEXSPACE`,
     text,
     html,
   });
@@ -608,7 +676,7 @@ export async function sendInboundTransportAssignedEmail({
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
       <h2 style="color: #111827">Kho đã gán tài xế lấy hàng</h2>
-      <p>Xin chào <strong>${escapeHtml(tenantAdminName || 'Tenant Admin')}</strong>,</p>
+      <p>Xin chào <strong>${escapeHtml(tenantAdminName || "Tenant Admin")}</strong>,</p>
       <p>
         Yêu cầu nhập kho <strong>${escapeHtml(inboundCode)}</strong> đã có tài xế kho được gán.
         Tài xế sẽ đến điểm lấy hàng theo thông tin bạn đã cung cấp.
@@ -628,7 +696,7 @@ export async function sendInboundTransportAssignedEmail({
       <div style="background: #eff6ff; border-radius: 8px; padding: 16px; margin: 20px 0">
         <p style="margin: 0 0 8px"><strong>Đích — kho nhận hàng</strong></p>
         <p style="margin: 4px 0">${escapeHtml(warehouseName)}</p>
-        <p style="margin: 4px 0">${escapeHtml(warehouseAddress || '—')}</p>
+        <p style="margin: 4px 0">${escapeHtml(warehouseAddress || "—")}</p>
       </div>
       <p style="margin: 24px 0">
         <a href="${escapeHtml(inboundUrl)}"
@@ -643,16 +711,16 @@ export async function sendInboundTransportAssignedEmail({
   `;
 
   const text = [
-    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
-    '',
+    `Xin chào ${tenantAdminName || "Tenant Admin"},`,
+    "",
     `Inbound ${inboundCode} đã được gán tài xế: ${driverName}, ${driverPhone}, biển số ${vehiclePlate}.`,
     `Điểm lấy: ${pickupAddress}. Liên hệ: ${pickupContactName} ${pickupContactPhone}.`,
-    `Kho đích: ${warehouseName} — ${warehouseAddress || ''}.`,
-    '',
+    `Kho đích: ${warehouseName} — ${warehouseAddress || ""}.`,
+    "",
     inboundUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Inbound transport assigned', {
+  return sendMailLogged("Inbound transport assigned", {
     from: FROM_ADDRESS,
     to,
     subject: `Đã gán tài xế cho ${inboundCode} — NEXSPACE Smart Warehouse`,
@@ -679,7 +747,7 @@ export async function sendInboundArrivalWhAdminEmail({
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
       <h2 style="color: #111827">Xe đã đến cổng kho</h2>
-      <p>Xin chào <strong>${escapeHtml(whAdminName || 'WH Admin')}</strong>,</p>
+      <p>Xin chào <strong>${escapeHtml(whAdminName || "WH Admin")}</strong>,</p>
       <p>
         Tài xế đã báo xe tới kho cho inbound <strong>${escapeHtml(inboundCode)}</strong>
         (tenant: ${escapeHtml(companyName)}).
@@ -707,9 +775,9 @@ export async function sendInboundArrivalWhAdminEmail({
     `Xe đã đến kho — inbound ${inboundCode} (${companyName}).`,
     `Thời điểm: ${actualArrivalAt}. Tài xế: ${driverName}, ${driverPhone}, biển số ${vehiclePlate}.`,
     inboundUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Inbound arrival (WH admin)', {
+  return sendMailLogged("Inbound arrival (WH admin)", {
     from: FROM_ADDRESS,
     to,
     subject: `Xe đã đến kho — ${inboundCode}`,
@@ -735,7 +803,7 @@ export async function sendInboundArrivalTenantEmail({
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
       <h2 style="color: #111827">Hàng đã tới kho</h2>
-      <p>Xin chào <strong>${escapeHtml(tenantAdminName || 'Tenant Admin')}</strong>,</p>
+      <p>Xin chào <strong>${escapeHtml(tenantAdminName || "Tenant Admin")}</strong>,</p>
       <p>
         Tài xế kho đã báo xe mang hàng inbound <strong>${escapeHtml(inboundCode)}</strong>
         đã tới cổng kho. Kho sẽ tiến hành nhận và kiểm đếm.
@@ -744,7 +812,7 @@ export async function sendInboundArrivalTenantEmail({
         <p style="margin: 4px 0">Thời điểm: ${escapeHtml(actualArrivalAt)}</p>
         <p style="margin: 4px 0">Tài xế: ${escapeHtml(driverName)} · ${escapeHtml(vehiclePlate)}</p>
         <p style="margin: 4px 0">Kho: ${escapeHtml(warehouseName)}</p>
-        <p style="margin: 4px 0">${escapeHtml(warehouseAddress || '—')}</p>
+        <p style="margin: 4px 0">${escapeHtml(warehouseAddress || "—")}</p>
       </div>
       <p style="margin: 24px 0">
         <a href="${escapeHtml(inboundUrl)}"
@@ -762,9 +830,9 @@ export async function sendInboundArrivalTenantEmail({
     `Hàng inbound ${inboundCode} đã tới kho lúc ${actualArrivalAt}.`,
     `Tài xế: ${driverName}, biển số ${vehiclePlate}. Kho: ${warehouseName}.`,
     inboundUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Inbound arrival (tenant)', {
+  return sendMailLogged("Inbound arrival (tenant)", {
     from: FROM_ADDRESS,
     to,
     subject: `Hàng đã tới kho — ${inboundCode}`,
@@ -791,7 +859,7 @@ export async function sendInboundPickupWhAdminEmail({
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
       <h2 style="color: #111827">Tài xế đã lấy hàng</h2>
-      <p>Xin chào <strong>${escapeHtml(whAdminName || 'WH Admin')}</strong>,</p>
+      <p>Xin chào <strong>${escapeHtml(whAdminName || "WH Admin")}</strong>,</p>
       <p>
         Tài xế đã báo <strong>đã lấy hàng</strong> cho inbound <strong>${escapeHtml(inboundCode)}</strong>
         (tenant: ${escapeHtml(companyName)}). Xe đang về kho.
@@ -819,9 +887,9 @@ export async function sendInboundPickupWhAdminEmail({
     `Thời điểm: ${actualPickupAt}. Điểm lấy: ${pickupAddress}.`,
     `Tài xế: ${driverName}, ${driverPhone}, biển số ${vehiclePlate}.`,
     inboundUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Inbound pickup (WH admin)', {
+  return sendMailLogged("Inbound pickup (WH admin)", {
     from: FROM_ADDRESS,
     to,
     subject: `Đã lấy hàng — ${inboundCode}`,
@@ -847,7 +915,7 @@ export async function sendInboundPickupTenantEmail({
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
       <h2 style="color: #111827">Tài xế đã lấy hàng</h2>
-      <p>Xin chào <strong>${escapeHtml(tenantAdminName || 'Tenant Admin')}</strong>,</p>
+      <p>Xin chào <strong>${escapeHtml(tenantAdminName || "Tenant Admin")}</strong>,</p>
       <p>
         Tài xế kho đã báo <strong>đã lấy hàng</strong> cho inbound <strong>${escapeHtml(inboundCode)}</strong>
         tại điểm lấy của bạn. Hàng đang được vận chuyển về kho <strong>${escapeHtml(warehouseName)}</strong>.
@@ -874,9 +942,9 @@ export async function sendInboundPickupTenantEmail({
     `Điểm lấy: ${pickupAddress}. Tài xế: ${driverName}, biển số ${vehiclePlate}.`,
     `Đang về kho: ${warehouseName}.`,
     inboundUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Inbound pickup (tenant)', {
+  return sendMailLogged("Inbound pickup (tenant)", {
     from: FROM_ADDRESS,
     to,
     subject: `Tài xế đã lấy hàng — ${inboundCode}`,
@@ -900,7 +968,7 @@ export async function sendOutboundPickerAssignedEmail({
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
       <h2 style="color: #111827">Bạn được gán pick phiếu xuất</h2>
-      <p>Xin chào <strong>${escapeHtml(pickerName || 'Nhân viên kho')}</strong>,</p>
+      <p>Xin chào <strong>${escapeHtml(pickerName || "Nhân viên kho")}</strong>,</p>
       <p>
         Quản trị kho đã gán bạn thực hiện picking cho phiếu
         <strong>${escapeHtml(outboundCode)}</strong>.
@@ -927,9 +995,9 @@ export async function sendOutboundPickerAssignedEmail({
     `Tenant: ${companyName}. Kho: ${warehouseName}.`,
     `Ngày xuất dự kiến: ${requestedShipDate}.`,
     outboundUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Outbound picker assigned', {
+  return sendMailLogged("Outbound picker assigned", {
     from: FROM_ADDRESS,
     to,
     subject: `Gán pick — ${outboundCode}`,
@@ -951,7 +1019,7 @@ export async function sendOutboundTransporterAssignedEmail({
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
       <h2 style="color: #111827">Chuyến giao hàng xuất kho</h2>
-      <p>Xin chào <strong>${escapeHtml(driverName || 'Tài xế')}</strong>,</p>
+      <p>Xin chào <strong>${escapeHtml(driverName || "Tài xế")}</strong>,</p>
       <p>Bạn được gán giao phiếu xuất <strong>${escapeHtml(outboundCode)}</strong>.</p>
       <p>Địa chỉ giao: ${escapeHtml(shipToAddress)}</p>
       <p style="margin: 24px 0">
@@ -964,9 +1032,13 @@ export async function sendOutboundTransporterAssignedEmail({
     </div>
   `;
 
-  const text = [`Chuyến giao ${outboundCode}`, `Địa chỉ: ${shipToAddress}`, tripUrl].join('\n');
+  const text = [
+    `Chuyến giao ${outboundCode}`,
+    `Địa chỉ: ${shipToAddress}`,
+    tripUrl,
+  ].join("\n");
 
-  return sendMailLogged('Outbound transporter assigned', {
+  return sendMailLogged("Outbound transporter assigned", {
     from: FROM_ADDRESS,
     to,
     subject: `Gán giao hàng — ${outboundCode}`,
@@ -991,13 +1063,17 @@ export async function sendRentalRequestApprovedEmail({
 }) {
   assertMailConfigured();
 
-  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
-  const safeCompany = escapeHtml(companyName || '—');
-  const safeCode = escapeHtml(requestCode || '—');
+  const safeName = escapeHtml(tenantAdminName || "Tenant Admin");
+  const safeCompany = escapeHtml(companyName || "—");
+  const safeCode = escapeHtml(requestCode || "—");
   const safeWarehouse = escapeHtml(
-    warehouseName ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ''}` : '—'
+    warehouseName
+      ? `${warehouseName}${warehouseCode ? ` (${warehouseCode})` : ""}`
+      : "—",
   );
-  const safeRegion = escapeHtml([district, city].filter(Boolean).join(', ') || '—');
+  const safeRegion = escapeHtml(
+    [district, city].filter(Boolean).join(", ") || "—",
+  );
 
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
@@ -1012,7 +1088,7 @@ export async function sendRentalRequestApprovedEmail({
         <p style="margin: 4px 0">Mã yêu cầu: <code>${safeCode}</code></p>
         <p style="margin: 4px 0">Kho: ${safeWarehouse}</p>
         <p style="margin: 4px 0">Khu vực: ${safeRegion}</p>
-        ${contractType ? `<p style="margin: 4px 0">Loại thuê: ${escapeHtml(contractType)}</p>` : ''}
+        ${contractType ? `<p style="margin: 4px 0">Loại thuê: ${escapeHtml(contractType)}</p>` : ""}
         <p style="margin: 4px 0">Thời điểm duyệt: ${escapeHtml(reviewedAt)}</p>
       </div>
       <p style="margin: 24px 0">
@@ -1028,16 +1104,16 @@ export async function sendRentalRequestApprovedEmail({
   `;
 
   const text = [
-    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
-    '',
+    `Xin chào ${tenantAdminName || "Tenant Admin"},`,
+    "",
     `Yêu cầu thuê ${requestCode} của ${companyName} đã được duyệt.`,
-    `Kho: ${warehouseName || '—'}. Khu vực: ${district || ''}, ${city || ''}.`,
+    `Kho: ${warehouseName || "—"}. Khu vực: ${district || ""}, ${city || ""}.`,
     `Thời điểm duyệt: ${reviewedAt}.`,
-    '',
+    "",
     rentalRequestsUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Rental request approved', {
+  return sendMailLogged("Rental request approved", {
     from: FROM_ADDRESS,
     to,
     subject: `Yêu cầu thuê ${requestCode} đã được duyệt — NEXSPACE Smart Warehouse`,
@@ -1060,11 +1136,13 @@ export async function sendRentalRequestRejectedEmail({
 }) {
   assertMailConfigured();
 
-  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
-  const safeCompany = escapeHtml(companyName || '—');
-  const safeCode = escapeHtml(requestCode || '—');
-  const safeRegion = escapeHtml([district, city].filter(Boolean).join(', ') || '—');
-  const safeReason = escapeHtml(rejectionReason || 'Không có lý do cụ thể');
+  const safeName = escapeHtml(tenantAdminName || "Tenant Admin");
+  const safeCompany = escapeHtml(companyName || "—");
+  const safeCode = escapeHtml(requestCode || "—");
+  const safeRegion = escapeHtml(
+    [district, city].filter(Boolean).join(", ") || "—",
+  );
+  const safeReason = escapeHtml(rejectionReason || "Không có lý do cụ thể");
 
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 560px">
@@ -1093,16 +1171,16 @@ export async function sendRentalRequestRejectedEmail({
   `;
 
   const text = [
-    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
-    '',
+    `Xin chào ${tenantAdminName || "Tenant Admin"},`,
+    "",
     `Yêu cầu thuê ${requestCode} của ${companyName} đã bị từ chối.`,
-    `Khu vực: ${district || ''}, ${city || ''}.`,
-    `Lý do: ${rejectionReason || 'Không có lý do cụ thể'}.`,
-    '',
+    `Khu vực: ${district || ""}, ${city || ""}.`,
+    `Lý do: ${rejectionReason || "Không có lý do cụ thể"}.`,
+    "",
     rentalRequestsUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Rental request rejected', {
+  return sendMailLogged("Rental request rejected", {
     from: FROM_ADDRESS,
     to,
     subject: `Yêu cầu thuê ${requestCode} bị từ chối — NEXSPACE Smart Warehouse`,
@@ -1124,11 +1202,11 @@ export async function sendRecurringRentReminderEmail({
 }) {
   assertMailConfigured();
 
-  const safeName = escapeHtml(tenantAdminName || 'Tenant Admin');
-  const safeCode = escapeHtml(contractCode || '—');
-  const safeTitle = escapeHtml(contractName || 'Hợp đồng thuê kho');
-  const safeDate = escapeHtml(nextBillingDate || '—');
-  const safeAmount = escapeHtml(monthlyRent || '—');
+  const safeName = escapeHtml(tenantAdminName || "Tenant Admin");
+  const safeCode = escapeHtml(contractCode || "—");
+  const safeTitle = escapeHtml(contractName || "Hợp đồng thuê kho");
+  const safeDate = escapeHtml(nextBillingDate || "—");
+  const safeAmount = escapeHtml(monthlyRent || "—");
   const safeDays = escapeHtml(String(reminderDays ?? 3));
 
   const html = `
@@ -1160,15 +1238,15 @@ export async function sendRecurringRentReminderEmail({
   `;
 
   const text = [
-    `Xin chào ${tenantAdminName || 'Tenant Admin'},`,
-    '',
+    `Xin chào ${tenantAdminName || "Tenant Admin"},`,
+    "",
     `HĐ ${contractCode} sẽ đến kỳ thanh toán tiền thuê định kỳ sau ${reminderDays ?? 3} ngày (${nextBillingDate}).`,
     `Tiền thuê tháng: ${monthlyRent} ₫`,
-    '',
+    "",
     overviewUrl,
-  ].join('\n');
+  ].join("\n");
 
-  return sendMailLogged('Recurring rent reminder', {
+  return sendMailLogged("Recurring rent reminder", {
     from: FROM_ADDRESS,
     to,
     subject: `Nhắc tiền thuê định kỳ — HĐ ${contractCode} — NEXSPACE Smart Warehouse`,
