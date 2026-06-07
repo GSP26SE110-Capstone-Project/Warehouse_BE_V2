@@ -2,10 +2,27 @@
 import pg from 'pg';
 const { Pool } = pg;
 
+/** Cloud DB (Render, Supabase, …) cần SSL; localhost/Docker thì không. */
+function sslForDatabaseUrl(connectionString) {
+  if (!connectionString) return undefined;
+  try {
+    const { hostname, searchParams } = new URL(connectionString);
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === 'postgres';
+    const sslRequired =
+      searchParams.get('sslmode') === 'require' || hostname.endsWith('.render.com');
+    if (!isLocal || sslRequired) {
+      return { rejectUnauthorized: false };
+    }
+  } catch {
+    // ignore malformed URL
+  }
+  return undefined;
+}
+
 const poolConfig = process.env.DATABASE_URL
   ? {
-      // Docker compose đang truyền DATABASE_URL với host nội bộ "postgres"
       connectionString: process.env.DATABASE_URL,
+      ssl: sslForDatabaseUrl(process.env.DATABASE_URL),
     }
   : {
       // Local dev: dùng biến POSTGRES_* và mặc định host localhost

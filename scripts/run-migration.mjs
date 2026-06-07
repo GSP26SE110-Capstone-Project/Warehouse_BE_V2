@@ -20,6 +20,22 @@ const sqlPath = fileArg.startsWith('/') || /^[A-Za-z]:/.test(fileArg)
   : join(root, fileArg);
 
 /** Same connection rules as src/config/db.js */
+function sslForDatabaseUrl(connectionString) {
+  if (!connectionString) return undefined;
+  try {
+    const { hostname, searchParams } = new URL(connectionString);
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === 'postgres';
+    const sslRequired =
+      searchParams.get('sslmode') === 'require' || hostname.endsWith('.render.com');
+    if (!isLocal || sslRequired) {
+      return { rejectUnauthorized: false };
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 function getPgConfig() {
   const password = process.env.POSTGRES_PASSWORD ?? process.env.PGPASSWORD;
 
@@ -32,9 +48,17 @@ function getPgConfig() {
       if (url.password !== undefined && url.password !== null) {
         url.password = decodeURIComponent(url.password);
       }
-      return { connectionString: url.toString() };
+      const connectionString = url.toString();
+      return {
+        connectionString,
+        ssl: sslForDatabaseUrl(connectionString),
+      };
     } catch {
-      return { connectionString: process.env.DATABASE_URL };
+      const connectionString = process.env.DATABASE_URL;
+      return {
+        connectionString,
+        ssl: sslForDatabaseUrl(connectionString),
+      };
     }
   }
 

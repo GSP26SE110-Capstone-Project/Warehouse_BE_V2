@@ -41,6 +41,31 @@ function assertMailConfigured() {
   }
 }
 
+async function sendMailLogged(label, mailOptions) {
+  const to = mailOptions.to;
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(
+      `[MAIL] ${label} sent to ${to}`,
+      info.messageId ? `(messageId: ${info.messageId})` : '',
+    );
+    return info;
+  } catch (error) {
+    console.error(`[MAIL] ${label} failed for ${to}:`, error);
+    throw error;
+  }
+}
+
+if (smtpUser && smtpPass) {
+  transporter.verify((error) => {
+    if (error) {
+      console.error('[MAIL] SMTP verify failed:', error);
+    } else {
+      console.log('[MAIL] SMTP server is ready');
+    }
+  });
+}
+
 export async function sendChangePasswordOtp({ to, fullName, otp, ttlMinutes }) {
   assertMailConfigured();
 
@@ -131,7 +156,7 @@ export async function sendWarehouseAdminWelcomeEmail({
     `Đăng nhập: ${loginUrl}`,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Welcome email (WH_ADMIN)', {
     from: FROM_ADDRESS,
     to,
     subject: 'Tài khoản Warehouse Admin — NEXSPACE Smart Warehouse',
@@ -302,7 +327,7 @@ export async function sendTenantAdminWelcomeEmail({
     `Đăng nhập: ${loginUrl}`,
   ].join('\n');
 
-  return transporter.sendMail({
+  return sendMailLogged('Welcome email (TENANT_ADMIN)', {
     from: FROM_ADDRESS,
     to,
     subject: 'Tài khoản Tenant Admin — NEXSPACE Smart Warehouse',
