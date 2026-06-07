@@ -15,8 +15,22 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-const mailProvider = process.env.MAIL_PROVIDER || "smtp";
 const resendApiKey = process.env.RESEND_API_KEY?.trim() || undefined;
+const explicitMailProvider = process.env.MAIL_PROVIDER?.trim().toLowerCase();
+const isRenderHost = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
+
+/** Ưu tiên MAIL_PROVIDER nếu set; không thì auto resend khi có API key. */
+function resolveMailProvider() {
+  if (explicitMailProvider === "resend" || explicitMailProvider === "smtp") {
+    return explicitMailProvider;
+  }
+  if (resendApiKey) {
+    return "resend";
+  }
+  return "smtp";
+}
+
+const mailProvider = resolveMailProvider();
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 const smtpUser = process.env.SMTP_USER || process.env.EMAIL_USER;
@@ -58,6 +72,11 @@ if (mailProvider === "resend") {
     hasApiKey: Boolean(resendApiKey),
     from: process.env.MAIL_FROM || "(not set)",
   });
+  if (!resendApiKey) {
+    console.error(
+      "[MAIL] MAIL_PROVIDER=resend nhưng thiếu RESEND_API_KEY — email sẽ fail khi gửi.",
+    );
+  }
 } else {
   console.log("[MAIL] SMTP config:", {
     host: smtpHostResolved,
@@ -66,6 +85,12 @@ if (mailProvider === "resend") {
     user: smtpUser || "(not set)",
     hasPassword: Boolean(smtpPass),
   });
+  if (isRenderHost) {
+    console.warn(
+      "[MAIL] Render thường chặn SMTP (port 587/465) → ETIMEDOUT. " +
+        "Set MAIL_PROVIDER=resend + RESEND_API_KEY + MAIL_FROM trên Render Dashboard.",
+    );
+  }
 }
 
 const FROM_ADDRESS =
@@ -137,13 +162,17 @@ async function sendMailLogged(label, mailOptions) {
 }
 
 if (mailProvider !== "resend" && smtpUser && smtpPass) {
-  transporter.verify((error) => {
-    if (error) {
-      console.error("[MAIL] SMTP verify failed:", error);
-    } else {
-      console.log("[MAIL] SMTP server is ready");
-    }
-  });
+  if (isRenderHost) {
+    console.warn("[MAIL] Bỏ qua SMTP verify trên Render (outbound SMTP thường bị chặn).");
+  } else {
+    transporter.verify((error) => {
+      if (error) {
+        console.error("[MAIL] SMTP verify failed:", error);
+      } else {
+        console.log("[MAIL] SMTP server is ready");
+      }
+    });
+  }
 }
 
 export async function sendChangePasswordOtp({ to, fullName, otp, ttlMinutes }) {
